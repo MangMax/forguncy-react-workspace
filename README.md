@@ -24,6 +24,32 @@
 [#106]: https://github.com/MangMax/forguncy-react-workspace/issues/106
 [#107]: https://github.com/MangMax/forguncy-react-workspace/issues/107
 
+## 公开 API 分层：业务项目只读最小的一层
+
+一个业务项目（Cell 源码、`forguncy.config.ts`、`vite.config.ts`）只需要 **5 个** workspace 符号，外加一个用于自己端口模块的类型：
+
+| 文件 | 导入 | 作用 |
+| --- | --- | --- |
+| `forguncy.config.ts` | `defineForguncyConfig`（`@forguncy-react-workspace/core`） | 声明 Cell、目标与项目扩展行 |
+| `vite.config.ts` | `defineForguncyViteConfig`（`…/dev-harness`） | 组装本地开发 loop |
+| Cell 与 fixture | `runtimeFacade`、`createMockDataSource`、`MockRuntimeFacadeOptions`（`…/runtime`） | 宿主能力与本地 mock provider |
+| 自己的 `--port` 模块 | `ForguncySyncPort`（`…/mcp-sync`，类型） | 声明一个已授权的设计器连接 |
+
+`build` / `plan` / `sync` 不需要 import：它们是 `@forguncy-react-workspace/cell-project` 的 `fgc-cell` 命令。
+
+**这一层之外，不是业务 API。** `core`、`runtime`、`cell-compiler`、`mcp-sync` 等的根入口还导出大量规格表、诊断规则、探针评分与证据 formatter。它们是工具链内部与契约词汇：编译、同步和证据审计要用，业务项目不用，也不承诺跨版本稳定。`core/browser`、`runtime/cell`、`dependency-resolver/local`、`dev-harness/mount` 这类子路径同样属于工具链——它们选择的是**模块图**（Node 半边还是浏览器半边），不是给业务项目用的第二套入口。
+
+这条分层由代码固定，而不是只靠这段文字：
+
+- [`packages/cell-project/src/consumer-surface.test.ts`](packages/cell-project/src/consumer-surface.test.ts) 扫描 `examples/consumer-project` 的真实 import，要求只出现上表符号和裸包名；新增一个符号必须同时改那张声明表，是一次可评审的改动；
+- 同一个测试把 `cell-project` 根入口的值导出钉成一份清单，入口不会悄悄长出一个“需要用户自己拼装”的辅助函数；
+- 消费场景本身由 [#99] 的入口与 #102 的黑盒回归执行验证（编译产物在 DOM 中求值、mock 端口走完 build → plan → sync），不是只检查字符串。
+
+为兼容而保留的重复转发面（`dependency-resolver` 根对 `core` 的 58 个再导出、`dev-harness` 根对 `runtime` 的 9 个再导出）仍然是可导入的，但已在源码中标注为**兼容代理**：它们不是第二处定义，新代码应当直接 import `core` / `runtime`。分层审计、逐包 L1/L2/L3 统计与后续删除窗口见 [#126]；本节的收敛范围见 [#105]。
+
+[#105]: https://github.com/MangMax/forguncy-react-workspace/issues/105
+[#126]: https://github.com/MangMax/forguncy-react-workspace/issues/126
+
 ## 快速上手（可执行）
 
 这一节里的命令都来自真实的消费入口：`examples/consumer-project` 加上公开的 `@forguncy-react-workspace/cell-project`。**除第 0 步外，所有命令都在 `examples/consumer-project` 下执行**。示例只依赖仓库内已安装的 workspace 包，不需要任何未发布的 npm 版本。
