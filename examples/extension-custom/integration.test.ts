@@ -221,6 +221,102 @@ function scratchProject(name: string): string {
   return root;
 }
 
+/**
+ * A self-contained scratch project outside the monorepo, with its own pnpm install layout.
+ *
+ * `scratchProject` above lives under `HERE/.fgc/` so `compileCell` can walk up to the workspace's
+ * installed React, which means its hand-crafted `node_modules/@example/chart-kit` sits beneath the
+ * repository's `pnpm-lock.yaml` without belonging to it. #94's attribution check rightly reports
+ * that layout as `install-graph-unknown`. For the local-projection boundary test — which exercises
+ * `record` → `projectLocalDecisions` without compiling a Cell — creating the project under
+ * `os.tmpdir()` with its own `pnpm-lock.yaml`, `.modules.yaml` and `.pnpm` store gives the install
+ * graph a single, valid root so only the genuinely unobservable axes remain on `unobservableEvidence`.
+ */
+function standaloneScratchProject(name: string): string {
+  const root = mkdtempSync(join(tmpdir(), `extension-custom-${name}-`));
+  scratchRoots.push(root);
+
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: `extension-custom-${name}`, private: true, type: "module" }, null, 2),
+    "utf8",
+  );
+  writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+
+  const nodeModules = join(root, "node_modules");
+  mkdirSync(join(nodeModules, ".pnpm", "probe-package@1.0.0", "node_modules", "probe-package"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(nodeModules, ".pnpm", "probe-package@1.0.0", "node_modules", "probe-package", "package.json"),
+    JSON.stringify({ name: "probe-package", version: "1.0.0" }),
+    "utf8",
+  );
+  mkdirSync(join(nodeModules, ".pnpm", "node_modules"), { recursive: true });
+  writeFileSync(
+    join(nodeModules, ".modules.yaml"),
+    [
+      "included:",
+      "  dependencies: true",
+      "  devDependencies: true",
+      "  optionalDependencies: true",
+      "nodeLinker: isolated",
+      "hoistPattern:",
+      '  - "*"',
+      "publicHoistPattern: []",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // Plain default export (no workspace import) so `loadForguncyConfig` resolves cleanly outside the
+  // monorepo tree while keeping the exact same runtime/extensions/cells document shape.
+  writeFileSync(
+    join(root, "forguncy.config.ts"),
+    [
+      "export default {",
+      '  runtime: { forguncyVersion: "12.0.100", projectAlias: "extension-custom-e2e" },',
+      EXTENSIONS_BLOCK,
+      "  cells: {",
+      `    ${EXTENSION_CELL}: { entry: "./src/App.tsx", target: { pageName: "销售看板", cell: "B2" } },`,
+      `    ${INLINE_CELL}: { entry: "./src/Inline.tsx", target: { pageName: "销售看板", cell: "C3" } },`,
+      "  },",
+      "};",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "App.tsx"), readFileSync(join(HERE, "src", "App.tsx")), "utf8");
+  writeFileSync(
+    join(root, "src", "Inline.tsx"),
+    [
+      'import { CHAR_KIT_NPM_MARKER } from "@example/chart-kit";',
+      "",
+      "export function App() {",
+      "  return <i>{CHAR_KIT_NPM_MARKER}</i>;",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  installPackage(
+    root,
+    CHART_KIT.packageName,
+    "1.0.0",
+    [
+      'export const CHAR_KIT_NPM_MARKER = "CHART_KIT_NPM_COPY_MARKER";',
+      'export function createChart() { return "npm-chart"; }',
+      'export function renderChart() { return "npm-rendered"; }',
+      "",
+    ].join("\n"),
+  );
+
+  return root;
+}
+
 interface CliResult {
   readonly code: number;
   readonly stdout: string;
@@ -622,7 +718,7 @@ describe("#87 chain, stage 3: the two Cells compile from their own decisions", (
     // #87's sixth plan item, asserted rather than left to a docstring: the projection *keeps*
     // the extension decision — withholding it would let the Cell resolve through npm — and
     // reports what it could not observe instead of claiming a pass.
-    const root = scratchProject("projection-boundary");
+    const root = standaloneScratchProject("projection-boundary");
     await recordExtensionDecision(root);
 
     const registry = await loadForguncyConfig({ root });
@@ -820,6 +916,3 @@ describe("#87 chain, stage 4: the sync verifies the artifact against the project
     expect(divergedRun.plan.extensionVerification.diagnostics).toEqual([]);
   }, CASE_TIMEOUT_MS);
 });
-
-/** A directory this suite needed and could not get, reported rather than swallowed. */
-void tmpdir;

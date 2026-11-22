@@ -138,13 +138,16 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
   // reported `install-graph-changed` on CI for a graph that was perfectly valid for its own
   // commit.
   //
-  // So the axis is supplied rather than re-derived, and the other three components are still read
-  // live from the project, which is what keeps this an assertion about *this* toolchain. The
-  // install-graph axis has its own coverage: `install-identity.test.ts` for what it digests, and
-  // `lock-freshness.test.ts` for what a move and an absence each report.
+  // So the install-graph and Node-patch axes are supplied from the record rather than re-derived
+  // live (`examples/extension-query/fgc.lock.json` is a committed record probed on `24.21.0`,
+  // while CI's `node-version: "24"` floats across patch releases such as `24.22.3`). `vitePlus`
+  // and `rolldown` are still read live from the project, keeping this an assertion about *this*
+  // toolchain, while Node-patch drift and install-graph drift each have their own direct coverage
+  // in `install-identity.test.ts` and `lock-freshness.test.ts`.
   const identity = await readToolchainIdentity(exampleRoot);
   const recorded = lock.decisions[0]?.probedWith;
   const installGraph = recorded?.installGraph ?? identity.installGraph;
+  const node = recorded?.node ?? identity.node;
 
   return {
     resolvedVersions: versions,
@@ -157,7 +160,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
     // its content-addressed evidence. The drift itself is asserted, one test below, rather than
     // assumed away.
     target: targetOfRecordedRun(lock),
-    toolchain: { ...identity, installGraph },
+    toolchain: { ...identity, node, installGraph },
     probeFingerprints,
     extensionVersions: { "tanstack-query": EXPECTED_VERSION },
     extensionIdentities: { "tanstack-query": EXPECTED_IDENTITY },
