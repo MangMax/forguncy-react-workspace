@@ -1,0 +1,11 @@
+/*
+ * A plain stylesheet with the two kinds of url(...) v1 supports: a relative file beside this
+ * stylesheet, and a quoted reference a naive scanner would mis-read.
+ *
+ * The `url()` written in this comment must stay unfound: a scanner that read comments would
+ * inline a file that does not exist and refuse the whole Cell for it.
+ */
+.css-assets-probe {
+  background-image: url("./pixel.png");
+  border-image: url('./pixel.png') 1;
+}

@@ -68,10 +68,17 @@
   "//devDependencies": [
     "`@types/react` / `@types/react-dom` are pinned to the host versions the harness substitutes.",
     "Nothing in `src/` is a React component, but `mount.ts` calls `createRoot` and `createElement`,",
-    "so its types come from here rather than from a project's own install."
+    "so its types come from here rather than from a project's own install.",
+    "",
+    "`happy-dom` grades #98's dev half: the issue requires the *same* CSS and asset behaviour in",
+    "local dev as in the compiled artifact, and `asset-policy.test.ts` serves a real Cell through a",
+    "real Vite server and evaluates what it produces. It is a devDependency because nothing in",
+    "`src/` imports it; a green run here is `local` evidence and says nothing about the Forguncy",
+    "page (AGENTS.md rules 6-7)."
   ],
   "devDependencies": {
     "@types/react": "19.2.7",
-    "@types/react-dom": "19.2.7"
+    "@types/react-dom": "19.2.7",
+    "happy-dom": "21.0.4"
   }
 }

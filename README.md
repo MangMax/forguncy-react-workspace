@@ -198,6 +198,34 @@ export default defineForguncyConfig({
 
 因此 harness 会在启动时对比**最终**的 alias 集合：项目自己声明的、harness 自己注入的（`hostModuleAliases()`）、以及 Vite 内置的 `@vite/` 条目三者之外，任何多出来的条目一律拒绝 —— 不要求它与项目别名重叠，因为「本 harness 无法解释的别名」本身就已经是本票要求报告的「未支持的 Vite plugin 行为」。需要某个别名就写在 `vite.config.ts` 里，那份声明会被正确记账。
 
+## CSS 与静态资源：首版支持集合（#98）
+
+普通组件 `import "./panel.css"`、`import logo from "./logo.svg"` 这类写法，本地 `vp dev` 与 Cell 产物**含义相同**：产物仍然是一个自包含脚本，资源被内联进去，不会生成任何兄弟文件、不会在运行时猜目录、也不会暗中请求 CDN。
+
+首版的支持集合是**封闭**的，清单在代码里只有一份（`packages/core/src/cell-assets.ts` 的 `CELL_RESOURCE_SUPPORT_MATRIX`），编译器与 dev server 都读它：
+
+| 写法 | 首版结论 |
+| --- | --- |
+| `import "./x.css"`（普通 CSS） | ✅ 注入到一个以样式内容哈希为 key 的 `<style data-forguncy-cell-style="…">` |
+| 普通 CSS 里的 `url(…)`，指向同级小图片 / 字体 | ✅ 重写成 `data:` URI（上限内） |
+| `import url from "./x.png"` 等静态资源默认导入 | ✅ 默认导出是 `data:` URI（上限内） |
+| `*.module.css`（CSS Modules） | ❌ **明确拒绝**。作用域类名需要一个与 Vite 输出一致的、由编译器自己拥有的实现；首版宁可报错也不给同一个 import 两种答案 |
+| CSS `@import` / `image-set()` | ❌ 拒绝。前者是样式级联解析，后者可以不带 `url()` 地引用文件 |
+| `http:` / `https:` / `//` / 以 `/` 开头的绝对 URL | ❌ 拒绝。产物不能暗中请求网络，也不知道活字格页面的目录 |
+| `?raw` / `?url` / `?inline` / `?worker` / `?sharedworker` | ❌ 拒绝。每个 query 都对应一个单文件编译器没有实现的 Vite 变换 |
+| Worker / `.wasm` / 其它二进制资源 | ❌ 拒绝，不在首版内 |
+| 超过内联上限的资源（默认 4096 字节，与 Vite 的 `assetsInlineLimit` 同值） | ❌ 拒绝并给出实测字节数与上限 |
+
+拒绝一律是**结构化诊断**（`rejected-cell-asset`），带 `extension` / `replace` 方向：需要被共享、被页面加载、或本来就是个二进制的资源，应该放进**活字格前端扩展**（`extension`）；只是图太大或格式不合适，就换一个首版能内联的 `replace` 方案。**不会**生成一个「看起来能用」的产物。
+
+**选择器不做自动作用域。** 普通 CSS 和 Vite 下一样是全局的，所以给 Cell 的根元素加一个自己的 class 前缀（如 `.sales-summary-root`）。CSS Modules 是唯一能做到自动作用域的形式，而它在首版被明确拒绝 —— 这条选择是明说的，不是遗漏。
+
+**样式生命周期**：编译产物里会带一个按样式 id 计数的小安装器。同一个 Cell 被重复求值（HMR、重新编译、重挂载）不会追加第二个 `<style>`；两个 Cell 各有自己的 id，卸载其中一个不会删掉另一个仍在用的样式。计数归零时才移除元素。
+
+**成本记账**：`CompileCellResult.inlinedResources` 逐个记录内联的样式 / 资源（字节数、`data:` URI 字符数、渲染字符数），`formatCellResourceLedger()` 打印成一行一行。它**只**是资源账本；是否超出 Cell 字符上限仍由 `cellBudgetCharacters` 判定（`cell-code-budget-exceeded`），两者不混为一谈。
+
+本地与产物的一致性有测试兜底：`packages/cell-compiler/src/cell-resources.test.ts` 把同一个组件编译后在 `happy-dom` 里求值，断言 `<style>` 内容、`data:` URI 能解回原字节、多实例 / 卸载行为；`packages/dev-harness/src/asset-policy.test.ts` 用真实 Vite server 断言同一条导入在本地拿到**同一个** `data:` URI。这些是 `local` 证据；真实活字格页面上的样式表现仍由独立的消费方 gate 验证（AGENTS.md 规则 6–7）。
+
 ## 依赖策略
 
 第三方依赖不会简单地分成“支持 / 不支持”，而是根据实际运行方式选择以下策略：

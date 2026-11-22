@@ -68,6 +68,8 @@ import {
 } from "@forguncy-react-workspace/dependency-resolver/local";
 import { cellVirtualModuleId, forguncy } from "@forguncy-react-workspace/vite-plugin-fgc";
 
+import { createDevCellResourcePolicy } from "./cell-assets.ts";
+
 import {
   extensionSubstitutionModuleId,
   extensionSubstitutionModuleOf,
@@ -212,6 +214,11 @@ export interface DevHarnessVitePlugin {
   config(userConfig: { readonly resolve?: { readonly alias?: unknown } }): {
     readonly resolve: { readonly alias: Readonly<Record<string, string>>; readonly dedupe: readonly string[] };
     readonly optimizeDeps: { readonly include: readonly string[] };
+    /**
+     * The v1 asset inline limit (#98), so a `vite build` of the harness inlines the same assets
+     * the Cell compiler does rather than emitting a file the artifact would refuse.
+     */
+    readonly build: { readonly assetsInlineLimit: number };
   };
   /**
    * Claims the harness entry URL path, an unserved host substitution, and every declared
@@ -229,7 +236,19 @@ export interface DevHarnessVitePlugin {
     id: string,
   ): Promise<string | null> | string | null;
   /** Generates the mount module, or an explanation, or `null` for ids this plugin does not own. */
-  load(id: string): string | null;
+  load(id: string): Promise<string | null> | string | null;
+  /**
+   * Rewrites a plain stylesheet's `url(...)` references to inline `data:` URIs, or refuses the
+   * sheet with the reason and the direction (#98).
+   *
+   * A `transform` hook rather than part of {@link load}: Vite's own CSS pipeline owns loading and
+   * composing a stylesheet, and reimplementing that here would be the second answer to a question
+   * Vite already answers on the compiled side.
+   */
+  transform(
+    code: string,
+    id: string,
+  ): Promise<{ readonly code: string; readonly map: null } | null> | { readonly code: string; readonly map: null } | null;
   /**
    * Adds the mount node and the entry script to the page.
    *
@@ -1205,6 +1224,10 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
   // not one per hook call, so it holds one registry.
   const cells = forguncy({ config: options.config, requireEntryFiles });
 
+  // The v1 resource policy (#98). One instance, stateless, shared by `load` and `transform` so a
+  // stylesheet and the asset it references are judged by the same rules the compiler applies.
+  const resourcePolicy = createDevCellResourcePolicy();
+
   // The declared `extensionChoices`, resolved once against the project root. Held rather than
   // recomputed, so the ids `resolveId` claims and the modules `load` generates come from one list —
   // the same discipline `host-modules.ts` follows for the bridge table, and for the same reason: a
@@ -1582,6 +1605,12 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
           // the case that matters — so a second copy cannot reach the same page.
           dedupe,
         },
+        // The compiler's inline limit, not Vite's default coincidence: both are 4096 today, and
+        // stating it here is what keeps a change on either side from silently splitting the two
+        // paths. See `cell-assets.ts` in `core` for the one declaration.
+        build: {
+          assetsInlineLimit: resourcePolicy.assetsInlineLimit,
+        },
         optimizeDeps: {
           // The host packages are *included* — forced through the optimizer — and that is the
           // opposite of what this harness did in its first draft, which excluded them on the
@@ -1648,7 +1677,15 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
       return cells.resolveId(id);
     },
 
-    load(id) {
+    async load(id) {
+      // Resource imports (#98) first: a stylesheet or static asset is a file on disk, and the
+      // compiler inlines it — so local development must answer it with the same content rather
+      // than with Vite's more permissive default. `null` means "not a resource; carry on".
+      const resource = await resourcePolicy.load(id);
+      if (resource !== null) {
+        return resource;
+      }
+
       const unavailable = unavailableHostModuleOf(id.startsWith("\0") ? id.slice(1) : id);
       if (unavailable !== undefined) {
         return unavailableHostModuleSource(unavailable);
@@ -1677,6 +1714,10 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         );
       }
       return generateEntryModule(mounted, options.props);
+    },
+
+    transform(code: string, id: string) {
+      return resourcePolicy.transform(code, id);
     },
 
     transformIndexHtml() {

@@ -1,0 +1,2 @@
+/* A CSS Module: v1 refuses it explicitly rather than scoping classes two different ways. */
+.panel { color: red; }

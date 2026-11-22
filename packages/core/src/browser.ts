@@ -96,3 +96,4 @@ export * from "./selection-policy.ts";
 export * from "./forguncy-config.ts";
 export * from "./portability.ts";
 export * from "./cell-code-budget.ts";
+export * from "./cell-assets.ts";

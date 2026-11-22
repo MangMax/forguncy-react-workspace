@@ -7,6 +7,14 @@
     "This project type-checks every package, including the *.test.ts files, so type-level",
     "contracts in packages/core are actually gated rather than merely written down.",
     "",
+    "The `css-assets` Cell fixture (#98) is excluded for the same shape of reason as the alias",
+    "fixtures: its entries import `./pixel.png`, `./styles.module.css` and `./pixel.png?url`, ids",
+    "only a bundler with Vite's asset resolution can resolve. Declaring them in a `*.d.ts` would",
+    "be a second statement of what an asset import means, free to drift from the compiler's",
+    "policy — which is precisely the rule the fixture exists to test. The fixture is still",
+    "exercised: `cell-resources.test.ts` compiles it through the real bundler. The dev-harness",
+    "resource fixture beside it is excluded for the identical reason.",
+    "",
     "The two `resolve.alias` fixtures (#97) are excluded, and the reason is the rule they",
     "exist to test rather than an inconvenience: their Cell entries import `@app/shared/thing`,",
     "an id only a bundler holding the project's `alias` can resolve. Type-checking them would",
@@ -19,6 +27,8 @@
   "include": ["packages/**/*.ts", "packages/**/*.tsx"],
   "exclude": [
     "packages/cell-compiler/tests/fixtures/alias-project/**",
-    "packages/dev-harness/tests/fixtures/project-alias/**"
+    "packages/cell-compiler/tests/fixtures/css-assets/cells/**",
+    "packages/dev-harness/tests/fixtures/project-alias/**",
+    "packages/dev-harness/tests/fixtures/resources/cells/**"
   ]
 }

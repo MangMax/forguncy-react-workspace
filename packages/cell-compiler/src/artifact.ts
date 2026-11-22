@@ -53,6 +53,8 @@ import {
   dedupeCellArtifactDiagnostics,
   formatCellArtifactDiagnostics,
 } from "./diagnostics.ts";
+import { cellResourcesNeedStyleInstaller, formatCellResourceLedger, isCellResourcePolicyError, renderCellStyleInstaller } from "./cell-resources.ts";
+import type { CellInlinedResource } from "./cell-resources.ts";
 import { CELL_ENTRY_COMPONENT_BINDING, renderCellEntryWrapper } from "./entry.ts";
 import {
   auditFrontendLibraries,
@@ -104,6 +106,7 @@ function artifactOf(
     code,
     frontendLibraries,
     ...(module.inlinedPackageSizes === undefined ? {} : { inlinedPackageSizes: module.inlinedPackageSizes }),
+    ...(module.resources === undefined ? {} : { inlinedResources: module.resources }),
   };
 }
 
@@ -125,6 +128,17 @@ export interface CompileCellResult {
    * that needs attribution then has none, and says so rather than guessing.
    */
   readonly inlinedPackageSizes?: readonly InlinedPackageSize[];
+  /**
+   * The stylesheets and static assets inlined into `code`, with their byte and character cost
+   * (#98).
+   *
+   * The character budget is one number, so a Cell that is 400 KiB of base64 needs this ledger to
+   * say so rather than forcing a reader to decode the artifact. Reported separately from
+   * `inlinedPackageSizes` because they answer different questions — package attribution is about
+   * *whose* code it is, and this is about *inlined payload* — and merging them would make a
+   * package named after an asset looking like a dependency decision nobody made.
+   */
+  readonly inlinedResources?: readonly CellInlinedResource[];
 }
 
 /**
@@ -184,6 +198,17 @@ export interface BundledCellModule {
   readonly inlinedSpecifiers?: readonly string[];
   /** Files the bundler emitted next to `code`. Any entry breaks the single-artifact contract. */
   readonly emittedAssets?: readonly string[];
+  /**
+   * The stylesheets and static assets the bundler inlined into `code` (#98).
+   *
+   * A report, not an input: the artifact is one flat string, so which assets it carries and how
+   * many characters each cost cannot be recovered from `code` afterwards. The ledger is what lets
+   * a caller answer "how much of this Cell is inlined assets" without re-parsing base64.
+   *
+   * Absent for a fixture port, which inlines nothing — the same convention as every other
+   * optional report field here.
+   */
+  readonly resources?: readonly CellInlinedResource[];
   /**
    * The bare specifiers the build's module graph actually contained.
    *
@@ -259,6 +284,18 @@ export interface CellBundlingRequest {
    * identifier".
    */
   readonly componentBinding: string;
+  /**
+   * The largest static asset the bundler may inline, in bytes (#98).
+   *
+   * On the request rather than on the bundler instance because it is a property of *this compile*
+   * — a probe run may measure a different threshold than the deployment build — while the
+   * bundler instance is shared by every Cell of one project.
+   *
+   * Absent means the v1 default (`CELL_ASSET_INLINE_LIMIT_BYTES`), which is also Vite's default
+   * `assetsInlineLimit`. Never silently unbounded: an oversized asset is a refusal, not an
+   * emitted sibling file.
+   */
+  readonly assetInlineLimitBytes?: number;
 }
 
 /**
@@ -296,6 +333,14 @@ export interface CellResolveRequest {
    * preflight and failed the build, or vice versa.
    */
   readonly extensionMappings?: NormalizedExtensionMappings;
+  /**
+   * The inline limit this compile's static assets are measured against (#98).
+   *
+   * Carried on the resolve request as well as the bundling request because the preflight has to
+   * refuse an oversized asset *before* bundling: it is the same option, read by both passes, so
+   * the two cannot disagree about which assets are legal.
+   */
+  readonly assetInlineLimitBytes?: number;
 }
 
 /**
@@ -402,6 +447,13 @@ export interface CompileCellOptions {
    * second resolver (#6 forbids one).
    */
   readonly workspace?: WorkspaceGraph;
+  /**
+   * The largest static asset one Cell may inline, in bytes (#98).
+   *
+   * Forwarded to the bundler's own request, so the preflight and the build measure the same
+   * assets against the same threshold. Absent means the v1 default.
+   */
+  readonly assetInlineLimitBytes?: number;
 }
 
 /**
@@ -488,6 +540,29 @@ export {
 } from "./specifier.ts";
 
 /**
+ * The inlined style/asset report and the installer (#98).
+ *
+ * Re-exported from the boundary so a caller reading `CompileCellResult.inlinedResources` has the
+ * types it needs without knowing which module produced them — the same reason the specifier
+ * primitives are re-exported here.
+ */
+export {
+  CELL_STYLE_INSTALLER_SOURCE,
+  cellResourceBudgetOf,
+  cellStyleIdOf,
+  formatCellResourceLedger,
+  isCellResourceFile,
+  renderCellStyleInstaller,
+} from "./cell-resources.ts";
+export type {
+  CellInlinedAsset,
+  CellInlinedResource,
+  CellInlinedStyle,
+  CellResourceBudget,
+  CellResourceRefusal,
+} from "./cell-resources.ts";
+
+/**
  * The bindings a `host` dependency may be mapped onto.
  *
  * `injected-parameter` are the `new Function` arguments the runtime passes, and
@@ -561,11 +636,21 @@ export function assembleCellArtifact(input: AssembleCellArtifactInput): CompileC
     module.runtimeBindingGenerated === true && wrapper.status === "emitted"
       ? `var ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} = props;\n`
       : "";
-  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${module.code}\n${wrapperSource}\n`;
+  // The style installer (#98) goes before the bundle, beside the live-props declaration and for
+  // the same structural reason: the stylesheet modules are inside the bundle, and a `var` or
+  // `function` declaration at the artifact's own scope is the only thing both sides can see.
+  //
+  // Emitted only when a style was actually inlined. A Cell with no CSS must not carry a page-level
+  // registry it never reads, and the *decision* is the bundler's report rather than a search of
+  // `code` for a marker — a fixture port that reports no resources therefore gets the plain
+  // artifact, exactly as it gets no live-props declaration.
+  const styleInstaller = cellResourcesNeedStyleInstaller(module.resources ?? []) ? renderCellStyleInstaller() : "";
+  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${styleInstaller}${module.code}\n${wrapperSource}\n`;
 
   const sourceDiagnostics = auditArtifactSource(code, artifactOriginOf(module.code));
   const budgetDiagnostics = auditCodeBudget(code, input.codeBudgetCharacters);
   const metadataDiagnostics = auditFrontendLibraries(collection.libraries);
+  const resourceDiagnostics = auditInlinedResourceUrls(module.resources ?? []);
 
   const diagnostics = dedupeCellArtifactDiagnostics([
     // The bundler's own findings first: when one of them names the same
@@ -578,6 +663,7 @@ export function assembleCellArtifact(input: AssembleCellArtifactInput): CompileC
     ...importDiagnostics,
     ...inlinedDiagnostics,
     ...assetDiagnostics,
+    ...resourceDiagnostics,
     ...collection.diagnostics,
     ...(wrapper.status === "emitted" ? [] : wrapper.diagnostics),
     ...sourceDiagnostics,
@@ -886,6 +972,37 @@ function auditEmittedAssets(emittedAssets: readonly string[]): readonly CellArti
   );
 }
 
+/**
+ * Audits the inlined resource ledger for an entry the artifact could not have inlined (#98).
+ *
+ * The ledger is produced by the same reader that generated the module text, so every entry that
+ * reached here *should* carry a `data:` URI. This check is the audit rather than the producer's
+ * promise, and the distinction is the point of the issue's "every inlined asset URL is traceable"
+ * criterion: a reader that inlined nothing and one that inlined everything both produce an
+ * artifact, and only the ledger plus an audit can tell them apart.
+ *
+ * It is a pure function over the report, so the compiler does not re-parse base64 to run it.
+ */
+function auditInlinedResourceUrls(resources: readonly CellInlinedResource[]): readonly CellArtifactDiagnostic[] {
+  const diagnostics: CellArtifactDiagnostic[] = [];
+  for (const resource of resources) {
+    if (resource.kind === "style") {
+      // A stylesheet's own references were rewritten by the reader, which refuses rather than
+      // leaving one behind. The ledger carries their counts rather than their URLs, so there is
+      // nothing here to re-check without re-reading the stylesheet the artifact already embeds.
+      continue;
+    }
+    if (!resource.dataUri.startsWith("data:")) {
+      diagnostics.push(
+        createCellArtifactDiagnostic("rejected-cell-asset", resource.fileName, {
+          detail: `The inlined asset "${resource.fileName}" is not reported as a data: URI, so the artifact would carry an untraceable external reference. A Cell is one script with no sibling files and no runtime directory; rebuild through the compiler so the asset is inlined.`,
+        }),
+      );
+    }
+  }
+  return diagnostics;
+}
+
 // ---------------------------------------------------------------------------
 // Source and budget audit
 // ---------------------------------------------------------------------------
@@ -1127,9 +1244,13 @@ export function formatCompileCellOutcome(outcome: CompileCellOutcome): string {
 
   if (outcome.status === "compiled") {
     const ids = frontendLibraryIds(outcome.artifact.frontendLibraries);
+    const resources = outcome.artifact.inlinedResources ?? [];
     return [
       `Compiled Cell artifact: ${outcome.artifact.code.length} characters, entry shape "${outcome.entryKind}".`,
       `${FRONTEND_LIBRARIES_FIELD_NAME}: ${ids.join(", ") || "(none)"}`,
+      // Printed on every compiled artifact, not only on a resource-carrying one: a reader asking
+      // "how much of this Cell is inlined assets" has to be able to see the answer is none.
+      formatCellResourceLedger(resources),
       "Real Forguncy runtime validation is not established by a local compile.",
       ...workspace,
     ].join("\n");
@@ -1235,8 +1356,17 @@ export async function compileCell(
         entry: input.entry,
         dependencies: input.dependencies,
         ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
+        ...(options.assetInlineLimitBytes === undefined
+          ? {}
+          : { assetInlineLimitBytes: options.assetInlineLimitBytes }),
       });
     } catch (error) {
+      // A resource refusal is a finding about the Cell's *source*, not a bundler fault, so it
+      // keeps its own code and its remediation. Reducing it to `bundler-failure` would tell the
+      // caller to fix the bundler when the fix is in the stylesheet.
+      if (isCellResourcePolicyError(error)) {
+        return { status: "rejected", diagnostics: error.diagnostics };
+      }
       return {
         status: "rejected",
         diagnostics: [
@@ -1278,11 +1408,17 @@ export async function compileCell(
       entry: input.entry,
       dependencies: input.dependencies,
       ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
+      ...(options.assetInlineLimitBytes === undefined
+        ? {}
+        : { assetInlineLimitBytes: options.assetInlineLimitBytes }),
       // The one thing the two halves of the pipeline must agree on, handed over
       // rather than assumed.
       componentBinding: CELL_ENTRY_COMPONENT_BINDING,
     });
   } catch (error) {
+    if (isCellResourcePolicyError(error)) {
+      return { status: "rejected", diagnostics: error.diagnostics };
+    }
     return {
       status: "rejected",
       diagnostics: [
