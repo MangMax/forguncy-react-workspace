@@ -358,7 +358,21 @@ function readProjectMapping(
 function readProjectMappings(
   raw: unknown,
   out: ExtensionMappingsDiagnostic[],
-): { readonly declared: boolean; readonly mappings: readonly ExtensionExternalMapping[] } | undefined {
+): {
+  readonly declared: boolean;
+  readonly mappings: readonly ExtensionExternalMapping[];
+  /**
+   * Each read row's index in the *declared* array.
+   *
+   * Carried because `mappings` is the rows that read successfully, not the rows the
+   * project wrote — and a later guard that reports a row has to point at the config
+   * path the project can actually go and edit. Using the position inside `mappings`
+   * instead was measured to misreport: with two earlier rows failing their own shape
+   * checks, the third row (a host-global collision) was located at
+   * `extensions.mappings[0]`.
+   */
+  readonly indices: ReadonlyMap<ExtensionExternalMapping, number>;
+} | undefined {
   if (!isConfigRecord(raw)) {
     out.push(
       diag(
@@ -382,6 +396,7 @@ function readProjectMappings(
   }
 
   const mappings: ExtensionExternalMapping[] = [];
+  const indices = new Map<ExtensionExternalMapping, number>();
   if (raw.mappings !== undefined) {
     if (!Array.isArray(raw.mappings)) {
       out.push(
@@ -395,11 +410,14 @@ function readProjectMappings(
     }
     for (const [index, row] of raw.mappings.entries()) {
       const mapping = readProjectMapping(row, `${EXTENSION_MAPPINGS_CONFIG_FIELD}.mappings[${index}]`, out);
-      if (mapping !== undefined) mappings.push(mapping);
+      if (mapping !== undefined) {
+        indices.set(mapping, index);
+        mappings.push(mapping);
+      }
     }
   }
 
-  return { declared: true, mappings };
+  return { declared: true, mappings, indices };
 }
 
 /**
@@ -507,11 +525,13 @@ export function normalizeExtensionMappings(
       // A project row is reported at its own config path; a built-in row can only fail
       // here if the repository's own table is broken, which the table's own test
       // asserts, so the path names the table rather than inventing a config location.
-      const index = projectRows.indexOf(mapping);
+      // The index comes from the declared array, not from `projectRows`, because the
+      // rows that failed to read are absent from it — see `readProjectMappings`.
+      const index = project?.indices.get(mapping);
       const path =
-        index >= 0
-          ? `${EXTENSION_MAPPINGS_CONFIG_FIELD}.mappings[${index}]`
-          : builtinTablePath;
+        index === undefined
+          ? builtinTablePath
+          : `${EXTENSION_MAPPINGS_CONFIG_FIELD}.mappings[${index}]`;
       diagnostics.push(
         diag(
           "invalid-extension-mapping",

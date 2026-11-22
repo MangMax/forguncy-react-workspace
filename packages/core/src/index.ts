@@ -196,6 +196,8 @@ export {
   persistedDefaultCellPreset,
   rejectedCellSourceConstructs,
   RUNTIME_CONTRACT_TARGET,
+  RUNTIME_CONTRACT_TARGET_FIELD_SOURCES,
+  RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
   RUNTIME_CONTRACT_UNKNOWNS,
   RUNTIME_EVIDENCE_CHANNELS,
 } from "./runtime-contract.ts";
@@ -214,6 +216,8 @@ export type {
   CellUserScopeBinding,
   FrontendLibraryReference,
   RuntimeContractTarget,
+  RuntimeContractTargetField,
+  RuntimeContractTargetFieldSource,
   RuntimeContractUnknown,
   RuntimeEvidenceChannel,
 } from "./runtime-contract.ts";
@@ -363,6 +367,27 @@ export type {
   NormalizeExtensionMappingsResult,
   NormalizedExtensionMappings,
 } from "./extension-mappings-config.ts";
+
+// The portability predicates (#26), extracted to a leaf because `resolve-config` needs the
+// same rule for an alias target and may not import the registry that calls it.
+export { isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
+
+// The module-resolution aliases (#97): one declared alias set, resolved once for both the
+// dev server and the Cell build.
+export {
+  EMPTY_NORMALIZED_RESOLVE_CONFIG,
+  formatResolveConfig,
+  normalizeResolveConfig,
+  RESOLVE_ALLOWED_FIELDS,
+  RESOLVE_CONFIG_FIELD,
+} from "./resolve-config.ts";
+export type {
+  NormalizedResolveConfig,
+  NormalizeResolveConfigResult,
+  ResolvedAliasEntry,
+  ResolveConfigDiagnostic,
+  ResolveConfigDiagnosticCode,
+} from "./resolve-config.ts";
 
 export {
   assertFgcLockDocument,
@@ -633,6 +658,7 @@ export type {
   ForguncyConfig,
   ForguncyConfigSchemaVersion,
   ForguncyTargetLocator,
+  ResolveConfig,
   RuntimeTargetConfig,
   TargetLocatorModel,
 } from "./forguncy-config.ts";
@@ -643,6 +669,7 @@ export {
   CELL_CODE_BUDGET_DECISION,
   CELL_CODE_BUDGET_GOVERNING_DECISIONS,
   CELL_CODE_BUDGET_MEASUREMENT,
+  CELL_CODE_BUDGET_REBASE_101,
   CELL_CODE_INLINE_CEILING_CHARACTERS,
   CELL_CODE_PROJECT_VOLUME_OBSERVATION,
   CELL_CODE_REVIEW_CEILING_CHARACTERS,
@@ -665,8 +692,6 @@ export {
   createCellRegistry,
   ForguncyConfigError,
   isCellRegistry,
-  isSecretLikeKey,
-  machineSpecificPathProblem,
   OUTPUT_ALLOWED_FIELDS,
   RETIRED_OUTPUT_BUDGET_FIELD,
   TARGET_ALLOWED_FIELDS,

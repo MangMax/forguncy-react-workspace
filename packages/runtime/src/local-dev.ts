@@ -71,6 +71,7 @@ import {
   hostBridgeModuleIds,
   isApplicationOwned,
   RUNTIME_CONTRACT_TARGET,
+  RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
 } from "@forguncy-react-workspace/core/browser";
 import type {
   ArchitectureDecisionSource,
@@ -470,6 +471,16 @@ export type LocalDevLocalResolutionKind = (typeof LOCAL_DEV_LOCAL_RESOLUTION_KIN
  * `localDevRecordedVersion` is the only way to obtain a value here, which means a
  * version cannot be typed into a resolution row and drift away from the contract
  * it is supposed to be equal to.
+ *
+ * **Every field here is one this build's evidence does not come from a browser
+ * observation** — see `RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED`, asserted equal to
+ * this list by a test in the runtime package. The values come from the plugin's shipped runtime
+ * source, which establishes the version the product *ships* and is the right thing to compare a
+ * locally installed package against. It is **not** an observation of what a page reports on load,
+ * so a row may claim package alignment but must not present the value as a browser-verified fact
+ * for this build. #116's review is what forced the list to be machine-readable: the rebase moved
+ * the target to 12.0.101.0 and these fields kept the values #5 recorded on 12.0.100.0, and a
+ * comment saying so would not stop a consumer from reading them as re-verified.
  */
 export const LOCAL_DEV_VERSION_FIELDS = ["hostReactVersion", "hostReactDomVersion"] as const;
 
@@ -478,6 +489,17 @@ export type LocalDevVersionField = (typeof LOCAL_DEV_VERSION_FIELDS)[number];
 /** The value #5 recorded for a version field. The only source of an expected version. */
 export function localDevRecordedVersion(field: LocalDevVersionField): string {
   return RUNTIME_CONTRACT_TARGET[field];
+}
+
+/**
+ * Whether a version field's value was observed on the target's own build, or carried forward.
+ *
+ * The consumer-facing half of the contract's provenance: a row that wants to say "this number is
+ * verified for the build we ship against" asks here, and gets `false` rather than having to know
+ * that a re-base left it in place.
+ */
+export function localDevVersionFieldIsBrowserObserved(field: LocalDevVersionField): boolean {
+  return !RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED.includes(field);
 }
 
 export interface LocalDevModuleResolution {
@@ -1757,6 +1779,7 @@ export const LOCAL_DEV_DIAGNOSTIC_CODES = [
   "local-dev-extension-real-runtime-only",
   "local-dev-host-version-mismatch",
   "local-dev-mock-surface-incomplete",
+  "local-dev-project-alias-shadowed",
 ] as const;
 
 export type LocalDevDiagnosticCode = (typeof LOCAL_DEV_DIAGNOSTIC_CODES)[number];
@@ -1873,6 +1896,15 @@ export const LOCAL_DEV_DIAGNOSTIC_RULES: Readonly<Record<LocalDevDiagnosticCode,
     fixOwner: "project-configuration",
     blocksLocalDevelopment: true,
   },
+  "local-dev-project-alias-shadowed": {
+    code: "local-dev-project-alias-shadowed",
+    label: "A `vite.config.ts` alias claims an id the project declared in `forguncy.config.ts`",
+    states: "A user Vite alias matches a module id a project alias resolves, so it rewrites the import before the project alias is consulted.",
+    remediation:
+      "Remove the overlapping `vite.config.ts` alias, or rename the project alias. Vite applies its own `resolve.alias` *before* a plugin's `resolveId` (measured), which is where the project alias is applied, so the local loop would resolve the id to the Vite target while the Cell build resolves it to `forguncy.config.ts`. That is the dev/production split #97 exists to remove, and it is silent: both paths succeed and disagree. An alias that does not overlap a project alias is unaffected and stays allowed.",
+    fixOwner: "project-configuration",
+    blocksLocalDevelopment: true,
+  },
 };
 
 export interface LocalDevDiagnostic {
@@ -1937,6 +1969,35 @@ export interface LocalDevAuditInput {
    * ask.
    */
   readonly referencedSpecifiers?: readonly string[];
+  /**
+   * The aliases the project's `vite.config.ts` declares, when the caller knows them.
+   *
+   * Compared against {@link LocalDevAuditInput.projectAlias} to find an overlap, which is the one
+   * way a project alias can be silently overridden locally. The values are opaque here: this audit
+   * compares *keys*, because whether two patterns overlap is a question about Vite's matching rule
+   * and the caller (the harness) already reads that rule to filter its own host aliases. Passing
+   * only the keys would be narrower than the truth, since an overlap is a prefix relation on either
+   * side of the pair.
+   */
+  readonly userAliasKeys?: readonly string[];
+  /**
+   * Project keys a `RegExp` alias in `vite.config.ts` was measured to shadow, with the pattern that
+   * did it.
+   *
+   * Separate from {@link LocalDevAuditInput.userAliasKeys} because a pattern cannot be compared as a
+   * string without losing its meaning: `^@APP\/SHARED(?=\/|$)/i`, `^other|@app\/shared/` and
+   * `^@app\/\x73hared` all match `@app/shared/thing` and none of them reads as `@app/shared`. The
+   * caller therefore runs the pattern against the specifiers the alias can match and reports the
+   * verdict; this audit only names it, which is why `pattern` is carried verbatim — the message
+   * has to quote something the developer can find in their own file.
+   */
+  readonly userAliasPatterns?: readonly { readonly key: string; readonly pattern: string }[];
+  /**
+   * The project's own aliases, as `registry.resolve.alias` carries them (#97).
+   *
+   * Only the keys matter to this audit; the values are for the report.
+   */
+  readonly projectAlias?: Readonly<Record<string, string>>;
 }
 
 export interface LocalDevAudit {
@@ -2177,6 +2238,57 @@ export function auditLocalDevConfiguration(input: LocalDevAuditInput = {}): Loca
     }
   }
 
+  // #97 round 4: a `vite.config.ts` alias that overlaps a project alias silently wins locally.
+  //
+  // Vite applies the user's `resolve.alias` **before** a plugin's `resolveId`, and the project
+  // aliases are applied in the harness plugin's `resolveId` — so a user alias naming an overlapping
+  // id rewrites the import first. The Cell build reads `registry.resolve.alias` and never sees
+  // `vite.config.ts`, so both paths succeed and resolve one import to different files.
+  //
+  // The overlap is **symmetric**: either key being a prefix of the other (on a `/` boundary) is
+  // enough, because any specifier both match goes to the user's entry. Measured for a project alias
+  // `@/ui -> ./ui`: `vite.config.ts`'s `@/ui -> /local` wins for `@/ui/thing`, and so does its
+  // deeper `@/ui/thing -> /sub` — the second is the case a one-directional check misses.
+  //
+  // The caller supplies the user's keys already read by Vite's own matching rule, so this does not
+  // re-derive one: `runtime` may not depend on Vite, and a second copy of that rule is what took
+  // three review rounds to get right in the harness.
+  const projectAlias = input.projectAlias ?? {};
+  for (const [moduleId, target] of Object.entries(projectAlias)) {
+    // Two inputs, two questions. A **string** key is compared here, because reproducing Vite's
+    // prefix rule is what `runtime` may not do (three review rounds went into the harness's copy of
+    // it), so the harness hands over strings and this comparison is plain string work.
+    //
+    // A **RegExp** cannot be reduced to a string that keeps its meaning — `^@APP\/SHARED(?=\/|$)/i`
+    // and `^other|@app\/shared/` both evade any literal or prefix comparison — so the harness runs
+    // the pattern itself against the specifiers this alias can match and hands over only the keys it
+    // actually shadows. That answer is a fact rather than a re-derivation, and this audit only has to
+    // report it, naming the pattern the way the developer wrote it.
+    const overlappingPattern = (input.userAliasPatterns ?? []).find(entry => entry.key === moduleId);
+    if (overlappingPattern !== undefined) {
+      diagnostics.push(
+        createLocalDevDiagnostic(
+          "local-dev-project-alias-shadowed",
+          moduleId,
+          `\`vite.config.ts\` declares a pattern alias ${JSON.stringify(overlappingPattern.pattern)} that matches "${moduleId}", which \`forguncy.config.ts\` already resolves to ${JSON.stringify(target)}. Vite applies its own aliases before the harness resolver, so the local loop would use the Vite target while the Cell build uses ${JSON.stringify(target)}. Remove the overlapping entry, or replace it with a plain string alias if that is what it means.`,
+        ),
+      );
+      continue;
+    }
+
+    const overlapping = (input.userAliasKeys ?? []).find(
+      key => key === moduleId || key.startsWith(`${moduleId}/`) || moduleId.startsWith(`${key}/`),
+    );
+    if (overlapping === undefined) continue;
+    diagnostics.push(
+      createLocalDevDiagnostic(
+        "local-dev-project-alias-shadowed",
+        moduleId,
+        `\`vite.config.ts\` declares an alias "${overlapping}" that overlaps "${moduleId}", which \`forguncy.config.ts\` already resolves to ${JSON.stringify(target)}. Vite applies its own aliases before the harness resolver, so the local loop would use the Vite target while the Cell build uses ${JSON.stringify(target)}. Remove the overlapping entry, or rename one of the two.`,
+      ),
+    );
+  }
+
   const alignment = localDevAlignmentChecks(resolutions);
   const installed = input.installedVersions;
   if (installed !== undefined) {
@@ -2233,7 +2345,7 @@ export function formatLocalDevAudit(audit: LocalDevAudit): string {
       ? "No version check is available."
       : `Version checks: ${audit.alignment.map(entry => `${entry.localPackage}===${entry.expected}`).join(", ")}`,
     audit.realRuntimeOnly.length === 0
-      ? "No extension dependency is left to real-runtime validation."
+      ? "No dependency is recorded as real-runtime-only."
       : `Left to real-runtime validation by decision: ${audit.realRuntimeOnly.join(", ")}`,
     audit.diagnostics.length === 0
       ? "No local dev diagnostics."

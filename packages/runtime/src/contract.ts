@@ -30,6 +30,10 @@
  * acceptance criterion is that the host contract, not convention, decides.
  */
 
+// The port's channel vocabulary is a leaf module (#124), imported here and re-exported so the
+// root entry's surface is unchanged. `port.ts` imports only the port *type* from this module, and
+// a type-only edge is erased; that is what lets the production runtime read the vocabulary
+// without the capability registry this module's checks depend on.
 import { CELL_SERVER_COMMANDS_CONTRACT, concernsOwnedBy, isApplicationOwned } from "@forguncy-react-workspace/core/browser";
 import type { OwnershipConcernId } from "@forguncy-react-workspace/core/browser";
 
@@ -44,6 +48,14 @@ import type {
   RuntimeFacadeCapability,
   RuntimeFacadeHostBinding,
 } from "./capabilities.ts";
+import {
+  RUNTIME_FACADE_PORT_CHANNEL_MEMBERS,
+  RUNTIME_FACADE_PORT_CHANNELS,
+  RUNTIME_FACADE_PORT_HOOK_NAME,
+} from "./port.ts";
+import type { RuntimeFacadePortChannel } from "./port.ts";
+export { RUNTIME_FACADE_PORT_CHANNEL_MEMBERS, RUNTIME_FACADE_PORT_CHANNELS, RUNTIME_FACADE_PORT_HOOK_NAME };
+export type { RuntimeFacadePortChannel } from "./port.ts";
 
 // ---------------------------------------------------------------------------
 // The confirmed call shapes
@@ -243,31 +255,10 @@ export interface RuntimeFacadeHostBindings {
   readonly useDataSource: DataSourceBinding;
 }
 
-/**
- * The channels the port provides.
- *
- * The channel union derives from this tuple, so adding a channel here is what
- * forces the rest of the machinery to account for it.
- */
-export const RUNTIME_FACADE_PORT_CHANNELS = ["cell-props", "use-data-source"] as const;
-
-export type RuntimeFacadePortChannel = (typeof RUNTIME_FACADE_PORT_CHANNELS)[number];
-
-/**
- * Which member of {@link RuntimeFacadeHostBindings} carries each channel.
- *
- * The `satisfies` is the load-bearing part: it makes the map exhaustive over the
- * channel union **and** forces every value to be an actual member name, so the
- * channel definition and the port shape are bound at the type level rather than
- * being two lists a reviewer has to compare by eye.
- */
-export const RUNTIME_FACADE_PORT_CHANNEL_MEMBERS = {
-  "cell-props": "cellProps",
-  "use-data-source": "useDataSource",
-} as const satisfies Readonly<Record<RuntimeFacadePortChannel, keyof RuntimeFacadeHostBindings>>;
-
-/** The one wrapper-local hook the port carries, by its confirmed name. */
-export const RUNTIME_FACADE_PORT_HOOK_NAME = "useDataSource";
+// `RUNTIME_FACADE_PORT_CHANNELS`, `RUNTIME_FACADE_PORT_CHANNEL_MEMBERS` and
+// `RUNTIME_FACADE_PORT_HOOK_NAME` are imported at the top of this module and re-exported from
+// there (#124): `host-provider.ts` reads them, and this module's other exports would drag the
+// capability registry into a production Cell's graph.
 
 /**
  * Which port channel carries a binding, or `undefined` when the port has none.

@@ -236,7 +236,17 @@ export interface PlanCellSyncOptions extends SyncCellInput {
   readonly deployed: DeployedCellState;
   /** What `api.app.listFrontendLibraries` returned, when the caller has it. */
   readonly listings?: readonly ExtensionLibraryListing[];
-  /** The extension mapping table to audit against. Defaults to `core`'s shipped table. */
+  /**
+   * The extension mapping table to audit against.
+   *
+   * **The registry path supplies the project's normalized set** (#87) — `planCellSyncTargets`
+   * defaults it to `registry.extensionMappings.mappings`, the same rows `compileCell` planned the
+   * artifact from. A planner called directly (`planCellSync` with no registry) may pass
+   * `core`'s table or nothing, but must not mistake that for the project's answer: a custom
+   * project extension is invisible to the built-in table, so the decision cannot be bound to an
+   * interception and the plan refuses with `extension-decision-unusable` — for a Cell the
+   * compiler accepted.
+   */
   readonly mappings?: readonly ExtensionExternalMapping[];
   /** What to do about a diverged target. Defaults to preserving designer edits. */
   readonly overwrite?: CellOverwritePolicy;

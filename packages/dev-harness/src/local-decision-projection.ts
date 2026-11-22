@@ -73,7 +73,7 @@
  * `formatLocalDevValidationDistinction()` applies to the loop as a whole.
  */
 
-import { dependencyDecisionOf, EXTENSION_EXTERNAL_MAPPINGS, findLockDecision } from "@forguncy-react-workspace/core";
+import { dependencyDecisionOf, findLockDecision, normalizeExtensionMappings } from "@forguncy-react-workspace/core";
 import type { DependencyDecision, FgcLockDocument, LockStalenessReason } from "@forguncy-react-workspace/core";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -81,7 +81,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   auditLockDecisionConformance,
-  extensionCatalogForMappings,
+  extensionCatalogOfNormalized,
   localCompilationDependencies,
   readToolchainIdentity,
 } from "@forguncy-react-workspace/dependency-resolver/local";
@@ -112,10 +112,10 @@ export const LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS: readonly LockStalenessRea
 ];
 
 /**
- * `core`'s verified extension mappings, projected onto the catalog shape this audit reads.
+ * The built-in table as a catalog, derived through the one normalization exit.
  *
- * Through `dependency-resolver`'s `extensionCatalogForMappings` rather than by hand, and that is a
- * correction rather than tidiness: the hand-written version in this file projected
+ * Through `dependency-resolver`'s `extensionCatalogOfNormalized` rather than by hand, and that is
+ * a correction rather than tidiness: the hand-written version in this file projected
  * `packageName`/`libraryId`/`globalName` and **dropped `moduleIds`**, so a decision naming
  * `@tanstack/query-core` — a package the table maps as one of the TanStack Query row's module ids —
  * was reported `extension-library-not-verified` by the harness while the compiler accepted it. The
@@ -123,12 +123,44 @@ export const LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS: readonly LockStalenessRea
  * `auditExtensionRecord` matches against, so the harness and the compiler now agree about which
  * packages a row answers for.
  *
- * A project's own mappings reach this by being passed in (see
- * {@link projectLocalDecisions}'s `extensionCatalog`), not by being read from a second table here.
+ * **The rows are the project's own normalized set, not `core`'s table** (#87). A harness that
+ * derived its catalog from `EXTENSION_EXTERNAL_MAPPINGS` audited against a table the project may
+ * have extended or replaced: a custom project extension was `extension-library-not-verified` here
+ * while `compileCell` compiled it — the "Skill accepts, bundler accepts, dev server refuses" split
+ * #87 exists to remove. The default is therefore computed *through the same normalization exit
+ * every stage reads* (`registry.extensionMappings` in the plugin), and this function is what a
+ * caller holding no registry falls back to: `normalizeExtensionMappings({})`, which is the
+ * built-in-only set and the same answer a project that declared nothing gets.
+ *
+ * A caller that has the registry passes `extensionCatalog` instead. That is what the plugin does,
+ * and it is not optional there — see `projectLocalDecisions`'s `extensionCatalog` option for what
+ * an absent catalog means to the audit.
  */
-export const DEFAULT_LOCAL_EXTENSION_CATALOG: ExtensionCatalog = extensionCatalogForMappings(
-  EXTENSION_EXTERNAL_MAPPINGS,
-);
+export function normalizeBuiltinExtensionCatalog(): ExtensionCatalog {
+  const normalized = normalizeExtensionMappings({});
+  if (!normalized.ok) {
+    // Unreachable with the shipped table, which `core`'s own test asserts is coherent; written as
+    // a throw rather than a silent empty catalog because a catalog that verified nothing would
+    // refuse every extension record with a message about the project instead of the table.
+    throw new Error(
+      `The built-in extension mapping table does not normalize, so no catalog can be derived from it:\n${normalized.diagnostics
+        .map(diagnostic => `${diagnostic.path}: [${diagnostic.code}] ${diagnostic.message}`)
+        .join("\n")}`,
+    );
+  }
+  return extensionCatalogOfNormalized(normalized.mappings);
+}
+
+/**
+ * The built-in-only catalog, as a value for a caller that has no project registry.
+ *
+ * A `const` rather than a function because the table is immutable and every consumer wants the
+ * same projection; it is computed once, through the normalization exit, so the default cannot
+ * drift from the table `forguncy.config.ts` loading produced. A project's own rows are not here —
+ * they are supplied by the plugin from `registry.extensionMappings`, which is the whole point of
+ * #87: two stages reading one exit, not two tables that happen to agree today.
+ */
+export const DEFAULT_LOCAL_EXTENSION_CATALOG: ExtensionCatalog = normalizeBuiltinExtensionCatalog();
 
 /** The directory this package's own files live in, from the module URL — as `host-modules.ts` does. */
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -210,9 +242,14 @@ export function projectLocalDecisions(input: {
   /**
    * The verified extension catalog.
    *
-   * Defaults to `core`'s own mapping table projected onto this shape — the same derivation
-   * `extension-query-poc.test.ts` uses for the compiler, so the harness and the compiler audit
-   * against the same catalog rather than one of them auditing against none.
+   * Defaults to the built-in table projected through `normalizeExtensionMappings({})` — the same
+   * derivation `extension-query-poc.test.ts` uses for the compiler, so the harness and the compiler
+   * audit against the same catalog rather than one of them auditing against none.
+   *
+   * **The dev harness passes the project's own set**, from `registry.extensionMappings` (#87). A
+   * project row that only exists in `forguncy.config.ts` has no other way to reach this audit, and
+   * a harness auditing against the built-in table alone would report a decision the compiler
+   * accepts as `extension-library-not-verified` — the dev/compiler split this Issue removes.
    *
    * The default matters more than it looks. `auditLockDecisionConformance` reports an **error**
    * (`extension-catalog-missing`) when the catalog is absent, because "the verification step did not

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { CELL_ENTRY_SHAPES, findCellEntryShape } from "@forguncy-react-workspace/core";
+import { CELL_ENTRY_SHAPES, CELL_RUNTIME_BINDING_CONTRACT, findCellEntryShape } from "@forguncy-react-workspace/core";
 
 import {
   CELL_ARTIFACT_DEFAULT_ENTRY_KIND,
   CELL_ENTRY_COMPONENT_BINDING,
   CELL_ENTRY_COMPONENT_PLACEHOLDER,
+  CELL_ENTRY_LIVE_PROPS_PLACEHOLDER,
   CELL_ENTRY_WRAPPER_HOST_NAMES,
   CELL_ENTRY_WRAPPER_SUPPORT,
   JAVASCRIPT_IDENTIFIER_PATTERN,
@@ -187,6 +188,84 @@ describe("rendered entry wrapper", () => {
       expect(rendered.status, kind).toBe("unsupported");
       if (rendered.status !== "unsupported") continue;
       expect(rendered.diagnostics.map(diagnostic => diagnostic.code)).toEqual(["rejected-cell-entry-shape"]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live props (#83)
+// ---------------------------------------------------------------------------
+
+describe("the live-props wrapper a façade-importing artifact needs", () => {
+  it("publishes this call's props into the binding's variable, for every shape that can", () => {
+    // #83's reproduced defect: the provider was built from one `props` snapshot, so every
+    // façade call after a property change answered the first evaluation's values. The wrapper
+    // is now the place a re-render is met, and it has to carry the assignment — an emitted
+    // wrapper without it would leave the binding's reader pointing at a stale value while
+    // every façade check kept passing.
+    for (const kind of expressibleCellEntryKinds()) {
+      const rendered = renderCellEntryWrapper({ entryKind: kind, runtimeBinding: true });
+      if (rendered.status === "unsupported") {
+        // Only the two expression-only shapes may refuse, and the refusal is checked below.
+        expect(["render-call", "top-level-element-variable"], kind).toContain(kind);
+        continue;
+      }
+      expect(rendered.source, kind).toContain(`${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} = `);
+      // The assignment must precede the element, or the binding would read the previous
+      // render's props for exactly the render that changed them.
+      const assignment = rendered.source.indexOf(`${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} = `);
+      const placement = rendered.source.indexOf("React.createElement");
+      expect(assignment, kind).toBeLessThan(placement);
+      // A shape whose live template refuses to mention it would ship a stale artifact.
+      expect(rendered.source, kind).not.toContain(CELL_ENTRY_LIVE_PROPS_PLACEHOLDER);
+    }
+  });
+
+  it("refuses an expression-only shape for a façade-importing artifact, rather than emitting a stale wrapper", () => {
+    // `render-call` and `top-level-element-variable` run once, at artifact evaluation, so
+    // there is no per-render entry to publish props through. Emitting the plain template for
+    // an artifact that imports the façade would be the #83 defect with nothing failing to
+    // reveal it, which is why this is a rejection rather than a silent substitution.
+    for (const kind of ["render-call", "top-level-element-variable"] as const) {
+      const rendered = renderCellEntryWrapper({ entryKind: kind, runtimeBinding: true });
+      expect(rendered.status, kind).toBe("unsupported");
+      if (rendered.status !== "unsupported") continue;
+      // The wording lands in `message` (the factory appends `detail` to `states`), so the
+      // shape is asserted on the value that carries it.
+      expect(rendered.diagnostics.map(diagnostic => diagnostic.code)).toEqual(["rejected-cell-entry-shape"]);
+      expect(rendered.diagnostics[0]?.message ?? "", kind).toContain("#83");
+    }
+  });
+
+  it("emits the plain wrapper by default, so a façade-free artifact carries no free identifier", () => {
+    // The default is load-bearing: the live template names a variable only the generated
+    // binding declares, and a wrapper that assigned to a name nothing declared would throw
+    // `ReferenceError` at the first render. A caller that does not know therefore must get
+    // the plain wrapper.
+    expect(renderCellEntryWrapper()).toEqual(renderCellEntryWrapper({ runtimeBinding: false }));
+    for (const kind of expressibleCellEntryKinds()) {
+      const plain = renderCellEntryWrapper({ entryKind: kind });
+      if (plain.status !== "emitted") continue;
+      expect(plain.source, kind).not.toContain(CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable);
+    }
+  });
+
+  it("keeps the live templates' host names inside the declaration", () => {
+    // The live templates add no host name — they add an artifact-scope *variable*, which is
+    // not a host address. Asserting it here is what keeps a later edit from reaching for a
+    // page global and having the declaration still pass, because the declaration is only
+    // checked against the plain templates.
+    const liveNames = new Set<string>();
+    for (const support of CELL_ENTRY_WRAPPER_SUPPORT) {
+      if (support.livePropsTemplate === undefined) continue;
+      for (const name of ["React", "props", "render"]) {
+        if (new RegExp(`\\b${name}\\b`).test(support.livePropsTemplate.replace(CELL_ENTRY_LIVE_PROPS_PLACEHOLDER, ""))) {
+          liveNames.add(name);
+        }
+      }
+    }
+    for (const name of liveNames) {
+      expect(cellEntryWrapperHostNames("app-function-declaration").includes(name) || cellEntryWrapperHostNames("render-call").includes(name), name).toBe(true);
     }
   });
 });

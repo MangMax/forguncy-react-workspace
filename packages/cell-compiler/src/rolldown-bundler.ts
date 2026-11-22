@@ -55,7 +55,11 @@
 import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
-import type { DependencyDecision, ExtensionExternalDiagnostic } from "@forguncy-react-workspace/core";
+import type {
+  DependencyDecision,
+  ExtensionExternalDiagnostic,
+  NormalizedExtensionMappings,
+} from "@forguncy-react-workspace/core";
 import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
 import {
   rolldown,
@@ -99,6 +103,23 @@ export interface CreateRolldownCellBundlerOptions {
    * builds and two of them cannot contaminate each other.
    */
   readonly dir: string;
+  /**
+   * The project's module-resolution aliases, as `registry.resolve.alias` (#97).
+   *
+   * The second project-scope option, and the distinction from `CellBundlingRequest` is what
+   * makes it one: `dir` is here for the same reason it is — an alias set describes *this
+   * project*, not *this build*, so two builds of one project share it while two projects
+   * cannot contaminate each other. Anything that varies per Cell stays on the request.
+   *
+   * Optional, and the absent state is meaningful rather than a default: omitting it means the
+   * caller stated no aliases, which is what a #6 caller with a bare `CompileCellInput` has. A
+   * default here would be the "implicit second set of defaults" #97 forbids.
+   *
+   * Absolute targets, which is what `normalizeResolveConfig` produces. Rolldown *throws* on a
+   * relative replacement (measured: `resolve.alias: { "@/lib": "./srclib" }` fails the build
+   * outright), so a caller building this map by hand must resolve against `dir` first.
+   */
+  readonly alias?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -110,8 +131,8 @@ export interface CreateRolldownCellBundlerOptions {
  */
 export function createRolldownCellBundler(options: CreateRolldownCellBundlerOptions): CellBundlerPort {
   return {
-    bundle: request => bundleWithRolldown(options.dir, request),
-    resolveEntrySpecifiers: request => resolveEntrySpecifiersWithRolldown(options.dir, request),
+    bundle: request => bundleWithRolldown(options.dir, request, options.alias),
+    resolveEntrySpecifiers: request => resolveEntrySpecifiersWithRolldown(options.dir, request, options.alias),
   };
 }
 
@@ -128,7 +149,10 @@ type Interception =
   | {
       readonly kind: "runtime-binding";
       readonly id: string;
+      /** What authored source wrote, and what the interception matched. */
       readonly facadeSpecifier: string;
+      /** The entry the generated module imports (#124); resolved separately below. */
+      readonly bindingSpecifier: string;
       readonly moduleType: "esm";
     };
 
@@ -171,7 +195,10 @@ interface InterceptionResolver {
  * *callers* do it, through {@link resolveCellSpecifier} — one implementation, two call
  * sites, which is the same rule this function exists to enforce.
  */
-function createInterceptionResolver(decisions: readonly DependencyDecision[]): InterceptionResolver {
+function createInterceptionResolver(
+  decisions: readonly DependencyDecision[],
+  extensionMappings: NormalizedExtensionMappings | undefined,
+): InterceptionResolver {
   // Every bare specifier resolved at all, intercepted or not. This is the set #14's
   // workspace audit traces its closure from, so it must include the ones the plans
   // *did* intercept — a workspace package the host bridge claimed is still a module
@@ -195,7 +222,17 @@ function createInterceptionResolver(decisions: readonly DependencyDecision[]): I
   }
 
   function consultExtensionPlan(referencedSpecifiers: readonly string[]): ExtensionExternalsPlan {
-    const plan = planExtensionExternals({ decisions, referencedSpecifiers });
+    // The project's own set, passed through exactly as #85 normalized it. Never
+    // re-read or re-merged here: a bundler that fell back to `core`'s table while the
+    // caller had project rows would answer a mapped import from the wrong catalog —
+    // and, when the package happened to be installed, silently inline the npm copy
+    // instead. `undefined` is "the caller stated no set", which is the built-in
+    // default, not a licence to skip the plan.
+    const plan = planExtensionExternals({
+      decisions,
+      referencedSpecifiers,
+      ...(extensionMappings === undefined ? {} : { mappings: extensionMappings.mappings }),
+    });
     for (const finding of plan.diagnostics) extensionFindings.set(`${finding.code} ${finding.subject}`, finding);
     return plan;
   }
@@ -221,6 +258,7 @@ function createInterceptionResolver(decisions: readonly DependencyDecision[]): I
         kind: "runtime-binding",
         id: CELL_RUNTIME_BINDING_ID,
         facadeSpecifier: specifier,
+        bindingSpecifier: CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier,
         moduleType: "esm",
       };
     }
@@ -377,6 +415,11 @@ async function resolveCellSpecifier(
     // falls back to the process cwd, and from a directory that has no link to the façade
     // the import goes external, which ships an artifact naming an undefined IIFE
     // parameter.
+    // Two resolutions, because the generated module imports a different entry than the one the
+    // Cell wrote (#124): the authored specifier is the package barrel, and the module this
+    // binding *is* must import the package's production entry. Resolving the barrel and then
+    // importing it is what shipped the local-dev contract into every artifact, so both are
+    // resolved here and the one the binding embeds is `bindingSpecifier`'s.
     const resolvedFacade = await context.resolve(interception.facadeSpecifier, importer, {
       ...options,
       skipSelf: true,
@@ -393,7 +436,16 @@ async function resolveCellSpecifier(
         `The Cell imports "${interception.facadeSpecifier}", which could not be resolved from "${importer ?? "the entry"}", so the generated runtime binding has nothing to install from. Install the façade as a dependency of the project the Cell is compiled in.`,
       );
     }
-    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedFacade.id));
+    const resolvedBinding = await context.resolve(interception.bindingSpecifier, importer, {
+      ...options,
+      skipSelf: true,
+    });
+    if (resolvedBinding === null || resolvedBinding.external === true) {
+      throw new Error(
+        `The Cell imports "${interception.facadeSpecifier}", whose generated runtime binding needs its production entry "${interception.bindingSpecifier}", which could not be resolved from "${importer ?? "the entry"}". The package declares that subpath; a link that does not provide it cannot produce a production Cell artifact.`,
+      );
+    }
+    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedBinding.id));
     return { id: interception.id, moduleType: interception.moduleType };
   }
 
@@ -431,13 +483,14 @@ async function resolveCellSpecifier(
 async function resolveEntrySpecifiersWithRolldown(
   dir: string,
   request: CellResolveRequest,
+  alias: Readonly<Record<string, string>> | undefined,
 ): Promise<readonly string[]> {
   const resolvedEntry = path.resolve(dir, request.entry);
   if (!isRegularFile(resolvedEntry)) {
     throw new Error(`The entry "${request.entry}" does not exist at ${resolvedEntry}.`);
   }
 
-  const resolver = createInterceptionResolver(request.dependencies);
+  const resolver = createInterceptionResolver(request.dependencies, request.extensionMappings);
   const virtualModules = new Map<string, string>();
 
   try {
@@ -445,6 +498,7 @@ async function resolveEntrySpecifiersWithRolldown(
       input: resolvedEntry,
       transform: { jsx: "react-jsx" },
       experimental: { attachDebugInfo: "none" },
+      ...rolldownAliasOptions(alias),
       plugins: [
         {
           name: "cell-compiler-entry-specifier-scan",
@@ -883,7 +937,49 @@ function assertEntryComponentBinding(logs: readonly CapturedLog[], entry: string
   }
 }
 
-async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Promise<BundledCellModule> {
+/**
+ * The `resolve.alias` half of the Rolldown options, or nothing when the project declared none.
+ *
+ * Spread rather than always passing `resolve`, and the difference is a claim rather than
+ * tidiness: an empty `resolve.alias` object is *stated* and means "match nothing", while an
+ * absent `resolve` key means the caller said nothing at all. Collapsing them would make the
+ * compiler's own configuration indistinguishable from a project's, which is the "implicit
+ * default" #97 forbids — and the distinction is observable in the report a reviewer reads,
+ * because `resolve: { alias: {} }` in a diff reads as a decision somebody made.
+ *
+ * ## Why the alias is a build option and not a plugin
+ *
+ * Rolldown offers three ways to do this, and only one keeps the preflight and the build
+ * agreeing — which is the property `resolveCellSpecifier` exists to protect:
+ *
+ * - **`resolve.alias`** (used here) applies inside Rolldown's own resolver, after the plugin
+ *   `resolveId` hooks. Measured: an id the interception hook claims still resolves to the
+ *   interposed module with a matching alias present, so the host bridge and the extension
+ *   externals keep precedence and the alias answers only what they left alone. It also works
+ *   identically under `scan`, which is what the pre-bundle specifier pass runs — measured, and
+ *   that is the fact this whole choice turns on.
+ * - **`viteAliasPlugin`** from `rolldown/experimental` wraps the alias in a plugin. It would
+ *   put a second plugin in both passes' `plugins` arrays, and its ordering against the
+ *   interception hook would be a thing to get right rather than a thing that is right.
+ * - **Rewriting specifiers in this compiler's own `resolveId`** would make this package a
+ *   resolver for aliases, which #6 forbids, and would put the rule in a different place from
+ *   the one the dev server applies.
+ *
+ * The alias set is validated against both engines' rules before it reaches here
+ * (`normalizeResolveConfig`), so the subset that arrives is exactly the subset Vite and
+ * Rolldown agree on.
+ */
+function rolldownAliasOptions(
+  alias: Readonly<Record<string, string>> | undefined,
+): { readonly resolve?: { readonly alias: Readonly<Record<string, string>> } } {
+  return alias === undefined ? {} : { resolve: { alias } };
+}
+
+async function bundleWithRolldown(
+  dir: string,
+  request: CellBundlingRequest,
+  alias: Readonly<Record<string, string>> | undefined,
+): Promise<BundledCellModule> {
   const resolvedEntry = path.resolve(dir, request.entry);
   if (!isRegularFile(resolvedEntry)) {
     // Refused before the build rather than left to the bundler's
@@ -898,7 +994,9 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
   const virtualModules = new Map<string, string>();
   // One resolver, shared with the pre-bundle specifier pass, so the two cannot
   // disagree about what the entry imports — see `createInterceptionResolver`.
-  const resolver = createInterceptionResolver(request.dependencies);
+  // The project's mapping set rides along for the same reason: both passes must
+  // consult the table the caller selected, not `core`'s shipped default.
+  const resolver = createInterceptionResolver(request.dependencies, request.extensionMappings);
   const fallThroughResolutions = resolver.fallThroughResolutions;
   const referencedPackages = resolver.referencedPackages;
   const hostFindings = resolver.hostFindings;
@@ -917,6 +1015,7 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
       },
       transform: { jsx: "react-jsx" },
       experimental: { attachDebugInfo: "none" },
+      ...rolldownAliasOptions(alias),
       plugins: [
         {
           name: "cell-compiler-rolldown-bundler",
@@ -1010,6 +1109,11 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
     inlinedPackageSizes,
     inlinedSpecifiers,
     emittedAssets,
+    // Whether the generated binding made it into this graph. The wrapper needs it to decide
+    // whether it may reference the artifact-scope props variable (#83); the binding module's
+    // id is registered exactly when `resolveCellSpecifier` took its `runtime-binding` arm, so
+    // the presence of the module is the answer rather than a search of the output text.
+    runtimeBindingGenerated: virtualModules.has(CELL_RUNTIME_BINDING_ID),
     // Sorted for a byte-stable report, like every other list here: #7's determinism
     // criterion covers the whole result, and #14's audit orders a closure from this
     // set, so an unordered report would not change the verdict while an unordered

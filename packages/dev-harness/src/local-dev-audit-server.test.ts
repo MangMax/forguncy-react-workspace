@@ -7,8 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createServer } from "vite";
 
+import { createEmptyFgcLock, RUNTIME_CONTRACT_TARGET } from "@forguncy-react-workspace/core";
 import type { LockedDependencyDecision, ToolchainIdentity } from "@forguncy-react-workspace/core";
-import { createEmptyFgcLock } from "@forguncy-react-workspace/core";
 import { readToolchainIdentity } from "@forguncy-react-workspace/dependency-resolver/local";
 
 import { readProjectDependencyDecisions } from "./local-dev-audit.ts";
@@ -91,8 +91,8 @@ function extensionDecision(packageName: string, probedWith: ToolchainIdentity): 
     probe: { status: "passed", fingerprint: "probe=inline-bundle;entry=x", versionIndependent: false },
     target: {
       product: "Forguncy",
-      productVersion: "12.0.100.0",
-      productBuild: "12.0.100.0+3d6e56feb0e449ed1cc71cc44d9f34060a06f623",
+      productVersion: RUNTIME_CONTRACT_TARGET.productVersion,
+      productBuild: RUNTIME_CONTRACT_TARGET.productBuild,
       hostReactVersion: "19.2.7",
     },
     probedWith,
