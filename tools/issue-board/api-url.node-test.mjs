@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeRepoApiUrl } from './api-url.mjs';
-const base = 'https://api.github.com/repos/Mang-X/forguncy-react-workspace/';
+const base = 'https://api.github.com/repos/MangMax/forguncy-react-workspace/';
+const legacyBase = 'https://api.github.com/repos/Mang-X/forguncy-react-workspace/';
 const idBase = 'https://api.github.com/repositories/1372808235/';
 test('named repository pagination preserves query and canonical address', () => {
   const url = base + 'issues?state=all&per_page=100&page=2';
   assert.equal(normalizeRepoApiUrl(url), url);
+  assert.equal(normalizeRepoApiUrl(legacyBase + 'issues?state=all&per_page=100&page=2'), url);
 });
 test('GitHub numeric repository Link uses the same canonical request key', () => {
   assert.equal(normalizeRepoApiUrl(idBase+'issues?page=2'), base+'issues?page=2');
@@ -19,7 +21,7 @@ test('repository owner and name casing canonicalize consistently', () => {
   assert.equal(normalizeRepoApiUrl(base.toLowerCase()+'issues?page=2'), base+'issues?page=2');
 });
 test('cross-repository and lookalike repository paths are refused', () => {
-  for (const url of [base.replace('Mang-X','Other')+'issues',base.replace('workspace/','workspace-evil/')+'issues','https://api.github.com/repos/Mang-X/forguncy-react-workspace/../other/issues']) assert.throws(() => normalizeRepoApiUrl(url));
+  for (const url of [base.replace('MangMax','Other')+'issues',base.replace('workspace/','workspace-evil/')+'issues','https://api.github.com/repos/MangMax/forguncy-react-workspace/../other/issues']) assert.throws(() => normalizeRepoApiUrl(url));
 });
 test('untrusted origins, credentials, nonstandard ports and fragments are refused', () => {
   for (const url of [base.replace('https:', 'http:'),base.replace('api.github.com','api.github.com.evil.test'),base.replace('api.github.com','user:password@api.github.com'),base.replace('api.github.com','api.github.com:8443'),base+'issues#fragment']) assert.throws(() => normalizeRepoApiUrl(url));

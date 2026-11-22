@@ -160,5 +160,5 @@ test('handoff includes start and acceptance conditions, environment and original
 test('same input produces the same graph and no source Issue mutation',()=>{
   const items=[item(82),item(83,{depends:[82]})],before=JSON.stringify(items);
   const a=model(...items),b=model(...items);
-  assert.deepEqual(a.edges,b.edges);assert.equal(JSON.stringify(items),before);assert.equal(REPO,'Mang-X/forguncy-react-workspace');
+  assert.deepEqual(a.edges,b.edges);assert.equal(JSON.stringify(items),before);assert.equal(REPO,'MangMax/forguncy-react-workspace');
 });

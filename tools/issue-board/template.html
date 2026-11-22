@@ -21,17 +21,17 @@
 <body>
 <div class="shell">
   <aside class="sidebar">
-    <a class="brand" href="https://github.com/Mang-X/forguncy-react-workspace" target="_blank" rel="noopener noreferrer"><span class="brand-icon">f<span>↗</span></span><span>Forguncy<span class="brand-sub">开发协作台</span></span></a>
+    <a class="brand" href="https://github.com/MangMax/forguncy-react-workspace" target="_blank" rel="noopener noreferrer"><span class="brand-icon">f<span>↗</span></span><span>Forguncy<span class="brand-sub">开发协作台</span></span></a>
     <div class="space-label">WORKSPACE <span>01</span></div>
-    <div class="repo-card"><span class="repo-mark">M</span><div><strong>Mang-X</strong><small>forguncy-react-workspace</small></div></div>
+    <div class="repo-card"><span class="repo-mark">M</span><div><strong>MangMax</strong><small>forguncy-react-workspace</small></div></div>
     <div class="space-label section-label">工作视图</div>
     <nav aria-label="工作视图" id="views"><button class="nav-item active" data-view="graph"><span>◇</span>依赖图谱 <kbd>G</kbd></button><button class="nav-item" data-view="queue"><span>☷</span>任务列表 <kbd>L</kbd></button><button class="nav-item" data-view="warnings"><span>△</span>依赖诊断 <b id="warning-count">0</b></button></nav>
     <div class="space-label section-label">任务状态 <button class="clear-small" id="clear-filters">重置</button></div>
     <nav id="statuses" aria-label="状态筛选"></nav>
-    <div class="sidebar-bottom"><span class="source-dot"></span><strong>GitHub 是唯一事实来源</strong><p>Spec 在 Issue，实现在 PR。<br>本机分配备忘不修改 GitHub。</p><a href="https://github.com/Mang-X/forguncy-react-workspace/issues/81" target="_blank" rel="noopener noreferrer">查看本轮 Epic #81 ↗</a></div>
+    <div class="sidebar-bottom"><span class="source-dot"></span><strong>GitHub 是唯一事实来源</strong><p>Spec 在 Issue，实现在 PR。<br>本机分配备忘不修改 GitHub。</p><a href="https://github.com/MangMax/forguncy-react-workspace/issues/81" target="_blank" rel="noopener noreferrer">查看本轮 Epic #81 ↗</a></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div class="breadcrumbs"><span>Mang-X</span><span class="slash">/</span><strong>forguncy-react-workspace</strong><span class="badge neutral">公开仓库</span></div><div class="top-actions"><span id="sync-status" role="status" aria-live="polite">尚未同步</span><button id="refresh" class="button small"><span id="refresh-icon">↻</span> 同步 GitHub</button></div></header>
+    <header class="topbar"><div class="breadcrumbs"><span>MangMax</span><span class="slash">/</span><strong>forguncy-react-workspace</strong><span class="badge neutral">公开仓库</span></div><div class="top-actions"><span id="sync-status" role="status" aria-live="polite">尚未同步</span><button id="refresh" class="button small"><span id="refresh-icon">↻</span> 同步 GitHub</button></div></header>
     <main>
       <div class="page-heading"><div><div class="eyebrow">PROJECT DELIVERY / ISSUE → PR</div><h1>把审计结论变成可执行任务<span class="heading-dot">.</span></h1><p>开工前置、最终验收、人工暂停分别显示；GitHub 变化后自动推导下一步。</p></div><div class="heading-actions"><button class="button" id="import-assignments">导入旧分配</button><input type="file" id="assignments-file" accept="application/json" hidden><button class="button" id="export-assignments">导出分配</button><button class="button primary" id="copy-ready">复制待分配任务 <span>↗</span></button></div></div>
       <div class="scope-bar"><label>查看范围 <select id="scope-filter"><option value="round">本轮审计整改</option><option value="all">全仓所有 Issue</option></select></label><label>工作流 <select id="track-filter"><option value="">所有工作流</option></select></label><label class="optional-switch"><input type="checkbox" id="hide-optional">暂不看可选 P2</label><button class="button primary small" id="ready-now">查看可立即分配 ↗</button><span id="scope-description"></span></div>

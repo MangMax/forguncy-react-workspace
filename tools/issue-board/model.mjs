@@ -1,5 +1,6 @@
 // Issue #103. No network or persistent state: GitHub data in, derived view out.
-export const REPO = 'Mang-X/forguncy-react-workspace';
+export const REPO = 'MangMax/forguncy-react-workspace';
+const SAME_REPO_SLUGS = new Set([REPO.toLowerCase(), 'mang-x/forguncy-react-workspace']);
 export const STATUS = {ready:'可开始',blocked:'等待前置',active:'进行中',done:'已完成',cancelled:'未采纳',closed:'关闭原因未知',review:'依赖数据异常',paused:'明确暂停',gate:'可准备验收',epic:'计划总览'};
 export const TRACKS = {runtime:'Runtime 装配',extension:'项目扩展',esm:'ESM 支持',skill:'Skill 操作',sync:'同步恢复',cache:'缓存与证据',build:'构建与资源',consumer:'消费方体验',ci:'测试与 CI',board:'依赖看板',validation:'验收 Gate',cleanup:'可选收敛',integration:'整改计划',overview:'项目总览',legacy:'历史任务'};
 export const labelsOf = issue => (issue.labels || []).map(label => typeof label === 'string' ? label : label.name).filter(Boolean);
@@ -16,7 +17,7 @@ export function references(text, repo = REPO) {
     // PR references are provenance, not an Issue dependency.
     if (/\b(?:PR|pull\s+request)\s*$/i.test(text.slice(Math.max(0,match.index-25),match.index))) continue;
     const other=match[1]||match[3], number=Number(match[2]||match[4]||match[5]);
-    const id=other&&other.toLowerCase()!==repo.toLowerCase()?`${other}#${number}`:number;
+    const id=other&&other.toLowerCase()!==repo.toLowerCase()&&!(repo===REPO&&SAME_REPO_SLUGS.has(other.toLowerCase()))?`${other}#${number}`:number;
     if(!out.includes(id))out.push(id);
   }
   return out;

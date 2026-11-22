@@ -10,7 +10,7 @@ const here=dirname(fileURLToPath(import.meta.url));
 test('export is deterministic and hostile Issue text cannot terminate the JSON script',async()=>{
   const dir=await mkdtemp(join(tmpdir(),'fgc-board-'));
   try{
-    const snapshot={schemaVersion:2,repo:'Mang-X/forguncy-react-workspace',fetchedAt:'2026-09-26T00:00:00Z',records:[{number:1,title:'</script><img src=x onerror="window.pwned=1">',body:'<script>evil()</script>\u2028',state:'open',labels:[]}],native:{},incomplete:[]};
+    const snapshot={schemaVersion:2,repo:'MangMax/forguncy-react-workspace',fetchedAt:'2026-09-26T00:00:00Z',records:[{number:1,title:'</script><img src=x onerror="window.pwned=1">',body:'<script>evil()</script>\u2028',state:'open',labels:[]}],native:{},incomplete:[]};
     const input=join(dir,'snapshot.json'),a=join(dir,'a.html'),b=join(dir,'b.html');await writeFile(input,JSON.stringify(snapshot));
     for(const out of [a,b]){const result=spawnSync(process.execPath,[join(here,'build.mjs'),input,out],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);}
     const html=await readFile(a,'utf8');assert.equal(html,await readFile(b,'utf8'));
