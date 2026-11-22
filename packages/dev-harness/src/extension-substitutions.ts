@@ -93,6 +93,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { extensionMappingForPackage } from "@forguncy-react-workspace/core";
+import type { ExtensionExternalMapping } from "@forguncy-react-workspace/core";
 import type { LocalDevExtensionChoice } from "@forguncy-react-workspace/runtime";
 
 import { LocalHostResolutionError } from "./host-modules.ts";
@@ -314,11 +315,26 @@ export function resolveChoiceTarget(
  * `unmatched` is required rather than optional, and the signature is the reason: an optional
  * parameter would let a caller wire substitutions from choices alone and silently reinstate the
  * defect, which is what the first version of this function did.
+ *
+ * ## Why the mapping table is an argument (#87)
+ *
+ * A choice names a package, and "does an extension mapping intercept it" decides whether the
+ * choice means anything at all. The table that answers that is the project's *normalized set*
+ * (`registry.extensionMappings`), not `core`'s built-in table: a project row is exactly how a
+ * custom extension becomes interceptable without editing `core`, so defaulting the lookup to the
+ * built-in table made the harness refuse a choice for a package the compiler resolves through the
+ * project's own row — with a message ("the extension mapping table does not intercept that
+ * package") that was false about the project the developer had open.
+ *
+ * `mappings` is required for the same reason `unmatched` is: an optional table would let a caller
+ * fall back to the built-in one and reintroduce the refusal silently. A caller with no registry
+ * passes `[]` — a project that declared no rows — rather than omitting the argument.
  */
 export function extensionSubstitutions(
   choices: readonly LocalDevExtensionChoice[],
   projectRoot: string,
   unmatched: readonly string[],
+  mappings: readonly ExtensionExternalMapping[],
 ): readonly ExtensionSubstitution[] {
   const substitutions: ExtensionSubstitution[] = [];
   const unmatchedPackages = new Set(unmatched);
@@ -331,14 +347,14 @@ export function extensionSubstitutions(
       continue;
     }
 
-    if (extensionMappingForPackage(choice.packageName) === undefined) {
+    if (extensionMappingForPackage(choice.packageName, mappings) === undefined) {
       // The compiler refuses this too (`extension-mapping-missing`): a decision for a package the
       // table cannot bind would compile to a global nothing publishes. Thrown rather than skipped,
       // because skipping would leave the id resolving through npm — the outcome the choice exists
       // to prevent.
       throw new ExtensionSubstituteError(
         choice.packageName,
-        `The project declared a local choice for "${choice.packageName}", and the extension mapping table does not intercept that package, so there is no extension for a substitute to stand in for.`,
+        `The project declared a local choice for "${choice.packageName}", and none of this project's ${mappings.length} extension mapping row(s) intercepts that package, so there is no extension for a substitute to stand in for. Declare a row for it under \`extensions.mappings\` in forguncy.config.ts (Issue #85), or delete the choice.`,
       );
     }
 

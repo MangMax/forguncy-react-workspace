@@ -123,11 +123,19 @@ node $S status --project $W
 node $S record --project <projectRoot> --runtime-smoke ./hook.mjs --decision decision.json
 ```
 
-`extension` 决策会被拿去和已验证扩展目录比对；用真实清单覆盖默认目录：
+`extension` 决策会被拿去和已验证扩展目录比对。**默认目录是该项目的映射集**：`--project`
+所指目录 `forguncy.config.ts` 里 `extensions.mappings` 声明、并经与编译器同一个出口规范化的行，
+所以项目自己声明的自定义扩展在这里与内置扩展同等可校验，无需改仓库源码（#87）。
+用真实清单覆盖它：
 
 ```bash
+# 项目根的 forguncy.config.ts 已声明该扩展时，不需要这个 flag
 node $S record --project <projectRoot> --extension-catalog listing.json --decision decision.json
 ```
+
+清单只确认身份，不建立"哪个 npm 包由哪个扩展提供"的关系——那条关系只写在声明的映射行里。
+缺 bundle / types 的修复者是扩展包，global 对不上的修复者是映射行，拒绝里会带上对应的
+`fix owner`。
 
 `audit` 与 `record` 跑**同一套**检查，凡是 `record` 能靠**读取**判定并拒绝的条件都在其中：
 

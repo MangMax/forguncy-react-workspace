@@ -801,6 +801,56 @@ describe("executing a batch of declared Cells", () => {
     ).rejects.toThrow();
     expect(calls).toEqual([]);
   });
+
+  it("verifies the artifact against the registry's extension rows, with no `mappings` supplied (#87)", async () => {
+    // The executor's batch path is the one that has a registry, so it is where the
+    // `registry.extensionMappings` default is observable: a caller names Cells and artifacts
+    // and nothing about mappings, and a custom project extension is still verified rather than
+    // refused. The port's listing is the project's own answer for that library.
+    const custom = { packageName: "@acme/widgets", libraryId: "acme-widgets", globalName: "AcmeWidgets" };
+    const customRegistry = createCellRegistry(
+      {
+        runtime: { forguncyVersion: "12.0.100", projectAlias: "sync-executor" },
+        extensions: {
+          mappings: [
+            {
+              ...custom,
+              metadataSource: "verified-catalog",
+              metadataReference: "MangMax/forguncy-react-library#acme-widgets",
+              verificationRule: "A verified catalog entry whose id and global the listing confirms.",
+              verifiedBy: ["product-documentation"],
+              note: "A project row, which the built-in table does not carry.",
+            },
+          ],
+        },
+        cells: {
+          orderList: { entry: "cells/orderList/App.tsx", target: { pageName: "销售订单", cell: "A1" } },
+        },
+      },
+      { root: PROJECT_ROOT, requireEntryFiles: false },
+    );
+
+    const artifact: CompileCellResult = {
+      code: `${CELL_ARTIFACT_BANNER}\n${CODE_BODY}`,
+      frontendLibraries: [frontendLibraryReference(custom.libraryId)],
+    };
+    const { port, written } = recordingPort({
+      listings: [{ id: custom.libraryId, globalName: custom.globalName }],
+    });
+
+    const [run] = await executeCellSyncTargets(customRegistry, [
+      {
+        cellId: "orderList",
+        artifact,
+        decisions: [{ strategy: "extension", packageName: custom.packageName, libraryId: custom.libraryId, globalName: custom.globalName }],
+        port,
+      },
+    ]);
+
+    expect(run?.status).toBe("written");
+    expect(written).toHaveLength(1);
+    expect(run?.plan.extensionVerification.diagnostics).toEqual([]);
+  });
 });
 
 

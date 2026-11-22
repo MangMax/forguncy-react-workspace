@@ -128,6 +128,7 @@ export {
   formatLocalDecisionProjection,
   installedVitePlusToolchain,
   LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS,
+  normalizeBuiltinExtensionCatalog,
   projectLocalDecisions,
 } from "./local-decision-projection.ts";
 export type { LocalDecisionProjection, WithheldLocalDecision } from "./local-decision-projection.ts";

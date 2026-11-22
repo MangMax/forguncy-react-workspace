@@ -155,6 +155,15 @@ export function syncCellInput(
 export interface CellSyncTargetPlan extends Pick<PlanCellSyncOptions, "artifact" | "decisions" | "deployed"> {
   readonly cellId: string;
   readonly listings?: PlanCellSyncOptions["listings"];
+  /**
+   * An explicit override for the extension mapping table.
+   *
+   * Omitted — the normal case, and the only one the batch executor accepts — means the registry's
+   * own normalized set (#87), so the sync audits the rows the artifact was compiled against. A
+   * value here is for a caller verifying against a table it deliberately pins; it is never
+   * required, and supplying `core`'s built-in table in a project that declared rows re-creates
+   * the "custom extension invisible at sync" defect #87 removes.
+   */
   readonly mappings?: PlanCellSyncOptions["mappings"];
   readonly overwrite?: PlanCellSyncOptions["overwrite"];
 }
@@ -188,7 +197,15 @@ export function planCellSyncTargets(
       decisions: plan.decisions,
       deployed: plan.deployed,
       ...(plan.listings === undefined ? {} : { listings: plan.listings }),
-      ...(plan.mappings === undefined ? {} : { mappings: plan.mappings }),
+      // The project's own mapping set (#87), unless the caller supplied one explicitly.
+      //
+      // `registry.extensionMappings` is the single normalization exit #85 built and #86 threaded
+      // into the compiler, so this is the *same* set `compileCell` planned from — the artifact
+      // being synced was produced against these rows. Falling back to `core`'s built-in table here
+      // was the sync-side half of #87's defect: a custom project extension compiled cleanly and
+      // then could not be bound to an interception at the write boundary
+      // (`extension-decision-unusable`), refusing a Cell the compile had accepted.
+      mappings: plan.mappings ?? registry.extensionMappings.mappings,
       ...(plan.overwrite === undefined ? {} : { overwrite: plan.overwrite }),
     });
   });
