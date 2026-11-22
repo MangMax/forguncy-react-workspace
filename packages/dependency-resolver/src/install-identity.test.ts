@@ -1826,6 +1826,33 @@ describe("#94: an install state that cannot be established is explicitly unknown
     expect(plain).not.toBeNull();
   });
 
+  it("ignores an unrelated ancestor lockfile that owns no install of its own", async () => {
+    // #95, found while verifying the cache on a developer machine. An ancestor lockfile that has no
+    // `node_modules` of its own cannot own a nearer project's entries — that is already the rule the
+    // single-claim path applies — but counting every ancestor claim before applying it made the
+    // project `unknown` because of a file that is not the project's: measured, a stray 81-byte
+    // `~/package-lock.json` made every project under that home report an all-null install graph, so
+    // #94's identity (and #95's invalidation, which reads it) was silently disabled with no
+    // project-side fix.
+    //
+    // `installedTree` stays null here because this fixture writes no manager record; the assertion is
+    // about the *lockfile* claim being usable, which is the part the stray ancestor used to suppress.
+    const carried = await withProject(async root => {
+      const outer = join(root, "outer");
+      const projectRoot = join(outer, "project");
+      await project(projectRoot, { transitiveVersion: "1.0.0" });
+      // The unrelated ancestor: a lockfile and an install of its own, neither of which describes the
+      // project's tree.
+      await writeFileAt(join(outer, "package-lock.json"), JSON.stringify({ name: "outer", packages: {} }));
+      await install(outer, "unrelated", { name: "unrelated", version: "1.0.0" });
+      return readInstallGraphIdentity(projectRoot);
+    });
+
+    expect(carried.lockfile).not.toBeNull();
+    expect(carried.patches).not.toBeNull();
+    expect(carried.configuration).not.toBeNull();
+  });
+
   it("is unknown when a nested project carries a leftover lock the workspace root also has", async () => {
     // PR #114 review round 2, P1. A lockfile's *presence* is not proof that it owns the install this
     // project resolves in. Measured: a workspace member holding a leftover `package-lock.json`, with

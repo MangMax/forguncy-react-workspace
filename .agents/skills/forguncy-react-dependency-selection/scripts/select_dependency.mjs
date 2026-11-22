@@ -877,7 +877,7 @@ async function runProbe(options, packageName, cellTarget, imports) {
  * strategy is deliberately absent: #16 puts that choice on the Agent.
  */
 function probePayload({ projectRoot, result, evidencePath }) {
-  const { report, assessment, fingerprint, lockStatus, fromCache, cacheRelativePath } = result;
+  const { report, assessment, fingerprint, lockStatus, fromCache, cache, cacheRelativePath } = result;
   return {
     command: "probe",
     projectRoot,
@@ -892,6 +892,11 @@ function probePayload({ projectRoot, result, evidencePath }) {
     lockStatus,
     fingerprint,
     fromCache,
+    // Why the cache answered or did not (#95). `fromCache` alone collapses "no report has ever
+    // been stored", "`--no-cache` said do not ask" and "the install graph moved under an unchanged
+    // root version" into one `false`; the reason is what makes an invalidation readable in a
+    // report or a PR. `outcome: "disabled"` is the only state in which no cache was read.
+    cache,
     // The address a lock would cite for this report. Reported instead of the engine's
     // `cacheRelativePath`, which is a *cache* entry — it can be evicted or overwritten by any
     // other run under the same fingerprint, so it is not what evidence should point at.
@@ -2054,6 +2059,12 @@ async function commandRecord(options) {
       lockPath: resolver.fgcLockPath(projectRoot),
       record,
       freshness: core.assessLockDecision(record, environment),
+      // The probe half of the same answer: whether the measurement this record cites was reused or
+      // re-executed, and — when it was re-executed because a stored one could not answer — which
+      // input had moved (#95). A `record` whose probe merely missed for `no-cached-report` is an
+      // ordinary first measurement; one that missed for `install-graph-changed` is a tree that
+      // moved under the decision, which is the fact a reviewer needs.
+      probeCache: probeResult === null ? null : probeResult.cache,
       runtimeValidation: runtimeValidationOf(entry.document, probe),
       // What evidence this write produced, so a caller can see whether it has a new file to
       // commit — the answer is `created: true` on the first record of a report, and

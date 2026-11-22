@@ -208,16 +208,25 @@ describe("CLI contract: a recorded probe link resolves to real evidence", () => 
       const probed = await cli(["probe", "--project", root, "--no-cache", "es-toolkit"]);
       expect(probed.code, probed.stderr).toBe(0);
 
-      const report = json<{ evidencePath: string }>(probed);
+      const report = json<{
+        evidencePath: string;
+        fromCache: boolean;
+        cache: { outcome: string; reason: string | null };
+      }>(probed);
       expect(report.evidencePath.startsWith("fgc-evidence/")).toBe(true);
       expect(existsSync(join(root, ...report.evidencePath.split("/"))), "probe must not write evidence").toBe(false);
+      // #95: `--no-cache` is a third state, not "a miss". It never reads the cache, so it can
+      // neither hit nor be invalidated, and the payload has to say that rather than reporting a
+      // miss a caller might read as "something changed".
+      expect(report.fromCache).toBe(false);
+      expect(report.cache).toMatchObject({ outcome: "disabled", reason: null });
     });
   }, CASE_TIMEOUT_MS);
 
   it("does not let a hook-bearing report answer a later hookless run", async () => {
     // The reason the engine declines to cache a hook-bearing report. Writing one is now
     // deliberate, so this pins the guarantee that makes it safe: the refusal lives in
-    // `cacheHitAnswersThisRun`, on the read side.
+    // `cacheInvalidationReason`, on the read side.
     await withScratch(PROVING_CASES, async root => {
       const hookDirectory = await mkdtemp(join(tmpdir(), "fgc-cli-hook-"));
       const hook = join(hookDirectory, "hook.mjs");
@@ -1269,12 +1278,15 @@ describe("CLI contract: cited evidence travels with the lock", () => {
 
         const after = await cli(["status", "--project", root]);
         expect(after.code, "a missing citation is actionable").not.toBe(0);
-        const afterRecord = json<{ decisions: readonly { freshness: string; blockers: readonly string[]; unresolvedEvidence: readonly string[] }[] }>(after).decisions[0]!;
+        const afterRecord = json<{ decisions: readonly { freshness: string; stalenessReasons: readonly string[]; blockers: readonly string[]; unresolvedEvidence: readonly string[] }[] }>(after).decisions[0]!;
 
         expect(afterRecord.unresolvedEvidence).toEqual([reference]);
         expect(afterRecord.blockers).toContain(`evidence-missing:${reference}`);
         // The point of the finding: freshness alone would have said this record was fine.
-        expect(afterRecord.freshness).toBe("fresh");
+        expect(
+          afterRecord.freshness,
+          `unexpected staleness: ${afterRecord.stalenessReasons.join(", ")}`,
+        ).toBe("fresh");
       } finally {
         await hook.cleanup();
         await decision.cleanup();
