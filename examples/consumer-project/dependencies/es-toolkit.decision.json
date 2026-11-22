@@ -1,0 +1,12 @@
+{
+  "packageName": "es-toolkit",
+  "role": "cell-local-ui",
+  "strategy": "inline",
+  "rationale": "es-toolkit is a browser-first ESM utility library with no shared module identity to preserve: nothing in the page reads a copy of it, so bundling its own code into each Cell is the correct resolution and the Cell carries no `frontendLibraries` reference.",
+  "evidence": [
+    {
+      "kind": "spec-issue",
+      "reference": "https://github.com/MangMax/forguncy-react-workspace/issues/10"
+    }
+  ]
+}

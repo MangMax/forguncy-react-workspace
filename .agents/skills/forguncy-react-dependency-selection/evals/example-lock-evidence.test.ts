@@ -98,9 +98,32 @@ type ExampleEvidence =
       /** `historical-real-runtime` means it names a build this machine cannot re-validate. */
       readonly status: "historical-real-runtime" | "current";
       readonly rationale: string;
+    }
+  | {
+      /**
+       * The example selects dependencies, and deliberately commits the *input* to `record` rather
+       * than the record itself.
+       *
+       * `installedTree`, `install-graph-*` and the Node that ran a probe are all part of a record's
+       * identity, and this repository's own tool runs write caches under `node_modules` — so a
+       * committed record would be stale after the first `vp test` on the machine that recorded it,
+       * while claiming to be a measurement. The classification exists so that choice is stated and
+       * checked rather than left as an absence a reader cannot distinguish from "nobody recorded
+       * anything".
+       */
+      readonly kind: "per-machine-record";
+      /** The decision file `record` consumes, project-relative. It must exist. */
+      readonly decisionInput: string;
+      readonly rationale: string;
     };
 
 const EXAMPLE_INVENTORY: Readonly<Record<string, ExampleEvidence>> = {
+  "consumer-project": {
+    kind: "per-machine-record",
+    decisionInput: "dependencies/es-toolkit.decision.json",
+    rationale:
+      "The consumer entrypoint's example (#99). Its one recorded decision is the `inline` es-toolkit package; the lock is produced by `pnpm record` and is not committed, because a record's `probedWith.installGraph` digests the install tree — including the caches this repository's own `vp` runs write under `node_modules` — so a committed record would report `install-graph-changed` after any test run on the recording machine. The committed decision *input* is the reviewable half: the strategy and its reason, with the measurement left to the command that can reproduce it.",
+  },
   "dev-harness": {
     kind: "none",
     rationale:
@@ -289,9 +312,11 @@ describe("the example lock/evidence inventory", () => {
   it("classifies every example, so a new lock cannot go unclassified", () => {
     expect(exampleDirectories).toEqual(Object.keys(EXAMPLE_INVENTORY).sort());
 
-    // What the classification controls: an example either has a committed lock and is
-    // `recorded`, or has none and says why. A lock under an example classified `none` is
-    // exactly the drift this suite exists to stop.
+    // What the classification controls: an example either has a committed lock, or has none and
+    // says why. A lock under an example classified anything but `recorded` is exactly the drift
+    // this suite exists to stop — and so is a `per-machine-record` example that commits neither an
+    // input nor a lock, because then the example selects a package and nothing in the repository
+    // lets a reader reproduce it.
     for (const directory of exampleDirectories) {
       const classified = EXAMPLE_INVENTORY[directory];
       const hasLock = existsSync(lockPathOf(directory));
@@ -302,6 +327,13 @@ describe("the example lock/evidence inventory", () => {
         existsSync(join(exampleRoot(directory), "fgc-evidence")),
         `${directory}: an unreferenced fgc-evidence/ must be classified`,
       ).toBe(classified?.kind === "recorded");
+
+      if (classified?.kind === "per-machine-record") {
+        expect(
+          existsSync(join(exampleRoot(directory), ...classified.decisionInput.split("/"))),
+          `${directory}: the committed decision input "${classified.decisionInput}" is absent, so nothing states what the example selects`,
+        ).toBe(true);
+      }
     }
   });
 

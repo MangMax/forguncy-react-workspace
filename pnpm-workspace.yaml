@@ -6,6 +6,10 @@ packages:
   # glob here rather than one more entry in `examples/*` keeps the PoC's shared
   # source inside the PoC that consumes it.
   - examples/workspace-package/packages/*
+  # The consumer example (#99) ships one shared UI package for the same reason: a
+  # business project's `@app/*` package has to be a real workspace edge the compiler
+  # walks, not a path rewrite the example invents.
+  - examples/consumer-project/packages/*
 
 allowBuilds:
   esbuild: true

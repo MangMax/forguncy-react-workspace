@@ -1,0 +1,12 @@
+# The lock and its evidence are this machine's measurement (#94):
+#
+# `probedWith.installGraph` digests the installed tree, and this repository's own
+# `vp dev` / `vp test` runs write caches under `node_modules`. A committed record
+# therefore reported `install-graph-changed` as soon as it was exercised on the
+# machine that recorded it — a measurement presented as project state.
+#
+# `dependencies/es-toolkit.decision.json` is the committed half; `pnpm record`
+# produces the rest. Ignoring both keeps a fresh clone and a worked checkout
+# byte-identical, which is what makes a diff mean something.
+fgc.lock.json
+fgc-evidence/

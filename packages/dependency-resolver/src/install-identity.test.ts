@@ -1559,6 +1559,56 @@ describe("#94: identity comes from the install graph, not from a declaration", (
     expect(nested.member.patches).not.toBeNull();
   });
 
+  it("attributes a workspace source link, so a member with a shared package is not reported unknown", async () => {
+    // #99's consumer example has a shared `@app/consumer-ui` package, and pnpm links it into the
+    // example's `node_modules` as a symlink whose realpath is `<root>/examples/consumer-project/
+    // packages/consumer-ui` — *outside* the root's `node_modules`. The attribution check read that
+    // as "a tree this lockfile does not describe", so every record in a workspace member with a
+    // shared package reported `install-graph-unknown` and could never be judged fresh. Measured on
+    // this repository's own `examples/dev-harness`, `runtime-facade`, `workspace-package` and
+    // `consumer-project`; `inline-es-toolkit`, which has no workspace dependency, was unaffected.
+    //
+    // The shape below is pnpm's: a symlink to workspace source beside a symlink into the root's
+    // store. Only the first is new; the second is attributable by the ordinary rule, and keeping it
+    // in the fixture is what stops the case from passing merely because nothing was examined.
+    await withProject(async root => {
+      await project(root);
+      await writeFileAt(
+        join(root, "examples", "consumer-project", "packages", "consumer-ui", "package.json"),
+        JSON.stringify({ name: "@app/consumer-ui", version: "0.0.0" }),
+      );
+      const member = join(root, "examples", "consumer-project");
+      await writeFileAt(join(member, "package.json"), JSON.stringify({ name: "@examples/consumer", version: "0.0.0" }));
+      await mkdir(join(member, "node_modules", "@app"), { recursive: true });
+      await symlink(
+        join(root, "examples", "consumer-project", "packages", "consumer-ui"),
+        join(member, "node_modules", "@app", "consumer-ui"),
+        "junction",
+      );
+      await symlink(join(root, "node_modules", "a"), join(member, "node_modules", "a"), "junction");
+
+      const memberIdentity = await readInstallGraphIdentity(member);
+      expect(memberIdentity.lockfile).not.toBeNull();
+      expect(memberIdentity).toEqual(await readInstallGraphIdentity(root));
+    });
+  });
+
+  it("still refuses a nearer real directory as a different install", async () => {
+    // The counterpart to the case above: the relaxation is for *symlinked workspace source* only.
+    // A real package directory in a nearer tree is a separate install that no ancestor lockfile
+    // describes — the defect the attribution check exists for — and it must stay unattributable.
+    await withProject(async root => {
+      await project(root);
+      const nested = join(root, "nested");
+      await writeFileAt(join(nested, "package.json"), JSON.stringify({ name: "nested", version: "0.0.0" }));
+      await writeFileAt(
+        join(nested, "node_modules", "own-package", "package.json"),
+        JSON.stringify({ name: "own-package", version: "1.0.0" }),
+      );
+      expect((await readInstallGraphIdentity(nested)).lockfile).toBeNull();
+    });
+  });
+
   it("digests pnpm @file+ store slots by content even when .modules.yaml omits injectedDeps", async () => {
     // Regression caught on Linux CI (#95): pnpm 9/10 materializes standalone `file:` dependencies
     // into `.pnpm/<name>@file+<path>` without always recording them under `injectedDeps` in

@@ -1,0 +1,69 @@
+{
+  "name": "@examples/consumer-project",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "//": [
+    "The minimal ordinary business project #99 asks a new Agent to be able to work in: project",
+    "source, `forguncy.config.ts`, the Skill and an authorized MCP connection, and nothing else.",
+    "",
+    "The dependency list is deliberate, and each entry is a fact about how this Cell is built:",
+    "",
+    "- `@app/consumer-ui` is a workspace package imported by name. The compiler flattens its source",
+    "  into the Cell artifact (#14), so it is *source* rather than a runtime module and never",
+    "  receives a dependency decision or appears in `frontendLibraries`.",
+    "- `@forguncy-react-workspace/runtime` is the façade the Cell calls for data, permissions and",
+    "  commands (#27/#82). It is also flattened, so the same source works under `vp dev` and in the",
+    "  compiled artifact with no branch.",
+    "- `es-toolkit` is the installed ESM package decided `inline` (#10): the compiler bundles the",
+    "  package's own code, and the decision is recorded in `fgc.lock.json` by the Skill's `record`",
+    "  rather than committed here (see `dependencies/es-toolkit.decision.json` and the README).",
+    "",
+    "`react` is deliberately NOT a dependency: it is decided `host`, the host bridge intercepts the",
+    "specifier before Node resolution runs, and installing it would be a silent escape hatch for a",
+    "broken interception — the rule `examples/host-antd/package.json` records at length.",
+    "",
+    "`vite-plus` and `dev-harness` are devDependencies because they are what `vp dev` assembles;",
+    "`core` supplies `defineForguncyConfig` in the committed config; `cell-project` supplies the",
+    "`fgc-cell` binary the three scripts below run. None of them is reachable from the Cell's own",
+    "module graph."
+  ],
+  "//scripts": [
+    "`vp dev` is the local loop and is deliberately not wrapped here (#22/#23).",
+    "",
+    "`record` runs the dependency-selection Skill's deterministic half against this project: the",
+    "probe measures es-toolkit, the lock records the inline decision, and the evidence is written",
+    "beside it. It is the one step that needs the Skill; a consumer outside this repository runs the",
+    "same command from wherever their installed Skill lives.",
+    "",
+    "`build`, `plan` and `sync` are the public verbs (#99). `build` and `plan` make no remote call;",
+    "`sync` requires `--port`, because an authorized designer connection is the caller's and this",
+    "example will not invent one.",
+    "",
+    "`fgc.lock.json` and `fgc-evidence/` are NOT committed, and that is a measured decision rather",
+    "than an omission: a record's `probedWith.installGraph` digests the installed tree, and this",
+    "repository's own `vp test`/`vp dev` runs write caches under `node_modules`, so a committed",
+    "record reported `install-graph-changed` the moment it was exercised. What *is* committed is the",
+    "decision input under `dependencies/` — the reviewable half — and `pnpm record` is what turns it",
+    "into a measurement of the machine running it (#94).",
+    "",
+    "Both are git-ignored so a fresh clone and a worked checkout look the same."
+  ],
+  "scripts": {
+    "record": "node ../../.agents/skills/forguncy-react-dependency-selection/scripts/select_dependency.mjs record --project . --decision dependencies/es-toolkit.decision.json",
+    "build": "fgc-cell build",
+    "plan": "fgc-cell plan",
+    "sync": "fgc-cell sync"
+  },
+  "dependencies": {
+    "@app/consumer-ui": "workspace:*",
+    "@forguncy-react-workspace/runtime": "workspace:*",
+    "es-toolkit": "1.52.0"
+  },
+  "devDependencies": {
+    "@forguncy-react-workspace/cell-project": "workspace:*",
+    "@forguncy-react-workspace/core": "workspace:*",
+    "@forguncy-react-workspace/dev-harness": "workspace:*",
+    "vite-plus": "0.3.2"
+  }
+}
