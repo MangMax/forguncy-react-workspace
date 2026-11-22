@@ -1248,9 +1248,28 @@ async function bundleWithRolldown(
   // reports backslash paths while `this.resolve` may hand back either form.
   const moduleIdSet = new Set(moduleIds.flatMap(id => [id, id.replace(/\\/g, "/")]));
   const inlinedSpecifiers = [...fallThroughResolutions.entries()]
-    .filter(([, resolvedId]) => {
+    .filter(([specifier, resolvedId]) => {
       const normalized = resolvedId.replace(/\\/g, "/");
-      return moduleIdSet.has(normalized) && resolvesIntoNodeModules(resolvedId);
+      if (!resolvesIntoNodeModules(resolvedId)) {
+        return false;
+      }
+      if (moduleIdSet.has(normalized)) {
+        return true;
+      }
+      // An installed package's *entry* module can be absent from the chunk even though its code
+      // was inlined: a barrel whose re-exports the bundler folded in leaves the entry itself
+      // tree-shaken, while the submodules it re-exported are in `entryChunk.modules`. Measured on
+      // `es-toolkit`: `dist/index.mjs` is not in the chunk, `dist/math/clamp.mjs` and
+      // `dist/math/sumBy.mjs` are. Requiring the resolved entry id alone therefore reported no
+      // specifier for a package that was plainly inlined, and #102's stale-evidence fault found
+      // the consequence — a withheld `inline` decision compiled the package in and reported
+      // nothing, so the build served evidence the lock had already withdrawn.
+      //
+      // The package's presence in the chunk is the same fact at the grain the decision is keyed
+      // at, so it is the fallback. Exact-subpath precedence is preserved: the *specifier* is what
+      // is reported, so `findDependencyDecision` still sees `pkg/subpath` rather than the folded
+      // package root.
+      return inlinedPackages.includes(packageNameOfSpecifier(specifier));
     })
     .map(([specifier]) => specifier)
     .sort();
