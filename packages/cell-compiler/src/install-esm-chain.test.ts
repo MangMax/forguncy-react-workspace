@@ -149,9 +149,9 @@ function json<T = Record<string, unknown>>(result: CommandResult): T {
  * and the CI setup step puts the same command on `PATH`. No pnpm version is pinned — the
  * fixtures are `file:` links, and their layout is what any isolated linker produces.
  */
-async function install(root: string): Promise<void> {
+async function install(root: string, extraArgs: readonly string[] = []): Promise<void> {
   try {
-    const { stdout, stderr } = await run("pnpm", ["install", "--offline", "--ignore-scripts"], {
+    const { stdout, stderr } = await run("pnpm", ["install", "--offline", "--ignore-scripts", ...extraArgs], {
       cwd: root,
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -618,6 +618,99 @@ describe("install-level ESM chain (#90)", () => {
         // is the caller's own file and `.fgc/` is the probe's scratch space, so both are
         // excluded — everything else is byte-identical.
         expect(await projectSourceSnapshot(root)).toEqual(sourceBefore);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    CASE_TIMEOUT_MS,
+  );
+});
+
+/**
+ * #95: a decision gate cannot serve evidence measured on an install that has since moved.
+ *
+ * The chain above proves `status`, `localCompilationDependencies` and `compilationDependencies` all
+ * pass for a record whose probe is current. This case proves the other half — that none of them is a
+ * bypass — by moving the *install* after the record exists, with every version the record names held
+ * still. The shared decision is #94's identity; #95's requirement is that the gates read it rather
+ * than a recorded fingerprint alone.
+ *
+ * Local checks only: this measures freshness against a filesystem. It makes no Forguncy runtime
+ * claim, and the deployment gate is asserted to keep withholding for exactly that reason.
+ */
+describe("install-level gate cannot bypass invalidation (#95)", () => {
+  it(
+    "reports a record stale, and withholds it, once the installed graph moves under an unchanged version",
+    async () => {
+      const root = await installedProject();
+      try {
+        const packageName = "fgc-fixture-transitive-dep";
+        const decision = await writeDecision(root, packageName);
+        const recorded = await cli(["record", "--project", root, "--decision", decision]);
+        expect(recorded.code, recorded.stderr).toBe(0);
+        expect(json<{ recorded: boolean }>(recorded).recorded).toBe(true);
+
+        const before = await decisionsFromLock(root);
+        const record = before.lock.decisions.find(entry => entry.packageName === packageName);
+        expect(record?.resolvedVersion, "the record names an installed version").toBe("1.0.0");
+
+        // The installed copy moved while every version held still. This fixture installs `file:`
+        // packages as pnpm injected copies (`node_modules/.pnpm/...`, listed in `.modules.yaml`'s
+        // `injectedDeps`), so after editing the source under `packages/` we re-run `pnpm install
+        // --offline --ignore-scripts --force` to re-materialize the installed copy on every
+        // platform (Windows hardlinks update in place, whereas Linux runners copy/clone `file:`
+        // entries and would otherwise keep the old bytes under `node_modules/.pnpm/`). The record's
+        // `resolvedVersion` and probe fingerprint both stay identical while `installedTree` moves.
+        const linkedSource = join(root, "packages", "transitive", "dep", "lib", "index.js");
+        const original = await readFile(linkedSource, "utf8");
+        await writeFile(linkedSource, `${original}\nexport const movedBy = "rebuilt-after-record";\n`, "utf8");
+        await install(root, ["--force"]);
+        const installedAfter = await readFile(join(root, "node_modules", packageName, "lib", "index.js"), "utf8");
+        expect(installedAfter, "re-installing the edited file: fixture must update the materialized copy").toContain(
+          "rebuilt-after-record",
+        );
+
+        // 1. The read-back command reports it, with the install-graph reason rather than a bare
+        //    "stale".
+        const status = await cli(["status", "--project", root]);
+        const payload = json<{
+          decisions: readonly { packageName: string; freshness: string; stalenessReasons: readonly string[] }[];
+        }>(status);
+        const reported = payload.decisions.find(entry => entry.packageName === packageName)!;
+        expect(reported.freshness, "an install that moved under a fixed version is not fresh").toBe("stale");
+        expect(reported.stalenessReasons).toContain("install-graph-changed");
+        expect(status.code, "a stale record is a non-zero exit").not.toBe(0);
+
+        // The two gates are asked with an environment built **after** the move. `before.environment`
+        // is the one captured while the record was current, and reusing it would assert nothing about
+        // the gates — it would only replay the state in which the record was recorded.
+        const afterEnvironment = await probeLockEnvironment(root, {
+          lock: before.lock,
+          probeFingerprints: Object.fromEntries(
+            before.lock.decisions.map(entry => [
+              entry.packageName,
+              composeProbeFingerprint({ probeId: "inline-bundle", entry: entry.packageName }).fingerprint,
+            ]),
+          ),
+        });
+
+        // 2. The local projection withholds it: the compiler would refuse an artifact built from a
+        //    decision nobody can verify, and the harness must not render one either.
+        const projected = localCompilationDependencies(before.lock, afterEnvironment);
+        expect(projected.dependencies.map(entry => entry.packageName)).not.toContain(packageName);
+        const withheld = projected.withheld.find(entry => entry.packageName === packageName);
+        expect(withheld?.reason).toBe("not-verified");
+        expect(withheld?.reason === "not-verified" ? withheld.stalenessReasons : []).toContain("install-graph-changed");
+
+        // 3. The deployment gate withholds it too, so a shipping path cannot get past it. Each gate is
+        //    asserted to withhold for the install reason, not merely to be empty: the deployment gate
+        //    also withholds for the runtime reason, so "not in `dependencies`" alone would pass for the
+        //    wrong one.
+        const deployment = compilationDependencies(before.lock, afterEnvironment);
+        const deploymentWithheld = deployment.withheld.find(entry => entry.packageName === packageName);
+        expect(deploymentWithheld?.reason === "not-verified" ? deploymentWithheld.stalenessReasons : []).toContain(
+          "install-graph-changed",
+        );
       } finally {
         await rm(root, { recursive: true, force: true });
       }

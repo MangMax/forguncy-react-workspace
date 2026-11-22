@@ -12,6 +12,7 @@ import { cellVirtualModuleId } from "@forguncy-react-workspace/vite-plugin-fgc";
 import type { ForguncyConfig } from "@forguncy-react-workspace/core";
 
 import { createDevCellResourcePolicy } from "./cell-assets.ts";
+import { canonicalTempProject, removeTempProject } from "./temp-project.ts";
 import { devHarness } from "./vite-plugin.ts";
 
 /**
@@ -56,10 +57,17 @@ const config: ForguncyConfig = {
 };
 
 const servers: ViteDevServer[] = [];
+const cacheDirs: string[] = [];
 
 async function serverFor(entry: string | undefined): Promise<ViteDevServer> {
+  // Keep Vite's optimizer cache outside the workspace package so parallel tests that digest
+  // linked workspace packages (`linkTargetsDigest`) never observe transient `.vite/deps_temp_*`
+  // writes inside `packages/dev-harness/tests/fixtures/resources`.
+  const cacheDir = canonicalTempProject("fgc-asset-policy-vite-");
+  cacheDirs.push(cacheDir);
   const server = await createServer({
     root: fixtureRoot,
+    cacheDir,
     logLevel: "silent",
     configFile: false,
     server: { middlewareMode: true, hmr: false, watch: null },
@@ -75,7 +83,8 @@ async function serverFor(entry: string | undefined): Promise<ViteDevServer> {
 
 afterAll(async () => {
   await Promise.all(servers.map(server => server.close()));
-});
+  await Promise.all(cacheDirs.map(dir => removeTempProject(dir)));
+}, 30_000);
 
 /** The transformed source of one module, or the error Vite rejected it with. */
 async function transform(server: ViteDevServer, id: string): Promise<string> {

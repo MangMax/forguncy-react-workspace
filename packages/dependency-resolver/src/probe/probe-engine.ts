@@ -197,13 +197,71 @@ export interface RunDependencyProbeOptions {
   readonly cache?: ProbeCache | false;
 }
 
+/**
+ * Whether the run was answered by the cache, measured, or forbidden to consult it.
+ *
+ * `hit` and `miss` are answers about the cache; `disabled` is the statement that it was never
+ * consulted (`cache: false`, i.e. the CLI's `--no-cache`). Keeping the third state separate is
+ * what lets a caller assert "no cache was read" rather than inferring it from `fromCache: false`,
+ * which is also what a first run reports.
+ */
+export const PROBE_CACHE_OUTCOMES = ["hit", "miss", "disabled"] as const;
+export type ProbeCacheOutcome = (typeof PROBE_CACHE_OUTCOMES)[number];
+
+/**
+ * Why a stored report could not answer this run — the readable invalidation reason #95 asks for.
+ *
+ * The vocabulary mirrors `core`'s `LockStalenessReason` names deliberately, because the two
+ * answers describe the same facts one layer apart: the lock asks "is this *record* still about
+ * my install", the cache asks "is this *report* still about my install". A reader who learns one
+ * list can read the other.
+ *
+ * `no-cached-report` is the only reason that does not name a difference: nothing was stored
+ * under the composed fingerprint, which is the ordinary first-run answer (and also the answer
+ * for an unreadable or fingerprint-mismatched file, which the cache treats identically by
+ * design — it never throws for bad state).
+ */
+export const PROBE_CACHE_MISS_REASONS = [
+  "no-cached-report",
+  "package-name-changed",
+  "package-version-changed",
+  "toolchain-changed",
+  "toolchain-unknown",
+  "install-graph-changed",
+  "install-graph-unknown",
+  "forguncy-target-changed",
+  "runtime-smoke-requested",
+] as const;
+export type ProbeCacheMissReason = (typeof PROBE_CACHE_MISS_REASONS)[number];
+
+/**
+ * What the cache decided for this run, and — on a miss — which input had moved.
+ *
+ * `reason` and `detail` are null only for `hit` (nothing was invalidated) and `disabled` (nothing
+ * was asked). A miss always carries both, so a caller never has to reduce `fromCache: false` to
+ * "probe again for some reason": #95's first acceptance criterion is that the re-probe is
+ * accompanied by a reader-actionable statement of what changed.
+ */
+export interface ProbeCacheDecision {
+  readonly outcome: ProbeCacheOutcome;
+  readonly reason: ProbeCacheMissReason | null;
+  /** One sentence naming the moved input and the reader's next step. Null for `hit`/`disabled`. */
+  readonly detail: string | null;
+}
+
 export interface DependencyProbeResult {
   readonly report: ProbeReport;
   readonly fingerprint: string;
   readonly assessment: ProbeAssessment;
   /** #8's statuses via `lockProbeStatusForAssessment`; null when inconclusive (no status can claim it). */
   readonly lockStatus: ProbeStatus | null;
+  /**
+   * `cache.outcome === "hit"`. Retained because it is the shape existing callers and lock evidence
+   * read; new callers should read {@link DependencyProbeResult.cache} for the reason as well.
+   */
   readonly fromCache: boolean;
+  /** Whether the cache answered, missed (and why), or was disabled. */
+  readonly cache: ProbeCacheDecision;
   /** Portable path lock evidence can cite as a `probe` link: `.fgc/probe-cache/<sha256>.json`. */
   readonly cacheRelativePath: string;
 }
@@ -284,7 +342,106 @@ function smokeSkipReason(hookPresent: boolean, failedEarlier: boolean): string {
 }
 
 /**
- * Whether two toolchain identities describe the same install and the same tools.
+ * Why a cached report may not answer *this* run, or null when it may.
+ *
+ * The lock fingerprint deliberately excludes package version, toolchain and
+ * target (#8 tracks those staleness dimensions separately), so the cache cannot
+ * inherit that exclusion: a hit under the same fingerprint still has to describe
+ * the artifact and environment now in front of the engine. `entry` is part of
+ * the fingerprint but is overridable, so two packages can share one fingerprint
+ * — the cached environment must still name *this* package before it answers.
+ *
+ * Smoke mode is checked in both directions: a supplied hook always re-probes
+ * (the cached report may never have collected runtime evidence), and a hookless
+ * run only accepts a cached report whose `runtime-smoke` is `skipped` — a
+ * hook-bearing report would otherwise leak runtime facts/risks/rejections into
+ * a run that explicitly did not perform runtime smoke.
+ *
+ * **Returning the reason rather than a boolean is #95's first acceptance criterion.** A
+ * re-probe is the correct outcome, but a caller that only learns "not from cache" cannot tell an
+ * ordinary first run from an invalidation, and the one that matters — the root version held at
+ * `a@1.0.0` while a transitive moved — has to be *readable*. The checks are ordered so the most
+ * specific fact wins: identity first (nothing else matters if it is a different package), then
+ * version, then the toolchain and the install graph separately (different fixes: upgrade versus
+ * re-install), then the target, then run mode.
+ */
+function cacheInvalidationReason(
+  cached: ProbeReport,
+  identity: ResolvedPackageIdentity,
+  toolchain: ToolchainIdentity,
+  target: ForguncyTargetIdentity | null,
+  runtimeSmokeRequested: boolean,
+): { readonly reason: ProbeCacheMissReason; readonly detail: string } | null {
+  // A supplied hook always re-probes, and this check comes first because it is the one reason that
+  // is not a difference: the run mode itself forbids reusing a stored report. The mirror case
+  // (below, after the toolchain comparison) is checked separately — a hookless run must never
+  // accept a stored report that carries runtime evidence — so neither direction of the isolation
+  // depends on the other.
+  if (runtimeSmokeRequested) {
+    return {
+      reason: "runtime-smoke-requested",
+      detail:
+        "A runtime-smoke hook was supplied for this run, and a cached report is never storage for runtime evidence: the hook has to execute again here, and its result is never inherited from an earlier run.",
+    };
+  }
+  if (cached.environment.packageName !== identity.packageName) {
+    return {
+      reason: "package-name-changed",
+      detail: `The cached report describes "${cached.environment.packageName}", not "${identity.packageName}"; the two composed one fingerprint through an overridden entry, and a report about one package cannot answer a probe of another.`,
+    };
+  }
+  if (cached.environment.packageVersion !== identity.packageVersion) {
+    return {
+      reason: "package-version-changed",
+      detail: `The cached report measured "${identity.packageName}@${cached.environment.packageVersion}" and "${identity.packageVersion}" is installed now; the artifact changed, so its measurement no longer describes this install.`,
+    };
+  }
+  // The whole toolchain, not only `vitePlus` (#94). Comparing one component let a cached report
+  // answer a run that had upgraded Rolldown, moved to another Node, or — the case that matters
+  // most — installed a different transitive graph or a patch, because none of those moved the one
+  // string being compared. A cache hit is a claim that the stored report describes *this* run, so
+  // every component the report records has to agree.
+  //
+  // The two reasons are separated because the fixes differ: a moved tool or install graph needs a
+  // re-probe, while a component this run cannot establish needs `install` (or a project layout
+  // this toolchain can read) before any measurement would mean anything.
+  const toolchainProblem = toolchainIdentityProblem(cached.environment.toolchain, toolchain);
+  if (toolchainProblem !== null) {
+    return toolchainProblem;
+  }
+  const cachedSmoke = cached.validation.find(entry => entry.step === "runtime-smoke");
+  if (cachedSmoke?.outcome !== "skipped") {
+    return {
+      reason: "runtime-smoke-requested",
+      detail:
+        "The stored report carries runtime evidence (`runtime-smoke` did not skip) and this run requested none, so answering from it would hand this run a runtime result it never asked for.",
+    };
+  }
+  const cachedTarget = cached.environment.target;
+  if (target === null || cachedTarget === null) {
+    if (cachedTarget !== target) {
+      return {
+        reason: "forguncy-target-changed",
+        detail:
+          target === null
+            ? "The cached report was measured against a named Forguncy target and this run names none; a target-scoped observation cannot answer a run that has no target."
+            : "This run names a Forguncy target and the cached report was measured against none; the observation is not about this target.",
+      };
+    }
+    return null;
+  }
+  if (!matchesForguncyTargetIdentity(cachedTarget, target)) {
+    return {
+      reason: "forguncy-target-changed",
+      detail: `The cached report was measured against a different Forguncy target (${cachedTarget.productBuild} ${cachedTarget.productVersion}) than this run (${target.productBuild} ${target.productVersion}).`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether two toolchain identities describe the same install and the same tools — and, when they
+ * do not, which half moved.
  *
  * Field-by-field rather than by object identity, for the reason `matchesForguncyTargetIdentity`
  * gives: one side is deserialized from a cached JSON document and can never share an object with
@@ -310,28 +467,57 @@ function smokeSkipReason(hookPresent: boolean, failedEarlier: boolean): string {
  * produce a hit; a strict component unknown on either side forces a re-probe, which costs a build
  * and never serves evidence the install no longer supports.
  */
-function sameToolchainIdentity(cached: ToolchainIdentity, current: ToolchainIdentity): boolean {
+function toolchainIdentityProblem(
+  cached: ToolchainIdentity,
+  current: ToolchainIdentity,
+): { readonly reason: ProbeCacheMissReason; readonly detail: string } | null {
   const nullable = (value: string | null | undefined): string | null => value ?? null;
 
   // `vitePlus`: nullable agreement, including two immateriality declarations.
   if (nullable(cached.vitePlus) !== nullable(current.vitePlus)) {
-    return false;
+    return {
+      reason: "toolchain-changed",
+      detail: `The cached report was measured with vite-plus ${nullable(cached.vitePlus) ?? "(none declared)"} and this run has ${nullable(current.vitePlus) ?? "(none declared)"}.`,
+    };
   }
 
   // Strict string components: both sides must *know* the value and agree on it.
   for (const component of ["rolldown", "node"] as const) {
     const a = nullable(cached[component]);
     const b = nullable(current[component]);
-    if (a === null || b === null || a !== b) {
-      return false;
+    if (a === null || b === null) {
+      return {
+        reason: "toolchain-unknown",
+        detail:
+          a === null
+            ? `The cached report does not record which ${component} version produced it, and this run cannot confirm the measurement still describes the tool that bundles now. Re-run the probe (and re-record the decision) to store an identified measurement.`
+            : `This run cannot establish which ${component} version is running, so it cannot show the cached report describes this toolchain. Check the installation, then re-probe.`,
+      };
+    }
+    if (a !== b) {
+      return {
+        reason: "toolchain-changed",
+        detail: `The cached report was measured with ${component} ${a} and this run has ${b}; a different tool emits a different artifact, so its measurement does not describe this one.`,
+      };
     }
   }
 
   // The install graph: absent, unknown, or unequal all force a re-probe.
   const cachedGraph = cached.installGraph ?? null;
   const currentGraph = current.installGraph ?? null;
-  if (cachedGraph === null || currentGraph === null) {
-    return false;
+  if (cachedGraph === null) {
+    return {
+      reason: "install-graph-unknown",
+      detail:
+        "The cached report records no install-graph identity, so it cannot show it measured the tree that is installed now. Re-run the probe to store an identified measurement.",
+    };
+  }
+  if (currentGraph === null) {
+    return {
+      reason: "install-graph-unknown",
+      detail:
+        "This run cannot establish the install-graph identity (no recognizable lockfile, or an install this toolchain cannot attribute), so a cache hit could not show the stored report describes this install. Run `install`, then re-probe.",
+    };
   }
   // Every component of the graph, `installedTree` included. Leaving it out is not a smaller
   // comparison, it is the *original* defect restored: the warm cache is what actually answers a
@@ -346,62 +532,23 @@ function sameToolchainIdentity(cached: ToolchainIdentity, current: ToolchainIden
     // A digest either side cannot establish means "cannot say", and #94 requires that to be
     // non-fresh rather than excused. Even two `null`s: both runs failing to identify the install
     // graph is not the same as both runs having identified the same one.
-    if (a === null || b === null || a !== b) {
-      return false;
+    if (a === null || b === null) {
+      return {
+        reason: "install-graph-unknown",
+        detail:
+          a === null
+            ? `The cached report does not record the install graph's ${component} digest, so it cannot show it measured this tree. Re-run the probe to store an identified measurement.`
+            : `This run cannot establish the install graph's ${component} digest, so it cannot show the cached report measured this tree. Run \`install\`, then re-probe.`,
+      };
+    }
+    if (a !== b) {
+      return {
+        reason: "install-graph-changed",
+        detail: `The installed graph moved (${component}: ${a} → ${b}) while the probed package's own version is unchanged, so the cached report measured a tree that is no longer installed. Re-run the probe to measure this one.`,
+      };
     }
   }
-  return true;
-}
-
-/**
- * Whether a cached report may answer *this* run.
- *
- * The lock fingerprint deliberately excludes package version, toolchain and
- * target (#8 tracks those staleness dimensions separately), so the cache cannot
- * inherit that exclusion: a hit under the same fingerprint still has to describe
- * the artifact and environment now in front of the engine. `entry` is part of
- * the fingerprint but is overridable, so two packages can share one fingerprint
- * — the cached environment must still name *this* package before it answers.
- *
- * Smoke mode is checked in both directions: a supplied hook always re-probes
- * (the cached report may never have collected runtime evidence), and a hookless
- * run only accepts a cached report whose `runtime-smoke` is `skipped` — a
- * hook-bearing report would otherwise leak runtime facts/risks/rejections into
- * a run that explicitly did not perform runtime smoke.
- */
-function cacheHitAnswersThisRun(
-  cached: ProbeReport,
-  identity: ResolvedPackageIdentity,
-  toolchain: ToolchainIdentity,
-  target: ForguncyTargetIdentity | null,
-  runtimeSmokeRequested: boolean,
-): boolean {
-  if (runtimeSmokeRequested) {
-    return false;
-  }
-  if (cached.environment.packageName !== identity.packageName) {
-    return false;
-  }
-  if (cached.environment.packageVersion !== identity.packageVersion) {
-    return false;
-  }
-  // The whole toolchain, not only `vitePlus` (#94). Comparing one component let a cached report
-  // answer a run that had upgraded Rolldown, moved to another Node, or — the case that matters
-  // most — installed a different transitive graph or a patch, because none of those moved the one
-  // string being compared. A cache hit is a claim that the stored report describes *this* run, so
-  // every component the report records has to agree.
-  if (!sameToolchainIdentity(cached.environment.toolchain, toolchain)) {
-    return false;
-  }
-  const cachedSmoke = cached.validation.find(entry => entry.step === "runtime-smoke");
-  if (cachedSmoke?.outcome !== "skipped") {
-    return false;
-  }
-  const cachedTarget = cached.environment.target;
-  if (target === null || cachedTarget === null) {
-    return cachedTarget === target;
-  }
-  return matchesForguncyTargetIdentity(cachedTarget, target);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +585,9 @@ export async function runDependencyProbe(options: RunDependencyProbeOptions): Pr
   });
   const fingerprint = composed.fingerprint;
   const cache = options.cache === false ? null : (options.cache ?? createFileProbeCache(options.projectRoot));
+  // Filled when a cache was consulted and could not answer; `null` for `cache: false`, which never
+  // reads it and therefore never claims a hit or a miss.
+  let missReason: { readonly reason: ProbeCacheMissReason; readonly detail: string } | null = null;
 
   if (cache !== null) {
     const cachedReport = await cache.get(fingerprint);
@@ -446,12 +596,22 @@ export async function runDependencyProbe(options: RunDependencyProbeOptions): Pr
     // tracks those dimensions on the record), so a hit under one fingerprint is
     // only trusted when the stored report still describes this artifact, this
     // environment and this run mode. Otherwise an upgrade, a different package
-    // sharing an overridden `entry`, a toolchain bump, a different target or a
-    // smoke-mode change would be answered with yesterday's evidence.
-    if (
-      cachedReport !== null &&
-      cacheHitAnswersThisRun(cachedReport, identity, toolchain, target, options.runtimeSmoke !== undefined)
-    ) {
+    // sharing an overridden `entry`, a toolchain bump, a different target, an
+    // install-graph move or a smoke-mode change would be answered with
+    // yesterday's evidence.
+    //
+    // An empty cache is a miss like any other, but it is not an *invalidation*, and the
+    // distinction is the one #95 asks to be readable: `no-cached-report` says "nothing was
+    // measured under these inputs yet", while every other reason says which input moved.
+    const invalidation =
+      cachedReport === null
+        ? {
+            reason: "no-cached-report" as const,
+            detail:
+              "No report was stored under this probe's declared inputs, so this run measures them for the first time (or the cache entry was unreadable, mismatched or removed).",
+          }
+        : cacheInvalidationReason(cachedReport, identity, toolchain, target, options.runtimeSmoke !== undefined);
+    if (cachedReport !== null && invalidation === null) {
       const assessment = assessProbeReport(cachedReport);
       return {
         report: cachedReport,
@@ -459,9 +619,11 @@ export async function runDependencyProbe(options: RunDependencyProbeOptions): Pr
         assessment,
         lockStatus: lockProbeStatusForAssessment(assessment),
         fromCache: true,
+        cache: { outcome: "hit", reason: null, detail: null },
         cacheRelativePath: probeCacheRelativePath(fingerprint),
       };
     }
+    missReason = invalidation;
   }
 
   const steps = new StepBook();
@@ -581,6 +743,22 @@ export async function runDependencyProbe(options: RunDependencyProbeOptions): Pr
     assessment,
     lockStatus: lockProbeStatusForAssessment(assessment),
     fromCache: false,
+    // `disabled` is a statement about the cache, not about this run's freshness: `--no-cache` never
+    // looks at a stored report, so it can neither hit nor be invalidated. Reporting it as a miss
+    // would make "the cache had nothing" indistinguishable from "the caller said not to ask".
+    cache:
+      cache === null
+        ? {
+            outcome: "disabled",
+            reason: null,
+            detail:
+              "This run was told not to consult the cache (`--no-cache`), so no stored report was read and none is claimed as a hit.",
+          }
+        : {
+            outcome: "miss",
+            reason: missReason?.reason ?? "no-cached-report",
+            detail: missReason?.detail ?? null,
+          },
     cacheRelativePath: probeCacheRelativePath(fingerprint),
   };
 }

@@ -194,6 +194,8 @@ export type {
 // ---------------------------------------------------------------------------
 
 export {
+  PROBE_CACHE_MISS_REASONS,
+  PROBE_CACHE_OUTCOMES,
   probeLockEnvironment,
   probeRunLockEvidence,
   ProbeIdentityError,
@@ -201,6 +203,9 @@ export {
 } from "./probe/probe-engine.ts";
 export type {
   DependencyProbeResult,
+  ProbeCacheDecision,
+  ProbeCacheMissReason,
+  ProbeCacheOutcome,
   ProbeLockEnvironmentOptions,
   PreSmokeReport,
   RuntimeSmokeHook,

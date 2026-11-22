@@ -1558,6 +1558,50 @@ describe("#94: identity comes from the install graph, not from a declaration", (
     expect(nested.member.lockfile).not.toBeNull();
     expect(nested.member.patches).not.toBeNull();
   });
+
+  it("digests pnpm @file+ store slots by content even when .modules.yaml omits injectedDeps", async () => {
+    // Regression caught on Linux CI (#95): pnpm 9/10 materializes standalone `file:` dependencies
+    // into `.pnpm/<name>@file+<path>` without always recording them under `injectedDeps` in
+    // `.modules.yaml`. Because the slot name carries only the path, name-only hashing kept
+    // `installedTree` identical after the `file:` package's files changed.
+    await withProject(async root => {
+      await writeFileAt(join(root, "package.json"), JSON.stringify({ name: "consumer", version: "0.0.0" }));
+      await writeFileAt(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+      await writeFileAt(
+        join(root, "node_modules", ".modules.yaml"),
+        [
+          "included:",
+          "  dependencies: true",
+          "  devDependencies: true",
+          "  optionalDependencies: true",
+          "nodeLinker: isolated",
+          "hoistPattern:",
+          '  - "*"',
+          "publicHoistPattern: []",
+          "",
+        ].join("\n"),
+      );
+      const slotPkg = join(
+        root,
+        "node_modules",
+        ".pnpm",
+        "local-dep@file+packages+dep",
+        "node_modules",
+        "local-dep",
+      );
+      await writeFileAt(join(slotPkg, "package.json"), JSON.stringify({ name: "local-dep", version: "1.0.0" }));
+      await writeFileAt(join(slotPkg, "index.js"), "export const v = 1;\n");
+
+      const before = await readInstallGraphIdentity(root);
+      expect(before.installedTree).not.toBeNull();
+
+      await writeFileAt(join(slotPkg, "index.js"), "export const v = 2;\n");
+
+      const after = await readInstallGraphIdentity(root);
+      expect(after.installedTree).not.toBeNull();
+      expect(after.installedTree).not.toBe(before.installedTree);
+    });
+  });
 });
 
 describe("#94: the versions recorded are the ones that actually ran", () => {
@@ -1824,6 +1868,33 @@ describe("#94: an install state that cannot be established is explicitly unknown
       return (await readInstallGraphIdentity(child)).lockfile;
     });
     expect(plain).not.toBeNull();
+  });
+
+  it("ignores an unrelated ancestor lockfile that owns no install of its own", async () => {
+    // #95, found while verifying the cache on a developer machine. An ancestor lockfile that has no
+    // `node_modules` of its own cannot own a nearer project's entries — that is already the rule the
+    // single-claim path applies — but counting every ancestor claim before applying it made the
+    // project `unknown` because of a file that is not the project's: measured, a stray 81-byte
+    // `~/package-lock.json` made every project under that home report an all-null install graph, so
+    // #94's identity (and #95's invalidation, which reads it) was silently disabled with no
+    // project-side fix.
+    //
+    // `installedTree` stays null here because this fixture writes no manager record; the assertion is
+    // about the *lockfile* claim being usable, which is the part the stray ancestor used to suppress.
+    const carried = await withProject(async root => {
+      const outer = join(root, "outer");
+      const projectRoot = join(outer, "project");
+      await project(projectRoot, { transitiveVersion: "1.0.0" });
+      // The unrelated ancestor: a lockfile and an install of its own, neither of which describes the
+      // project's tree.
+      await writeFileAt(join(outer, "package-lock.json"), JSON.stringify({ name: "outer", packages: {} }));
+      await install(outer, "unrelated", { name: "unrelated", version: "1.0.0" });
+      return readInstallGraphIdentity(projectRoot);
+    });
+
+    expect(carried.lockfile).not.toBeNull();
+    expect(carried.patches).not.toBeNull();
+    expect(carried.configuration).not.toBeNull();
   });
 
   it("is unknown when a nested project carries a leftover lock the workspace root also has", async () => {

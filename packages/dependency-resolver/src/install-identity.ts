@@ -301,15 +301,16 @@ type InstallLockfileResult =
  * withhold decisions the compiler accepts — the same misdirection as reporting a missing dependency
  * because the *project's* manifest was corrupt (#89).
  *
- * **Every ancestor is counted, and more than one claim is `unknown`.** This is the part a
- * first-match walk got wrong, and it is not hypothetical: a workspace member keeps its own
- * `node_modules` (so it looks self-contained) and often does *not* re-declare the root's
- * `packageManager`. Measured — a member holding a leftover `package-lock.json`, with the real
- * `pnpm-lock.yaml` one level up and dependencies resolving from the root's `node_modules`: the walk
- * stopped at the member, hashed a lockfile that describes no install, and the digest stayed put
+ * **Every ancestor is counted, and a claim that cannot own this install is dropped before the
+ * count.** This is the part a first-match walk got wrong, and it is not hypothetical: a workspace
+ * member keeps its own `node_modules` (so it looks self-contained) and often does *not* re-declare
+ * the root's `packageManager`. Measured — a member holding a leftover `package-lock.json`, with the
+ * real `pnpm-lock.yaml` one level up and dependencies resolving from the root's `node_modules`: the
+ * walk stopped at the member, hashed a lockfile that describes no install, and the digest stayed put
  * while the root lock and its transitive dependencies moved. A lockfile's *presence* is not proof
  * that it owns the install this project resolves in, and guessing which one does is how that false
- * fresh happens.
+ * fresh happens. What remains after that filter is resolved by counting: zero or two surviving
+ * claims is still `unknown`.
  *
  * Each directory is asked only about the names its **own** manifest claims (see
  * {@link candidateNamesFor}), which narrows only on an **installed** manager and otherwise keeps
@@ -361,25 +362,38 @@ async function findInstallLockfile(projectRoot: string): Promise<InstallLockfile
   if (claims.length === 0) {
     return { kind: "none" };
   }
-  if (claims.length > 1) {
-    // Two lockfiles both claim to describe this install — a member's leftover beside the workspace
-    // root's, or two spellings in one directory. Which one resolution uses is exactly what could
-    // not be established, and #94's third criterion forbids presenting an unestablished identity as
-    // a complete one.
-    return { kind: "unknown" };
+
+  // Keep only the claims that can plausibly own this project's install, using the same attribution
+  // rule the single-claim path already applies. A claim whose own `node_modules` does not contain the
+  // nearer tree's entries **cannot** own it, and counting it as an ambiguity made every project
+  // nested under an unrelated lockfile — a stray `~/package-lock.json` is the ordinary shape — report
+  // `unknown` forever, with no fix available short of deleting a file that is not the project's.
+  // Measured on a developer machine: a temp project with its own `node_modules` and its own lockfile
+  // reported an all-null graph because `~` happened to hold an 81-byte `package-lock.json`, which
+  // silently disabled #94/#95's identity for every project under that home directory.
+  //
+  // "Cannot say" is **kept** as a candidate, never dropped: dropping an unattributable-but-unreadable
+  // claim would let a nearer leftover lockfile win by default, which is the false fresh the ambiguity
+  // rule exists to prevent (#94 review round 2). So a claim that fails attribution *definitively* is
+  // dropped; a claim whose attribution could not be established makes the whole answer `unknown`.
+  const candidates: LockfileClaim[] = [];
+  let attributionUndecidable = false;
+  for (const claim of claims) {
+    const attribution = await nearerInstallIsAttributableTo(resolve(projectRoot), claim.directory);
+    if (attribution === "attributable") {
+      candidates.push(claim);
+    } else if (attribution === "unknown") {
+      candidates.push(claim);
+      attributionUndecidable = true;
+    }
   }
 
-  const claim = claims[0]!;
-  // A single ancestor claim is not proof that it owns the install *this* project resolves in.
-  // Review round 4: a project with its own `node_modules` and no lockfile of its own — the parent
-  // holding the only lockfile — still resolves through its own tree first, so the parent's lock
-  // describes an install that is not the one being measured. Measured: keeping the parent lock and
-  // the root package fixed while moving the child's own installed transitive dependency left all
-  // three digests unchanged.
-  if (!(await nearerInstallIsAttributableTo(resolve(projectRoot), claim.directory))) {
+  if (candidates.length === 0 || candidates.length > 1 || attributionUndecidable) {
+    // No claim can own it, two can, or one cannot be established: all three mean this process cannot
+    // name the install. Reported rather than guessed, as #94's third criterion requires.
     return { kind: "unknown" };
   }
-  return { kind: "found", claim };
+  return { kind: "found", claim: candidates[0]! };
 }
 
 /**
@@ -397,14 +411,21 @@ async function findInstallLockfile(projectRoot: string): Promise<InstallLockfile
  * symlinks: in this repository a member's `node_modules/@tanstack/react-query` is a link whose
  * realpath lands inside the root's `node_modules/.pnpm/…` (measured). An entry that already resolves
  * inside `installRoot` is therefore attributable to it, and a nearer tree made only of such entries
- * is the same install. An entry that resolves *outside* — a real directory, or a link elsewhere —
- * is a different install this walk cannot describe.
+ * is the same install. An entry that resolves *outside* — a real directory, or a link elsewhere — is
+ * a different install this walk cannot describe.
  *
- * Deliberately conservative in both directions: `true` only when every entry that can be resolved
- * lands inside `installRoot`. An unreadable or unresolvable entry makes the answer `false`, which
- * is `unknown` rather than a claim about a tree this process could not read.
+ * **Three answers, because "no" and "cannot say" lead to different decisions.** A claim that is
+ * definitely *not* attributable cannot own this install, and `findInstallLockfile` drops it before
+ * counting ambiguity — otherwise an unrelated ancestor lockfile (a stray `~/package-lock.json`)
+ * makes every project below it `unknown` with no project-side fix. A claim whose attribution cannot
+ * be established is `unknown`, and the caller **keeps** it so the ambiguity is still reported;
+ * folding it into `not-attributable` would let a nearer leftover lockfile win by default, which is
+ * the false fresh this check exists to prevent.
  */
-async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: string): Promise<boolean> {
+async function nearerInstallIsAttributableTo(
+  projectRoot: string,
+  installRoot: string,
+): Promise<"attributable" | "not-attributable" | "unknown"> {
   // The directories strictly between the project and the install root, plus the project itself. The
   // install root's own `node_modules` is by definition its install, so it is not examined.
   const directories: string[] = [];
@@ -417,8 +438,8 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
     const parent = dirname(directory);
     if (parent === directory) {
       // The project is not under the install root at all (a sibling tree resolved by some other
-      // route); nothing here can attribute it, so the honest answer is "cannot say".
-      return false;
+      // route), so this claim provably does not own it.
+      return "not-attributable";
     }
     directory = parent;
   }
@@ -427,8 +448,14 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
   // to attribute and nothing to contradict, so it stays attributable without ever needing the
   // target. Resolving eagerly would make that case `unknown` for no reason — and it is the ordinary
   // state of a project whose install has not been run yet.
-  let canonicalInstallTree: string | null | undefined;
-  const installTree = async (): Promise<string | null> => {
+  //
+  // **Absent and unreadable are kept apart.** A claim whose own `node_modules` does not exist cannot
+  // own an entry that does, so it is `not-attributable`; a `node_modules` this process could not
+  // canonicalize might own it, so it is `unknown`. Collapsing the two made an unrelated ancestor
+  // lockfile with no install of its own (the stray `~/package-lock.json` shape) ambiguous forever.
+  type InstallTree = { readonly kind: "found"; readonly path: string } | { readonly kind: "absent" } | { readonly kind: "unknown" };
+  let canonicalInstallTree: InstallTree | undefined;
+  const installTree = async (): Promise<InstallTree> => {
     if (canonicalInstallTree === undefined) {
       // **Canonicalized**, and that is not tidiness: the entry below is `realpath`'d while
       // `installRoot` arrives as whatever the walk spelled, so the two can differ for one directory.
@@ -437,7 +464,13 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
       // against a short root made `isInside` false for every package, so every install reported
       // `unknown`. That direction is fail-closed, but it disables the attribution check for a real
       // project on a real runner.
-      canonicalInstallTree = await realpath(join(installRoot, "node_modules")).catch(() => null);
+      canonicalInstallTree = await realpath(join(installRoot, "node_modules")).then(
+        path => ({ kind: "found" as const, path }),
+        (error: unknown) => {
+          const code = (error as { readonly code?: unknown } | null)?.code;
+          return code === "ENOENT" || code === "ENOTDIR" ? { kind: "absent" as const } : { kind: "unknown" as const };
+        },
+      );
     }
     return canonicalInstallTree;
   };
@@ -454,7 +487,7 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
         continue;
       }
       // Present and unreadable is "cannot say", not "no install here".
-      return false;
+      return "unknown";
     }
 
     // Every package directory at this level, with scopes expanded one level so `@scope/name` entries
@@ -472,7 +505,7 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
         try {
           scoped = await readdir(path);
         } catch {
-          return false;
+          return "unknown";
         }
         for (const name of scoped) {
           if (!name.startsWith(".")) {
@@ -491,21 +524,29 @@ async function nearerInstallIsAttributableTo(projectRoot: string, installRoot: s
         // "is this the same install" answerable at all.
         resolved = await realpath(packagePath);
       } catch {
-        return false;
+        return "unknown";
       }
       // The install a lockfile describes is the one under **its own `node_modules`** — that is where
       // its tree lives (and, for pnpm, where `.pnpm/` is). Checking "under the install root
       // directory" instead would accept a subproject's tree, because a subproject is *inside* the
-      // root's directory while having nothing to do with the root's install. A root with no tree at
-      // all cannot own an entry that exists, so that is `false` — "cannot say".
+      // root's directory while having nothing to do with the root's install.
       const target = await installTree();
-      if (target === null || !isInside(target, resolved)) {
-        return false;
+      // A root with no tree at all cannot own an entry that exists; one whose tree this process
+      // could not canonicalize might, so that one is `unknown`. An entry that resolves outside the
+      // root's tree is definitively a different install.
+      if (target.kind === "absent") {
+        return "not-attributable";
+      }
+      if (target.kind === "unknown") {
+        return "unknown";
+      }
+      if (!isInside(target.path, resolved)) {
+        return "not-attributable";
       }
     }
   }
 
-  return true;
+  return "attributable";
 }
 
 /** Whether `candidate` is `directory` itself or lies beneath it, compared on normalized paths. */
@@ -1142,6 +1183,26 @@ async function pnpmInstalledTreeDigest(installRoot: string): Promise<string | nu
     return null;
   }
 
+  // Local `file:` slots materialized inside `.pnpm/` (`<name>@file+<encoded-path>`). Unlike
+  // registry tarballs whose slot directory name carries an immutable version, a `file:` slot's name
+  // encodes only its source path and stays identical when the package's source files change. Newer
+  // pnpm releases list them in `.modules.yaml`'s `injectedDeps`, while pnpm 9/10 installs of
+  // standalone `file:` dependencies can omit `injectedDeps` entirely — measured on Linux CI, where
+  // editing and re-installing a `file:` fixture left `installedTree` unchanged. Digesting every
+  // `@file+` slot directly covers all pnpm versions at zero cost for registry-only projects.
+  const fileSlots: string[] = [];
+  for (const slot of slots) {
+    if (!slot.name.includes("@file+")) {
+      continue;
+    }
+    const files = await storeSlotContentDigest(storeDirectory, slot.name);
+    if (files === null) {
+      return null;
+    }
+    fileSlots.push(`${slot.name}:${files}`);
+  }
+  fileSlots.sort();
+
   // Build state last, because it is the one manager field that describes something this module then
   // has to read off disk itself. Review round 11: a slot's **name** does not cover what a lifecycle
   // script left behind in it. Measured on a real registry package — `esbuild@0.25.0`, whose postinstall
@@ -1171,7 +1232,16 @@ async function pnpmInstalledTreeDigest(installRoot: string): Promise<string | nu
     return null;
   }
 
-  return digestOf(canonicalJson({ ...fields, store: store, links, injected, builds }));
+  return digestOf(
+    canonicalJson({
+      ...fields,
+      store: store,
+      links,
+      injected,
+      ...(fileSlots.length > 0 ? { fileSlots } : {}),
+      builds,
+    }),
+  );
 }
 
 /**
@@ -1763,6 +1833,12 @@ async function linkTargetsDigest(installRoot: string): Promise<string | null> {
     }
     for (const entry of dirents) {
       if (!entry.isDirectory()) {
+        continue;
+      }
+      // Skip this toolchain's own scratch/output directories (`.fgc/`, `fgc-evidence/`) — matching
+      // `collectPackageFiles` — and `.git/`: neither is part of the project's install graph, and
+      // descending into `.fgc/` causes concurrent scratch runs to race with `readdir(location)`.
+      if (isToolchainArtifact(entry.name) || entry.name === ".git") {
         continue;
       }
       const path = join(directory, entry.name);

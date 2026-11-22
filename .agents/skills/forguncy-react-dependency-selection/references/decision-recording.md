@@ -184,7 +184,7 @@ global 不一致是 `extension-metadata` 的问题——每条拒绝都带 `(fix
 
 这个顺序是刻意的：证据是可提交的文件，写它就是改动工作树。若在测量阶段就写，`audit`（文档明确称其为 read-only counterpart）会弄脏仓库；而被拒绝的 `record` 会在"Nothing was written"这句话下面留下一个孤儿文件。先写证据再写锁，也能保证任一步失败时不会出现"锁引用了本次没能写出的文件"。
 
-**二、路径按内容寻址，不按 probe fingerprint。** fingerprint 不包含 smoke 模式：`--runtime-smoke` 跑出的 report 与同一次普通 probe 的 report 会是**相同 fingerprint、不同内容**。若按 fingerprint 存，后一次 hookless 运行会覆盖前一次带 smoke 的证据——锁仍写着 `target != null`／`validated`，但它 cite 的文件里已经没有当初那条 `runtime-smoke: passed`。读侧守卫（`cacheHitAnswersThisRun`）只能防"误读"，防不了"覆写"，所以证据不能与缓存共用路径：
+**二、路径按内容寻址，不按 probe fingerprint。** fingerprint 不包含 smoke 模式：`--runtime-smoke` 跑出的 report 与同一次普通 probe 的 report 会是**相同 fingerprint、不同内容**。若按 fingerprint 存，后一次 hookless 运行会覆盖前一次带 smoke 的证据——锁仍写着 `target != null`／`validated`，但它 cite 的文件里已经没有当初那条 `runtime-smoke: passed`。读侧守卫（`cacheInvalidationReason`）只能防"误读"，防不了"覆写"，所以证据不能与缓存共用路径：
 
 | 位置 | 寻址方式 | 用途 |
 |---|---|---|

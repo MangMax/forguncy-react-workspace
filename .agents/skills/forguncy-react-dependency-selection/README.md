@@ -65,7 +65,7 @@
 | 选项 | 作用 |
 |---|---|
 | `--project <dir>` | probe 该包的位置；必须是**已安装**它的目录。它也提供校验 `extension` 决策所用的映射集——该目录 `forguncy.config.ts` 的 `extensions` 块，经与编译器同一个规范化出口得到（#87）；没有配置时退到内置表的同名投影 |
-| `--no-cache` | 不读缓存里的旧 report（本次测量仍会作为**不可变证据**落盘） |
+| `--no-cache` | 不读缓存里的旧 report（本次测量仍会作为**不可变证据**落盘）；`probe` 输出里 `cache.outcome` 为 `disabled`，既不算命中也不算失效 |
 | `--runtime-smoke <module>` | 执行该本地模块作为 `runtime-smoke` hook；`validatedAgainstRuntime` 需要它 |
 | `--runtime-smoke-export <name>` | 指定 hook 的导出名（默认 `default`） |
 | `--extension-catalog <file>` | 用真实清单/已验证目录校验 `extension` 的 `libraryId`（两种输入 shape 不同，见 `references/decision-recording.md`；不传时用 `--project` 所指项目的 `extensions` 映射集） |
@@ -119,3 +119,5 @@ pnpm vp test --run .agents/skills/forguncy-react-dependency-selection
 ~~~
 
 `probe` 需要该包已安装在 `--project` 指向的目录（可用 `examples/probe-proving-cases`）。**本地检查不是活字格运行时兼容**：见 `references/report-and-handoff.md`。
+
+`probe` 的 `cache` 字段说明这次报告是复用的还是重测的（#95）：`outcome` 为 `hit` / `miss` / `disabled`；`miss` 一定带 `reason` 与一句话 `detail`，说明是哪个输入变了、下一步该做什么。根包版本不变但安装图变了（传递依赖移动、patch 新增或修改、真实 bundler 版本变化）会报 `install-graph-changed` / `toolchain-changed` 并**真的重跑构建**；身份缺失（无可用 lockfile、旧格式缓存）一律 `*-unknown`，绝不当成"一致"。`--no-cache` 不读缓存，因此既不会命中，也不会给出失效原因。
