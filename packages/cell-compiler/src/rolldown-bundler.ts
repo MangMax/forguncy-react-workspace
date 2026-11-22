@@ -1029,6 +1029,11 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
     inlinedPackageSizes,
     inlinedSpecifiers,
     emittedAssets,
+    // Whether the generated binding made it into this graph. The wrapper needs it to decide
+    // whether it may reference the artifact-scope props variable (#83); the binding module's
+    // id is registered exactly when `resolveCellSpecifier` took its `runtime-binding` arm, so
+    // the presence of the module is the answer rather than a search of the output text.
+    runtimeBindingGenerated: virtualModules.has(CELL_RUNTIME_BINDING_ID),
     // Sorted for a byte-stable report, like every other list here: #7's determinism
     // criterion covers the whole result, and #14's audit orders a closure from this
     // set, so an unordered report would not change the verdict while an unordered

@@ -813,14 +813,31 @@ describe("the generated runtime binding contract", () => {
     expect(CELL_RUNTIME_BINDING_CONTRACT.installTiming).toContain("App");
   });
 
-  it("leaves the re-render question open rather than claiming it is settled", () => {
-    // Whether the platform re-evaluates the artifact per render decides whether a
-    // re-render reads fresh props, and the repository cannot answer it. Recording it as an
-    // open question is what stops a later reader treating the module-scope install as
-    // proof that it does.
+  it("records the re-render question as narrower than it was, and still open", () => {
+    // #83's execution settled half of this: the artifact now reads props per render
+    // through the artifact-scope variable, so it is correct under both branches. What
+    // remains — which branch the product takes, and whether teardown reaches the artifact
+    // — cannot be observed from this repository, which is why it is still open and now
+    // owned by the real-page validation (#84) rather than by #83.
     const open = RUNTIME_CONTRACT_UNKNOWNS.find(unknown => unknown.id === "artifact-re-evaluated-per-render");
     expect(open).toBeDefined();
-    expect(open?.ownedBy).toBe("#83");
+    expect(open?.ownedBy).toBe("#84");
+    expect(open?.whyOpen ?? "").toContain("Settled locally (#83)");
+  });
+
+  it("names a live-props binding that the two generated modules share", () => {
+    // #83's fix turns on a variable at the artifact's own scope: the binding module's body
+    // runs once, the entry wrapper runs per render, and the provider reads whatever the
+    // wrapper last assigned. The name has to be one thing both modules read from the
+    // contract — a literal in either would be a second spelling of it, which is exactly how
+    // two generated modules drift apart.
+    const variable = CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable;
+    expect(variable.startsWith("__fgc")).toBe(true);
+    // It is not a host address: nothing in the platform's scope table provides it, and
+    // declaring it in `hostNames` would tell a template it may read a name only the
+    // compiler's own output declares.
+    expect(cellUserScopeBinding(variable)).toBeUndefined();
+    expect(CELL_RUNTIME_BINDING_HOST_NAMES).not.toContain(variable);
   });
 });
 

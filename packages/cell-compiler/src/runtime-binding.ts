@@ -46,6 +46,16 @@
  *    Cell that uses one façade member does not get refused over another it never touches
  *    — #9's rule, and the reason this module does not walk the props.
  *
+ * ## The props it hands over are read, not captured (#83)
+ *
+ * See {@link renderRuntimeBindingModule}: the provider input's props field is an arrow over
+ * the artifact-scope variable `artifact.ts` declares and the entry wrapper assigns, so the
+ * install happens once but the values are the current render's. That is a deliberate
+ * exception to "renders source from the contract and nothing else": the *timing* is still
+ * the contract's `installTiming`, the naming is still `CELL_RUNTIME_BINDING_CONTRACT`, and
+ * what changed is which *value* the generated module passes for a field the contract already
+ * named.
+ *
  * Scope note: this module renders source and declares the names that source references.
  * It does not drive a bundler, decide when the interception applies, or assemble an
  * artifact — `rolldown-bundler.ts` owns the first two and `artifact.ts` the third. What it
@@ -100,6 +110,36 @@ export { CELL_RUNTIME_BINDING_HOST_NAMES };
  * name authored source wrote. See the module header's first decision for why that
  * distinction is load-bearing rather than tidy.
  *
+ * ## What changed in #83, and the failure it removed
+ *
+ * The first version passed `props` — the wrapper-local itself — into
+ * `createHostRuntimeFacadeProvider`. That reads correctly, and it is wrong: the binding
+ * module's body runs **once**, when the artifact is evaluated, while the wrapper-local
+ * `props` is a parameter of the arrow IIFE the platform re-enters with new values on
+ * every render. So the provider captured the *first* evaluation's props object and every
+ * façade call afterwards returned stale permissions, stale commands and a stale image
+ * context — silently, with every check in the façade passing. #83's executed regression
+ * (`runtime-lifecycle.test.ts`) reproduced exactly that: after a props replacement,
+ * `hasPermission` still answered the old value and `cellProp("ImageContext")` still
+ * returned the old marker.
+ *
+ * The fix is the seam the two generated modules already share: the artifact-scope
+ * variable {@link CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}. The entry wrapper
+ * assigns this evaluation's props to it on **every** `App` call
+ * (`entry.ts`), and this module hands the provider a function that reads it, so a re-render
+ * (or a re-evaluated module, which simply assigns again) reads whatever the last render
+ * supplied. Nothing is hoisted to a page global: the variable is declared inside the
+ * artifact's own IIFE, so it is per evaluation exactly as the slot is per copy.
+ *
+ * `useDataSource` stays a direct value rather than a getter, and the asymmetry is the
+ * recorded one: it is a wrapper-local *hook* the Cell calls during render, so the value
+ * in scope when the module body ran is the function, and a hook's identity changing per
+ * render is not something the façade may assume either way. Reading it live would be a
+ * second address for the same binding — `RUNTIME_FACADE_FORBIDDEN_PATTERNS`
+ * `second-address-for-a-cell-binding`.
+ *
+ * ## Why there is no guard and no branch
+ *
  * The body is deliberately three statements and no control flow. There is no
  * `typeof props !== "undefined"` guard and no environment branch: `props` and
  * `useDataSource` are declared by the platform's own wrapper before the cell source runs,
@@ -111,18 +151,28 @@ export { CELL_RUNTIME_BINDING_HOST_NAMES };
  * than a conflict.
  */
 export function renderRuntimeBindingModule(facadeSpecifier: string): string {
-  const { installMember, createProviderMember, providerInput } = CELL_RUNTIME_BINDING_CONTRACT;
+  const { installMember, createProviderMember, providerInput, livePropsVariable } =
+    CELL_RUNTIME_BINDING_CONTRACT;
   // JSON rather than a template placeholder: the specifier is a path, and a path on
   // Windows contains backslashes that a naive interpolation would emit as escape
   // sequences inside the generated string literal. `JSON.stringify` produces a literal
   // that parses back to exactly this string in any of the separators Rolldown reports.
   const specifierLiteral = JSON.stringify(facadeSpecifier);
+  // The arrow body reads the artifact-scope variable on *every* call, which is what makes
+  // the provider answer with the props of the render that is happening now. The variable
+  // itself is declared by `artifact.ts` *before* this module's bundle, which is what keeps
+  // the entry wrapper — which runs after it in the same function scope — able to assign to
+  // it. Declaring it here instead would put it inside the bundle's IIFE, where the wrapper
+  // cannot reach it.
+  const livePropsReader = `() => ${livePropsVariable}`;
   return [
     RUNTIME_BINDING_GENERATED_BANNER,
     `import * as __fgcRuntimeModule from ${specifierLiteral};`,
     `__fgcRuntimeModule.${installMember}(`,
     `  __fgcRuntimeModule.${createProviderMember}({`,
-    `    ${providerInput.cellProps}: props,`,
+    // The reader, not the value: see the function header for the failure this replaced.
+    `    ${providerInput.cellProps}: ${livePropsReader},`,
+    // The hook is handed over as it is, and stays that way — see the header's asymmetry.
     `    ${providerInput.useDataSource}: useDataSource,`,
     `  })`,
     `);`,

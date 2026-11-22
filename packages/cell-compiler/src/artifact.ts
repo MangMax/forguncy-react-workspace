@@ -32,6 +32,7 @@
  */
 
 import {
+  CELL_RUNTIME_BINDING_CONTRACT,
   CELL_USER_SCOPE_BINDINGS,
   assertCellCodeBudget,
   classifyCellCodeSize,
@@ -211,6 +212,18 @@ export interface BundledCellModule {
    * bundler documents which plan codes translate and which do not).
    */
   readonly diagnostics?: readonly CellArtifactDiagnostic[];
+  /**
+   * Whether this module graph imports the runtime façade, so a binding was generated.
+   *
+   * The entry wrapper has to refresh the artifact-scope props variable on every `App` call
+   * (#83), and it may only do that when the binding — which declares the variable — is in
+   * the graph. Reporting it from the build is the only honest source: inferring it from
+   * `code` would be a substring check, and assuming it would put a free identifier in an
+   * artifact that has no declaration for it, which is a `ReferenceError` at the first
+   * render. Optional and absent means "no binding", so a fixture port that reports nothing
+   * gets the wrapper a façade-free Cell should have.
+   */
+  readonly runtimeBindingGenerated?: boolean;
 }
 
 export interface CellBundlingRequest {
@@ -517,12 +530,37 @@ export function assembleCellArtifact(input: AssembleCellArtifactInput): CompileC
   const assetDiagnostics = auditEmittedAssets(module.emittedAssets ?? []);
   const collection = collectFrontendLibraries(dependencies);
 
-  const wrapper = renderCellEntryWrapper(
-    input.entryKind === undefined ? {} : { entryKind: input.entryKind },
-  );
+  const wrapper = renderCellEntryWrapper({
+    ...(input.entryKind === undefined ? {} : { entryKind: input.entryKind }),
+    // The wrapper may only publish live props when the binding that declares the variable is
+    // in this artifact; the bundler's report is the only source that knows (#83).
+    runtimeBinding: module.runtimeBindingGenerated === true,
+  });
 
   const wrapperSource = wrapper.status === "emitted" ? wrapper.source : "";
-  const code = `${CELL_ARTIFACT_BANNER}\n${module.code}\n${wrapperSource}\n`;
+  // The artifact-scope props variable, declared *outside* the bundle and *before* it (#83).
+  //
+  // This placement is the seam, and both halves are load-bearing:
+  //
+  // - **outside the bundle's IIFE**, because the binding module is inside it, the entry
+  //   wrapper is beside it, and only a declaration at the artifact's own scope is visible to
+  //   both. Declared inside the bundle, the wrapper could not assign to it; declared after
+  //   it, the initial value would not be there when the module body installs the provider.
+  // - **only when a binding was generated**, because a façade-free artifact must not carry a
+  //   name nothing uses — and a wrapper that assigned to an undeclared variable would be a
+  //   `ReferenceError` at the first render, in strict mode, which every IIFE bundle is.
+  //
+  // `var` rather than a block-scoped declaration because the wrapper *reassigns* it, and the
+  // initial value is the evaluation's wrapper-local `props`, which is what keeps a
+  // `render-call` or `top-level-element-variable` shape working at all.
+  //
+  // Nothing here is a page global: a `var` in the platform's `new Function` body is a
+  // per-evaluation binding exactly as the provider slot is per copy.
+  const livePropsDeclaration =
+    module.runtimeBindingGenerated === true && wrapper.status === "emitted"
+      ? `var ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} = props;\n`
+      : "";
+  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${module.code}\n${wrapperSource}\n`;
 
   const sourceDiagnostics = auditArtifactSource(code, artifactOriginOf(module.code));
   const budgetDiagnostics = auditCodeBudget(code, input.codeBudgetCharacters);
