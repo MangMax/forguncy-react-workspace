@@ -1569,7 +1569,17 @@ describe("#94: identity comes from the install graph, not from a declaration", (
       await writeFileAt(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
       await writeFileAt(
         join(root, "node_modules", ".modules.yaml"),
-        "nodeLinker: isolated\nhoistPattern:\n  - '*'\npublicHoistPattern: []\n",
+        [
+          "included:",
+          "  dependencies: true",
+          "  devDependencies: true",
+          "  optionalDependencies: true",
+          "nodeLinker: isolated",
+          "hoistPattern:",
+          '  - "*"',
+          "publicHoistPattern: []",
+          "",
+        ].join("\n"),
       );
       const slotPkg = join(
         root,
