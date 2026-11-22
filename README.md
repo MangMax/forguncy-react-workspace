@@ -1,268 +1,362 @@
 # Forguncy React Workspace
 
-面向**活字格 ReactCellType** 的现代 React / TypeScript / Vite+ 工程化工具链。
+面向**活字格 ReactCellType** 的 React / TypeScript / Vite+ 工程化工具链。
 
-> **活字格负责“应用”，React 负责“单元格内的 UI”。**  
+> **活字格负责“应用”，React 负责“单元格内的局部 UI”。**
 > Forguncy owns the application. React owns the island.
 
-## 为什么做这个项目
+## 先看这里：现在能做什么
 
-活字格的 React 单元格让复杂前端能力进入低代码页面成为可能，但它的运行和依赖模型与普通 React 工程并不相同。开发者和 Coding Agent 很难直接获得常规 React 项目中的模块组织、npm 依赖、TypeScript、共享源码、测试和构建体验。
+- 用普通 React 工程开发 Cell，`vp dev` 本地即时看到效果，不需要同步到活字格。
+- 用 `pnpm build` 编译出自包含的 Cell 脚本与 `manifest.json`，**不连接**任何活字格工程。
+- 用 `pnpm plan` 离线检查“一次同步会做什么”；接上授权端口后只读检查设计器，仍然不写。
+- 用 `pnpm sync -- --port ...` 显式同步；这是**唯一**会写设计器的命令。
+- 依赖选型由 Skill 驱动确定性 probe，并把决策记进 `fgc.lock.json`，不靠猜测。
 
-本项目希望把 **ReactCellType 视为部署目标，而不是主要开发环境**：
+**当前阶段（如实说明）**：项目仍处于 **v0.1 架构验证阶段**，不是可直接用于生产的完整工具链。本地开发、构建、只读计划、mock-port 同步与 CI 已经接通；运行时契约的 pinned 目标仍是 **`12.0.101.0`**，针对 **`12.0.102.0`** 的重新测量与最终真机 gate **[#107]** 仍然欠着。**本地与 CI 全绿不是活字格运行时兼容证明**；在 [#107] 通过前，本仓库不宣称端到端真机验收。
 
-```text
-普通 React / TypeScript / Vite+ Workspace
-                  ↓
-            Forguncy 工具链
-                  ↓
-      ReactCellType 可消费的产物
-                  ↓
-                活字格
-```
+- 总路线与依赖关系：[#3]（v0.1 Epic）
+- 消费入口与本文示例：[#99]
+- 最终真机 gate：[#107]
 
-目标是让开发者和 Coding Agent 尽可能按照正常的现代 React 项目方式工作，再由工具链处理活字格特有的运行时与部署约束。
+[#3]: https://github.com/MangMax/forguncy-react-workspace/issues/3
+[#99]: https://github.com/MangMax/forguncy-react-workspace/issues/99
+[#106]: https://github.com/MangMax/forguncy-react-workspace/issues/106
+[#107]: https://github.com/MangMax/forguncy-react-workspace/issues/107
 
-## 核心原则
+## 快速上手（可执行）
 
-### 活字格负责应用
+这一节里的命令都来自真实的消费入口：`examples/consumer-project` 加上公开的 `@forguncy-react-workspace/cell-project`。**除第 0 步外，所有命令都在 `examples/consumer-project` 下执行**。示例只依赖仓库内已安装的 workspace 包，不需要任何未发布的 npm 版本。
 
-以下能力应优先由活字格提供：
+前置条件：
 
-- 页面与应用导航
-- 页面 / 全局业务状态
-- 数据源
-- 服务端命令与业务流程
-- 权限
-- 页面生命周期
-- 跨 React 单元格通信
+- Node **≥ 24**（仓库 `engines`）
+- pnpm **11.18**（仓库 `packageManager`）
+- 想跑 `sync` 时，还需要一个**已授权的活字格设计器连接**，以及一个导出 `ForguncySyncPort` 的端口模块（见第 5 步）
 
-### React 负责单元格内 UI
+<!-- quickstart:start -->
 
-React 单元格更适合承载：
-
-- 复杂组件与交互
-- 表单与局部状态
-- 图表、地图、Canvas / WebGL / 3D
-- 拖拽、动画、虚拟列表
-- 富文本、代码编辑器、PDF / 媒体查看器等浏览器 UI 能力
-
-项目不会尝试在 React 单元格里重新实现一套应用路由、全局业务 Store、权限系统或数据层。
-
-## 本地开发（`vp dev`）
-
-在活字格里同步一次才能看到一次 UI 改动，反馈太慢。因此项目提供一个**很薄的本地开发环境**：它把 Cell 的源码当作普通 React 挂载，用 Vite+ 的 HMR 提供反馈。
+### 0. 安装依赖（仓库根目录）
 
 ```bash
-cd examples/dev-harness
+# 工作目录：仓库根目录
+pnpm install --frozen-lockfile
+```
+
+`pnpm install` 会把 workspace 里的包全部链接好。之后的命令都切到示例项目：
+
+```bash
+# 工作目录：仓库根目录
+cd examples/consumer-project
+```
+
+### 1. 本地开发：不需要活字格
+
+```bash
+# 工作目录：examples/consumer-project
 vp dev
 ```
 
-无需任何 flag、无需 wrapper 脚本 —— 这也是 #22 的 Developer workflow 与 #23 第一条验收标准的写法。
+`vp dev` 把 `cells/sales-overview/src/App.tsx` 当作普通 React 挂载，用 `cells/sales-overview/fixture.ts` 作为页面数据的 mock provider，并提供 HMR。编辑 Cell 源码即可看到更新，**不需要**同步到活字格。
 
-它做的事情只有三件：
+它**不是**活字格模拟器。`vp dev` 的绿色结果属于 `local` 证据，不能证明设计器接受源码、页面生命周期正确、权限或跨 Cell 隔离成立。
 
-1. 从 `forguncy.config.ts` 读出 Cell 的 `entry` 与 `fixture`，把 `entry` 挂载成一个 React root；
-2. 把 `fixture` 解析成 mock provider，装进运行时门面（`@forguncy-react-workspace/runtime`）；
-3. 按 #9 的宿主映射表，把 `react` / `react-dom` / `antd` 等被判定为 `host` 的模块解析到本机安装的对应版本。
+### 2. 记录依赖决策
 
-编辑 Cell 源码 → 浏览器即时更新，**不需要**同步到活字格。
-
-### `extension` 依赖：必须由项目声明，本地不会替你猜
-
-`extension` 之所以是 `extension`，正是因为它需要共享模块身份或跨 Cell 单例语义 —— 本地把 import 解析成本机 npm 包，**会产生一个渲染正确但结论错误的结果**。所以 #22 只允许两种分支，且都必须由项目自己声明，harness 不会代选：
-
-```ts
-// vite.config.ts
-devHarness({
-  config: forguncyConfig,
-  extensionChoices: [
-    // 分支一：本地明确用一个替代品（并说明为何它可接受）
-    { packageName: "@tanstack/react-query", mode: "substitute", kind: "npm-package",
-      resolvesTo: "@tanstack/query-core",
-      justification: "本地只做 UI 迭代；跨 Cell 单例语义不在此验证。" },
-    // 分支一（另一种 kind）：项目自己提供一个 shim 文件
-    { packageName: "some-extension", mode: "substitute", kind: "project-shim",
-      resolvesTo: "./shims/some-extension.ts",
-      justification: "本机那份包缺了一个我们依赖的导出。" },
-    // 分支二：承认该依赖只能留给真实运行验证（并说明看不到什么）
-    { packageName: "another-extension", mode: "real-runtime-only",
-      reason: "页面全局才是它的模块身份",
-      consequence: "本地不会加载任何替代品，这个 import 会直接抛出" },
-  ],
-})
+```bash
+# 工作目录：examples/consumer-project
+pnpm record
 ```
 
-这两条分支**都是真的被执行**，不只是被记录：
+`record` 运行依赖选型 Skill 的确定性半边：对已安装的 `es-toolkit` 跑 probe，把 `inline` 决策写入：
 
-| 声明 | 本地实际加载的模块 |
-| --- | --- |
-| `substitute` + `npm-package` | `resolvesTo` 指定的那个已安装包 |
-| `substitute` + `project-shim` | `resolvesTo` 指定的项目文件 |
-| `real-runtime-only` | 一个**抛出异常**的模块 —— **不会**退回 npm 副本 |
-| 声明了但无法兑现（shim 不存在、包没装） | 同样是抛出异常的模块，并说明缺什么 |
+- `fgc.lock.json`
+- `fgc-evidence/`
+- `.fgc/probe-cache/`
 
-最后一行是刻意的：一个「解析到别处」的声明比一个「直接失败」的声明更危险 —— 开发者会看到一个正常渲染的 Cell，然后得出 shim 跑过了的结论。
+`fgc.lock.json` 与 `fgc-evidence/` 都是 **git-ignored** 的，因为记录里的 `installGraph` 是“执行它的这台机器”的测量；换一台机器本来就该重新 record。仓库里提交的是决策**输入** `dependencies/es-toolkit.decision.json`，这是评审能在 diff 里判断的那一半。
 
-`real-runtime-only` 之所以也抛异常，是因为契约原文写的是「no stand-in is used」「the dependency is not exercised at all」。如果它退回 npm 副本，那个依赖就**被走到了**，项目自己写的 `consequence`（"看不到什么"）就是假的。这与本包对宿主桥接的既有做法一致：没有本地副本的被桥接 id 会 alias 到一个抛出解释的模块，因为「走普通 npm 路径更糟 —— 要么报一个含糊的错误，要么绑上一个产物永远不会带的副本」。
+仓库在 `.agents/skills/` 下安装了 Skill，支持 Agent Skills 的工具会**自动发现**它们；本文不维护第二份 Skill 清单。让 Agent 选库时，应当走 Skill 的 `probe` → `audit` → `record`，而不是手写 `fgc.lock.json`。
 
-匹配是**精确匹配**（与编译器的 `findExtensionExternalMapping` 同一规则），不是前缀 —— 所以 `@tanstack/react-query/persist` 这类扩展并不提供的子路径不会被本地拦截。
+### 3. 本地构建 Cell 产物
 
-已过期（stale）的声明会被**报告但绝不生效**。典型情形是依赖已经从 `extension` 改成 `inline`，而旧的 choice 还留在配置里 —— 契约会把这条 choice 报成 `local-dev-extension-choice-unmatched`（non-blocking，原文说它 "is used for nothing"）。如果本地仍然按它替换，dev server 会 serve 替代品、而编译器跟随 lock 打包真实包 —— 这正是这层要防的 dev/compiler 漂移。所以「哪些 choice 生效」直接取自审计的结论，不另写一份匹配规则。
+```bash
+# 工作目录：examples/consumer-project
+pnpm build
+```
 
-lock 里的决策是**按挂载的那个 Cell 投影过**的。这很重要，因为 #4 把策略定义为 per `(包, cellTarget)` 的组合 —— 契约原话说同一个包"可以在一个 Cell 里是 `inline`、在另一个被映射为 `host`"。审计只看 `packageName` + `strategy`，所以直接把整份 lock 交给它，会让**另一个 Cell 的决策**决定这个 Cell：一个已把某依赖定为 `inline` 的 Cell，仍会因为另一条 target-independent 的 `extension` 记录而被替换或拒绝启动，而编译器是 inline 的。投影复用 `findLockDecision` 的优先规则（先 cell 专属、再回落 `cellTarget: null`），不另写一份。
+构建是纯本地的，**不连接、不写入**任何活字格工程。产物写到示例项目自己的输出目录：
 
-投影还会做**有效性检查**，与编译器编译前做的那套一致：先 conformance 审计（`auditLockDecisionConformance`），再按 freshness 判定每条记录。这必要，因为 `compileCell` 对一条被 withhold 的决策会直接**拒绝编译**（`unresolved-dependency-decision`）—— 本地若照旧照单全收，就会出现"本地渲染通过、同一个源码却编译不出来"。
+- `examples/consumer-project/.fgc/build/salesOverview.js` —— 一个自包含的 IIFE，CSS 与 `badge.png` 都已内联
+- `examples/consumer-project/.fgc/build/manifest.json` —— 每个 Cell 的目标、字符数、fingerprint、资源与诊断
 
-这里有一条**本地边界**，如实说明而不是掩盖：判 freshness 需要 `LockEnvironment`，其中两轴本地观测不到 —— 扩展的 version/identity 只有页面 `listFrontendLibraries` 能回答，probe fingerprint 的组合器会拉到打包器。实测（`examples/extension-query` 真实 lock，只喂本地可观测量）：扩展记录会**全部**被 withhold。若照字面执行，"本地不索要 choice、不做替换"，Cell 就静默走 npm —— 正是本 PR 要堵的第一个缺陷。
+终端会看到类似输出（字符数、fingerprint 以实际为准）：
 
-所以按轴拆开：
+```text
+Cell salesOverview -> 销售看板!B2: compiled
+  artifact salesOverview.js: 65823 chars, fingerprint c4f60e5eaa859bc4…
+  decision react: host (from #9's host bridge — undecided by this project)
+  decision es-toolkit: inline
+```
 
-| 轴 | 本地能否判定 | 行为 |
-| --- | --- | --- |
-| conformance（策略/映射契约） | 能 | 报为 **blocking**，拒绝启动 —— 与编译器一致 |
-| 包版本、target、toolchain | 能 | 陈旧即 withhold，并写出原因 |
-| 扩展 version/identity、probe fingerprint | **不能** | 记录**保留**，在启动报告里列出这两轴未能核对 |
+构建产物是**报告与检查对象**。`sync` 会从源码重新编译，而不是信任磁盘上某次 build 留下的文件。
 
-最后一行是刻意的方向：本地既不能证明该记录仍有效，也不能证明它已失效。启动报告会点名**哪两轴**没核对，所以一次本地绿不会被误读成"lock 已验证"。
+### 4. 只读计划：先看会发生什么
 
-`vp dev` 启动时还会审计一遍：**没有声明**的 `extension` 依赖会直接**拒绝启动**（`local-dev-extension-needs-substitute`，契约里 `blocksLocalDevelopment: true`），并把修复方式和 fix owner 一起打出来；声明了 `real-runtime-only` 的则照常启动，但在报告里逐条列出该依赖在本地**完全没有被走到**。这条规则来自 `runtime` 的契约表，而不是 harness 自己的一份清单。
+```bash
+# 工作目录：examples/consumer-project
+pnpm plan
+pnpm plan -- --port ./mcp-port.mjs
+```
 
-### 它不是什么
+- `pnpm plan`：**offline**。编译、审计 lock、解析目标，不联系任何人、不写任何文件。可以在 CI、全新 clone、没有设计器的 Agent 里运行。
+- `pnpm plan -- --port ./mcp-port.mjs`：**connected**。读取设计器的前端库清单与每个目标 Cell 的当前内容，然后给出与一次真实 `sync` 相同的计划；它**仍然不写**。
 
-本地开发环境**不是活字格模拟器**，它无法替代真实运行验证：
+`mcp-port.mjs` 是**你自己的**端口模块，示例不附带真实设计器连接。模块默认导出（或命名导出 `port`）一个 `ForguncySyncPort`，包含 7 个方法：`listFrontendLibraries`、`readCellSource`、`setCells`、`getProjectSaveStatus`、`saveProject`、`checkProjectErrors`、`generatePageAsync`。具体形状见 [`examples/consumer-project/README.md`](examples/consumer-project/README.md)。
 
-| 它**不能**证明 | 原因 |
-| --- | --- |
-| 源码会被活字格的设计器接受 | #5 记录设计器的写入期校验会直接拒绝 `import` / `export` 声明，而本地工程本身就是由 `import` 组成的 —— 本地能跑，与设计器是否接受**无关** |
-| 页面生命周期、路由、权限语义 | 这些属于活字格；本地进程既没有页面的 history，也没有页面图 |
-| 跨 Cell 的部署隔离 | #5 验证了页面上每个 Cell 是独立 React root，Context 不跨 Cell；本地只挂载一个 Cell，两个 Cell 挂进同一棵树会得到相反的结果 |
-| 扩展（`extension`）依赖的真实行为 | 页面级前端库的加载顺序没有保证（#5 `loadOrderGuaranteed: false`）；本地把依赖解析成 npm 包，反而比页面**更强** —— 即使项目声明了替代品，也只说明「Cell 能对着这个替代品编译并渲染」，与扩展的全局名、版本、加载期可解析性都无关 |
-| 生成的宿主桥接模块本身 | 本地解析的是**已发布的包**，从不运行编译器生成的桥接模块；本地绿 ≠ 桥接正确 |
+### 5. 显式同步：唯一会写的命令
 
-换句话说：本地反馈是 `local` 级证据，**不是**兼容性证据。哪些检查仍然欠真实页面，由 `runtime` 的 `formatLocalDevValidationDistinction()` 逐条打印，而不是靠人记 —— 并且 `vp dev` 启动时**就会打印**（含被拒绝启动时），因为「本地渲染成功」正是最容易被误读成兼容性的时刻。
+```bash
+# 工作目录：examples/consumer-project
+pnpm sync -- --port ./mcp-port.mjs
+```
 
-一个具体后果值得单独写下来：`react-dom/client` 在页面被收窄为 #5 实际观测到的成员，本地却是完整的已发布模块 —— 所以本地比页面**更宽松**，本地通过不能当作更强的结论。
+`sync` 没有默认端口：授权连接属于调用方（Agent 的 MCP 会话或项目自己的适配器），所以必须用 `--port` 指名。缺参数是用法错误，**不会**退化成一次看起来像部署的静默 dry run。
 
-## 模块别名（`resolve.alias`）：本地与构建共用一份
+一次 `sync` 的流程是：重新编译 → 读取清单与目标 → 计划并拒绝冲突 → `setCells` → `saveProject` → 检查项目错误 → `generatePageAsync`。成功时会打印可打开的页面 locator。
 
-Cell 里想写 `import { Button } from "@/ui"` 这种短路径时，别名写在 **`forguncy.config.ts`** 里，不写在 `vite.config.ts` 里：
+同一份产物再次同步会报告 `unchanged`，且不重复写入 —— 这是正常结果，不是失败。
+
+### 6. 验证边界
+
+```bash
+# 工作目录：examples/consumer-project
+pnpm plan -- --port ./mcp-port.mjs
+```
+
+先确认计划仍然是预期的那一个，再打开 `sync` 打印的 locator 看页面。**真正的兼容性验收是 #107**：一个独立 Agent 在真实活字格设计器与生成页面上完成新业务 Cell、权限/数据/命令、跨 Cell 隔离与失败恢复。在它通过前：
+
+- 本地 `vp dev`、`build`、offline `plan` 都是 `local` 证据；
+- `record` / probe 是构建输入证据；
+- `plan --port` 与 mock-port `sync` 是流程证据；
+- 只有真实页面能证明“活字格接受并正确运行”。
+
+<!-- quickstart:end -->
+
+## 项目配置：`forguncy.config.ts`
+
+一个消费项目只有一个声明文件。它说明 Cell 是什么、产物去哪、目标页面和单元格是谁：
 
 ```ts
+import { defineForguncyConfig } from "@forguncy-react-workspace/core";
+
 export default defineForguncyConfig({
-  cells: { /* ... */ },
-  resolve: {
-    alias: {
-      "@/ui": "./src/ui",
-      "@app/shared": "./packages/shared", // 指向 workspace 共享源码也可以
+  runtime: { forguncyVersion: "12.0.101", projectAlias: "consumer-example" },
+  extensions: {
+    mappings: [
+      {
+        packageName: "@example/chart-panel",
+        libraryId: "example-chart-panel",
+        globalName: "ExampleChartPanel",
+        // …
+      },
+    ],
+  },
+  cells: {
+    salesOverview: {
+      entry: "./cells/sales-overview/src/App.tsx",
+      fixture: "./cells/sales-overview/fixture.ts",
+      target: { pageName: "销售看板", cell: "B2" },
     },
   },
 });
 ```
 
-**为什么必须写在项目配置里**：Cell 产物是**一个自包含的 IIFE**，不是普通 web bundle，所以生产构建直接驱动 Rolldown，而它读不到 `vite.config.ts` 里的任何东西。在 #97 之前，这个别名在 `vp dev` 下生效、在编译时直接失败 —— 也就是「本地一套、生产另一套」。现在 `core` 把这一块归一化一次、挂在 registry 上，dev server 与 Cell 构建**读的是同一个对象**，因此不可能各自解读成不同的文件。
+几个关键点：
 
-这一块刻意只支持**子集**，因为两个引擎只在一种键形态上规则一致（`importee === key || importee.startsWith(key + "/")`）：
-
-| 写法 | 结果 |
-| --- | --- |
-| `"@/ui": "./src/ui"` | ✅ 本地与构建解析同一文件 |
-| `"echarts/": "./vendor/echarts/"`（两侧都带斜杠） | ✅ 归一化后同上。**注意不能拿 `react` 之类被宿主桥接的 id 举例**：那种键会被下一节最后一行拒绝 |
-| 数组形式 `[{ find, replacement }]`（字符串 `find`） | ✅ 同上，方便从 `vite.config.ts` 拷过来 |
-| `RegExp`，或 `"/正则/"` / `"^x$"` 之类键 | ❌ 明确报错。Rolldown 的 `resolve.alias` 是字符串 map，没有 pattern 能力；对象键在 Vite 里也**按字面**匹配，所以这种写法在两条路径上都不会别名到任何东西 |
-| 目标是裸包名（`{ "old": "new" }`） | ❌ 明确报错。Vite 从项目根解析、Rolldown 从引用文件解析，同一个声明会解析到不同位置 |
-| 目标是绝对路径 / `~` / `file://` | ❌ 明确报错（提交进仓库的配置必须换台机器意思一样） |
-| 目标是项目根本身（`{ "@": "." }`） | ❌ 明确报错。否则整个项目都能用一个 id 导入。root 带不带尾斜杠、带不带 `.`/`..` 段都一样会被拒绝 |
-| 数组形式里两个键互相重叠、且声明顺序无法保持（如 `[{"1/deep"}, {"1"}]`） | ❌ 明确报错。对象会把「像数字的键」提前枚举，于是数组里的声明顺序被改写；Vite 按数组顺序取更具体的那个、Rolldown 按 map 顺序取更一般的那个，同一个 import 会在两条路径上解析到不同目标。把更具体的键写在更一般的之后即可 |
-| 键是 `__proto__` | ❌ 明确报错。普通对象存不下它（赋值走的是 `Object.prototype.__proto__` setter，不是新建自有属性），而 Vite 会把该 id 解析到自己的一个内部模块而不是任何别名目标 —— 所以两条路径都不可能一致地兑现它 |
-| 键是宿主桥接的 id（`react` / `react-dom` / `antd` 等） | ❌ 明确报错。两个引擎对「桥接 vs 别名」的**顺序相反**（Vite 先别名、产物先桥接），写在这里只会改本地解析。要指向自己打的 React，请写 `vite.config.ts`，那是**本地覆盖**，不是对产物的声明 |
-
-不支持的都是**报错**而不是静默忽略 —— 一个「本地能跑、产物里没生效」的别名比一个明确的错误更贵。
-
-### 同一个 id **不要**再写进 `vite.config.ts`
-
-`vite.config.ts` 里仍然可以写别名（本地打补丁、临时替身都是合理需求），但**不能与 `forguncy.config.ts` 的别名重叠**：Vite 会先应用自己的 `resolve.alias`，再到插件的 `resolveId`（项目别名在那里生效），所以重叠时本地会走 Vite 那份、而 Cell 构建只认 `forguncy.config.ts` 那份 —— 两条路径**都成功但结果不同**，这正是本票要消除的分歧。`vp dev` 启动时会**直接拒绝**（`local-dev-project-alias-shadowed`），并把重叠的键与两个目标一起打出来。
-
-重叠是**双向**判定的：`vite.config.ts` 写得更深（`@app/shared/thing`）同样会盖住项目里的 `@app/shared`，一样被拒绝。不重叠的 `vite.config.ts` 别名不受影响。
-
-**正则形式的 `find` 同样会被判定**，而不是压成字符串近似。`{ find: /^@app\/shared(?=\/|$)/ }` 这种写法会被真的求值：Vite 确实会用它改写 `@app/shared/thing`，所以必须拒绝 —— 早先版本把它降成 `source` 字符串比较，会**静默漏过**，等于恢复本票要消除的分叉。判定规则只有两条：
-
-1. 把该正则对着「项目 key 能匹配的 specifier 集合」**实际求值**，命中即拒绝；
-2. 未命中时，只有 `source` 完全不含元字符的正则才放行（它只能匹配自己字面拼出的串，探针未命中就是真未命中），其余**一律拒绝**（fail closed，因为这是 blocking gate，漏报的代价是不一致，误拒的代价只是让用户改写成普通字符串别名）。
-
-曾经还有一条「`^` 锚定正则的强制字面前缀不含该 key → 放行」的静态豁免，**已删除**：那个前提在三种普通写法下都不成立 —— `/i` 让匹配忽略大小写、`^` 只约束分支的第一个 alternative、`\x73` 是字符 `s` 而非两个字符 —— 三者都能让真实覆盖被静默跳过。静态判定要成立必须正确处理 flags、分支、量词、字符类、lookaround 与全部转义形式，这套分析没有实现，所以不提供任何豁免。
-
-误拒的确存在：一个与项目别名毫无关系的复杂正则（例如 `/^some-other-lib(\/|$)/`）也会被拒。改写成等价的普通字符串别名即可精确通过 —— 这也是「真的想要某个 id」时本来该写的形式。
-
-**由 Vite 插件注入的别名同样被拒绝。** harness 自身是 `enforce: "pre"`，而 Vite 的 `config` hook 是顺序执行的 —— 普通/`post` 用户插件会在 harness 读完之后继续 merge 进 `resolve.alias`。一个这样的插件若注入 `@app/shared/thing -> /local-copy`，Vite 会在 harness 的 `resolveId` 之前命中它，而 Cell 构建只认 `forguncy.config.ts`，于是 dev 与产物对同一个 import 给出不同文件。
-
-因此 harness 会在启动时对比**最终**的 alias 集合：项目自己声明的、harness 自己注入的（`hostModuleAliases()`）、以及 Vite 内置的 `@vite/` 条目三者之外，任何多出来的条目一律拒绝 —— 不要求它与项目别名重叠，因为「本 harness 无法解释的别名」本身就已经是本票要求报告的「未支持的 Vite plugin 行为」。需要某个别名就写在 `vite.config.ts` 里，那份声明会被正确记账。
-
-## CSS 与静态资源：首版支持集合（#98）
-
-普通组件 `import "./panel.css"`、`import logo from "./logo.svg"` 这类写法，本地 `vp dev` 与 Cell 产物**含义相同**：产物仍然是一个自包含脚本，资源被内联进去，不会生成任何兄弟文件、不会在运行时猜目录、也不会暗中请求 CDN。
-
-首版的支持集合是**封闭**的，清单在代码里只有一份（`packages/core/src/cell-assets.ts` 的 `CELL_RESOURCE_SUPPORT_MATRIX`），编译器与 dev server 都读它：
-
-| 写法 | 首版结论 |
-| --- | --- |
-| `import "./x.css"`（普通 CSS） | ✅ 注入到一个以样式内容哈希为 key 的 `<style data-forguncy-cell-style="…">` |
-| 普通 CSS 里的 `url(…)`，指向同级小图片 / 字体 | ✅ 重写成 `data:` URI（上限内） |
-| `import url from "./x.png"` 等静态资源默认导入 | ✅ 默认导出是 `data:` URI（上限内） |
-| `*.module.css`（CSS Modules） | ❌ **明确拒绝**。作用域类名需要一个与 Vite 输出一致的、由编译器自己拥有的实现；首版宁可报错也不给同一个 import 两种答案 |
-| CSS `@import` / `image-set()` | ❌ 拒绝。前者是样式级联解析，后者可以不带 `url()` 地引用文件 |
-| `http:` / `https:` / `//` / 以 `/` 开头的绝对 URL | ❌ 拒绝。产物不能暗中请求网络，也不知道活字格页面的目录 |
-| `?raw` / `?url` / `?inline` / `?worker` / `?sharedworker` | ❌ 拒绝。每个 query 都对应一个单文件编译器没有实现的 Vite 变换 |
-| Worker / `.wasm` / 其它二进制资源 | ❌ 拒绝，不在首版内 |
-| 超过内联上限的资源（默认 4096 字节，与 Vite 的 `assetsInlineLimit` 同值） | ❌ 拒绝并给出实测字节数与上限 |
-
-拒绝一律是**结构化诊断**（`rejected-cell-asset`），带 `extension` / `replace` 方向：需要被共享、被页面加载、或本来就是个二进制的资源，应该放进**活字格前端扩展**（`extension`）；只是图太大或格式不合适，就换一个首版能内联的 `replace` 方案。**不会**生成一个「看起来能用」的产物。
-
-**选择器不做自动作用域。** 普通 CSS 和 Vite 下一样是全局的，所以给 Cell 的根元素加一个自己的 class 前缀（如 `.sales-summary-root`）。CSS Modules 是唯一能做到自动作用域的形式，而它在首版被明确拒绝 —— 这条选择是明说的，不是遗漏。
-
-**样式生命周期**：编译产物里会带一个按样式 id 计数的小安装器。同一个 Cell 被重复求值（HMR、重新编译、重挂载）不会追加第二个 `<style>`；两个 Cell 各有自己的 id，卸载其中一个不会删掉另一个仍在用的样式。计数归零时才移除元素。
-
-**成本记账**：`CompileCellResult.inlinedResources` 逐个记录内联的样式 / 资源（字节数、`data:` URI 字符数、渲染字符数），`formatCellResourceLedger()` 打印成一行一行。它**只**是资源账本；是否超出 Cell 字符上限仍由 `cellBudgetCharacters` 判定（`cell-code-budget-exceeded`），两者不混为一谈。
-
-本地与产物的一致性有测试兜底：`packages/cell-compiler/src/cell-resources.test.ts` 把同一个组件编译后在 `happy-dom` 里求值，断言 `<style>` 内容、`data:` URI 能解回原字节、多实例 / 卸载行为；`packages/dev-harness/src/asset-policy.test.ts` 用真实 Vite server 断言同一条导入在本地拿到**同一个** `data:` URI。这些是 `local` 证据；真实活字格页面上的样式表现仍由独立的消费方 gate 验证（AGENTS.md 规则 6–7）。
+- `cells.<id>.target` 把 Cell 映射到活字格的 `页面名 + 单元格`。`pnpm plan` / `sync` 都通过同一个 registry 解析目标；两个 Cell 不能声明同一个目的地。
+- `cells.<id>.entry` 既是 `vp dev` 挂载的文件，也是编译器打包的文件 —— 没有 `.dev.tsx` 孪生文件。
+- `cells.<id>.fixture` 只用于本地开发，是页面数据的 mock。
+- `runtime.forguncyVersion` 是**记录**的目标版本，不是运行时检查；写在这里不代表已经连上那个版本的活字格。
+- `extensions.mappings` 是**项目自己的**扩展行。它不会修改工具内置表；行里的 `libraryId` / `globalName` 必须来自真实的 `listFrontendLibraries`，不能凭猜填写。
 
 ## 依赖策略
 
-第三方依赖不会简单地分成“支持 / 不支持”，而是根据实际运行方式选择以下策略：
+第三方依赖按实际运行方式分成四种策略：
 
 | 策略 | 含义 |
 | --- | --- |
-| `host` | 由活字格 / ReactCellType 宿主提供，例如宿主 React 或已存在的全局库 |
-| `inline` | 直接打包进当前 Cell 产物；这是兼容的现代浏览器库的默认方向 |
-| `extension` | 使用活字格前端扩展库，适合需要共享模块身份、跨 Cell 单例 / 缓存或明确复用的大型依赖 |
-| `replace` | 当前库不适合该运行环境，优先选择更现代、更适合浏览器 / ESM / Vite 的替代方案，而不是无限增加适配器 |
+| `host` | 由活字格 / ReactCellType 宿主提供，例如页面上的 React、ReactDOM、antd。项目不需要安装 React；宿主桥接会在 Node 解析之前接管这些模块名。 |
+| `inline` | 直接打包进当前 Cell 产物。兼容的现代浏览器库默认走这里。 |
+| `extension` | 由活字格前端扩展提供。适合需要共享模块身份、跨 Cell 单例/缓存，或明确复用的大型依赖。 |
+| `replace` | 当前库不适合该运行环境，换一个更现代、更适合浏览器 / ESM 的替代方案，而不是维护一个永久适配器。 |
 
-兼容性判断不会依赖一个无法维护的“全 npm 兼容列表”。项目计划通过 **Agent 动态选库 + 确定性 Probe + 实际运行验证** 来做决策，并把已验证结果记录为可复现的项目状态。
+`host` / `inline` / `extension` 是三种**可部署**策略，`replace` 是对“这个包不该进入 Cell”的答复。
 
-## 当前状态
+### workspace 共享源码不是运行时模块
 
-项目目前仍处于 **v0.1 架构验证阶段**，尚不应视为可直接用于生产的完整工具链。
+Cell 可以按名字导入 `@app/consumer-ui` 这样的 workspace 包。编译器会把它的源码**摊平**进每个消费它的 Cell 产物 —— 不产生共享的运行时模块：
 
-当前重点是验证：
+- 两个 Cell 各自带一份代码；
+- 包里的 React Context 只属于那个 Cell；
+- 模块级状态是 per-Cell 的；
+- workspace 包不会出现在 `frontendLibraries`，也不参与依赖策略决策。
 
-1. ReactCellType 的真实运行时与源码契约；
-2. 普通 React / TypeScript 源码是否可以稳定编译为 Cell 产物；
-3. `inline`、`host`、`extension` 三种部署路径；
-4. pnpm workspace 内共享源码的构建方式；
-5. 通过 MCP 将生成产物同步到真实活字格项目；
-6. React Cell 可接受的代码体积与性能边界；
-7. Agent 驱动的依赖选择与兼容性验证流程。
+因此，**跨 Cell 的状态必须交给页面或扩展提供的模块**，不能靠一个 workspace 包“共享”。同理，不要在 Cell 里重建应用路由、第二套全局业务 Store、权限系统或第二份业务数据源 —— 这些属于活字格。
 
-整体路线、依赖关系和当前任务请查看 [v0.1 总 Epic](https://github.com/Mang-X/forguncy-react-workspace/issues/3)。
+依赖策略的判断顺序是先归属、再选包：如果能力属于活字格（页面路由、跨 Cell 业务状态、权限、数据源），就应当交回宿主；只有属于单元格局部 UI 的能力才进入选型。工具不会用“某个包能跑”来覆盖归属结论。
 
-## 项目协作方式
+## CSS 与静态资源：v1 的封闭支持集合
+
+普通的 `import "./panel.css"`、`import logo from "./logo.svg"`，在 `vp dev` 与 Cell 产物里**含义相同**：资源被内联进那个自包含脚本，不生成兄弟文件、不在运行时猜目录、不暗中请求 CDN。
+
+| 写法 | v1 结论 |
+| --- | --- |
+| `import "./x.css"`（普通 CSS） | ✅ 注入以样式内容哈希为 key 的 `<style data-forguncy-cell-style="…">` |
+| 普通 CSS 里指向同级小图片/字体的 `url(…)` | ✅ 重写成 `data:` URI（上限内） |
+| `import url from "./x.png"` 等静态资源默认导入 | ✅ 默认导出是 `data:` URI（上限内） |
+| `*.module.css`（CSS Modules） | ❌ 明确拒绝：v1 不提供与 Vite 一致的自动作用域实现 |
+| CSS `@import` / `image-set()` | ❌ 拒绝：前者是样式级联解析，后者可以绕过 `url()` 引用文件 |
+| `http:` / `https:` / `//` / 以 `/` 开头的远程或绝对 URL | ❌ 拒绝：产物不能暗中联网，也不知道页面目录 |
+| `?raw` / `?url` / `?inline` / `?worker` / `?sharedworker` | ❌ 拒绝：每个 query 都对应一个单文件编译器未实现的 Vite 变换 |
+| Worker / `.wasm` / 其它二进制资源 | ❌ 拒绝 |
+| 超过内联上限的资源（默认 4096 字节） | ❌ 拒绝，并报告实测字节数与上限 |
+
+拒绝是**结构化诊断**（`rejected-cell-asset`），带 `extension` / `replace` 方向。需要被页面共享、被扩展加载、或本来就是二进制的资源，应当放进活字格前端扩展；只是太大或格式不合适，就换一个 v1 能内联的方案。
+
+**选择器不会自动作用域**。普通 CSS 和 Vite 下一样是全局的，请给 Cell 根元素加自己的 class 前缀（示例用 `.sales-overview`）。CSS Modules 能做到自动作用域，但 v1 明确拒绝它 —— 这是选择，不是遗漏。
+
+样式生命周期由产物里的小安装器管理：同一个 Cell 重复求值不会追加第二个 `<style>`；两个 Cell 各有自己的 id，卸载一个不会删掉另一个仍在用的样式。
+
+## 证据等级：别把本地绿当成兼容
+
+这个仓库区分四种证据，**不能互相替代**：
+
+| 等级 | 来源 | 能证明什么 | 不能证明什么 |
+| --- | --- | --- | --- |
+| **Local** | `vp dev`、`pnpm build`、offline `pnpm plan` | Cell 源码能被本地 React 挂载；能被编译器打包；资源能内联；lock 与 workspace 图能通过本地审计 | 设计器接受源码、页面生命周期、权限、跨 Cell 隔离、扩展加载 |
+| **Probe** | `pnpm record`（Skill 的 `probe` / `audit` / `status`） | 已安装包在确定性 probe 下的构建事实；决策记录可复现 | 包在活字格页面上的行为；真实运行时兼容 |
+| **Compile / DOM / Mock-port** | `pnpm plan -- --port`、recording-port 的 `pnpm sync -- --port`、测试里的 DOM 求值 | 完整同步流程可走通；编译产物在 DOM 中可求值；计划能读取目标并拒绝冲突 | 真实设计器接受了调用；生成页面真的渲染 |
+| **Real Forguncy Runtime** | [#107] 的真机 gate：真实设计器 + 生成页面 | 页面/路由/权限/数据/命令/跨 Cell 隔离/扩展身份与加载顺序/页面离开重入 | —— |
+
+CI 跑的是前三类。**CI 绿不等于真机兼容**，本地绿也不等于 CI 绿，更不等于 #107。仓库在报告里刻意把“本地能编译”和“部署 gate 会扣下什么”分开打印，就是为了避免把前者读成后者。
+
+## 常见失败与恢复
+
+所有修复都应当**先读诊断里的 `code`、`message`、`remediation` 和 `fixOwner`**，再动手。不要在不理解原因时使用 `force`。
+
+### 1. 缺包，或依赖没有决策
+
+- **症状 / code**：`build` 或 `plan` 报 `unresolved-dependency-decision`。
+- **原因**：Cell 导入了一个包，但没有任何单一可用决策（`host` / `inline` / `extension`），或者包根本没有安装。
+- **恢复**：
+  1. 先让包在项目里可解析：在 `examples/consumer-project` 下 `pnpm add <package>`；
+  2. 让 Agent 用 Skill 对它跑 `probe` → `audit` → `record`，生成 `fgc.lock.json`；
+  3. 如果这个能力其实属于活字格，删掉导入，把能力交回宿主。
+- **不要**手写 `fgc.lock.json`，也不要为了“先跑起来”把包写进 `frontendLibraries`。
+
+### 2. 缺 `extensions.mappings`，或扩展对不上
+
+- **症状 / code**：
+  - 编译期：`missing-extension-mapping`；
+  - 同步期：`extension-decision-unusable`（由 `extension-mapping-missing` 翻译而来）、`missing-extension`、`extension-identity-mismatch`。
+- **原因**：依赖被决定为 `extension`，但项目没有映射行；或页面上的扩展 id / global / bundle / types 与映射不一致。
+- **恢复**：
+  1. 在 `forguncy.config.ts` 的 `extensions.mappings` 里补一行，`libraryId` 与 `globalName` 必须来自真实的 `api.app.listFrontendLibraries`；
+  2. 在页面上安装/上传与映射一致的扩展版本；
+  3. 如果这个包不需要共享模块身份，让 Skill 重新评估为 `inline` 或 `replace`。
+- **不要**编造 `libraryId`，也不要通过改生成代码绕过扩展审计。
+
+### 3. lock 过期
+
+- **症状 / code**：`build` 报告某条记录 `WITHHELD`，`stalenessReasons` 包含：
+  - `package-version-changed`：安装版本与记录不一致；
+  - `toolchain-changed`：编译器工具链变了；
+  - `install-graph-changed`：安装图（lockfile / patches / 配置 / 安装树）变了；
+  - `forguncy-target-changed`：目标契约版本变了。
+- **恢复**：重新运行 `pnpm record`，让它用当前机器重新测量；然后审阅 `fgc-evidence/` 的差异。报告里的 `pnpm record` 就是命名的修复方式。
+- **注意**：`probe-fingerprint-unknown` 是**本地边界**，不是“已通过”。本地进程组合不出 probe 指纹，所以它被保留并报告，而不是被悄悄当成新鲜。真实页面/探针才能回答的那部分仍然欠着。
+
+### 4. 人工改过 Cell：`cell-diverged`
+
+- **症状 / code**：`sync` 报告 `refused`，诊断 `cell-diverged`。
+- **原因**：目标 Cell 当前内容不是上次 sync 写入的生成代码，而是设计器里的人手修改。直接覆盖会毁掉仓库无法重建的工作。
+- **恢复**：
+  1. 先读目标 Cell；
+  2. 如果改动应当保留，把它移回仓库源码，再重新 `build` / `sync`；
+  3. 如果只是实验，在活字格里清空或还原该 Cell，再同步。
+- `--overwrite force` 是**需要人明确决定**的检查选项：接上端口时，`pnpm plan -- --port <module> --overwrite force` 可以看到“如果强制写，会写什么”；`mcp-sync` 的 API 也提供该策略。CLI 的 `pnpm sync` **没有**默认的盲写开关，本文不建议为了绕过 `cell-diverged` 而改默认策略。
+- **不要**直接编辑生成代码。
+
+### 5. 重复同步一直 `unchanged`
+
+- **症状**：第二次 `pnpm sync` 报 `unchanged`，没有写入。
+- **含义**：目标已经持有与当前编译产物完全一致的 fingerprint。这是成功结果，不是错误。
+- **如果不符合预期**：
+  1. 确认 `forguncy.config.ts` 里的 `target` 确实是你想写的页面/单元格；
+  2. 确认源码改动确实进入了这次编译（`pnpm build` 的 fingerprint 应变化）；
+  3. 再跑一次 `pnpm sync -- --port ...`。
+- **不要**为了强制“看起来写了”而改生成代码或伪造 fingerprint。
+
+### 6. 写入后保存 / 检查 / 生成失败（#92 / #93）
+
+- **症状 / code**：
+  - `project-errors-after-sync`：写入后项目报错；
+  - `runtime-generation-failed`：页面生成没有返回 locator；
+  - transport failure：报告 `stage` / `operation` / `mutationState`，并可能把目标列入 `uncertain`。
+- **恢复**：
+  1. 按诊断修复项目本身（配置、权限、扩展、生成条件）；
+  2. **原样重跑** `pnpm sync -- --port ...`。执行器会在写每个目标前重新读取它的当前内容，所以已经落地的写入会被识别为 `unchanged`，失败或未尝试的目标才会重试；
+  3. 读报告里的 `mutated` / `uncertain` 判断哪些目标已经改变。
+- **不要**手改生成代码，也不要因为一次 transport failure 就假设“没写进去”。报告会明确说它是否知道写入状态。
+
+## 本地开发里的 `extension` 依赖
+
+`extension` 依赖需要共享模块身份或跨 Cell 单例语义，本地把它解析成本机 npm 包会产生“渲染正确但结论错误”的结果。因此 `vite.config.ts` 必须为每个 `extension` 依赖声明一个分支：
+
+- `substitute`：本地用某个已安装包或项目 shim 替代，并写明理由；
+- `real-runtime-only`：承认它只能留给真实运行验证，本地解析到一个**抛出异常**的模块，绝不静默退回 npm 副本。
+
+`vp dev` 启动时会审计这份声明，遇到**未声明**的 `extension` 依赖会直接拒绝启动。完整的匹配、过期与本地边界规则见 [`AGENTS.md`](AGENTS.md) 和 [`examples/consumer-project/README.md`](examples/consumer-project/README.md)。
+
+## 模块别名
+
+想在 Cell 里写 `import { Button } from "@/ui"` 这类短路径时，别名写在 **`forguncy.config.ts`** 的 `resolve.alias` 里，不写在 `vite.config.ts` 里：
+
+```ts
+export default defineForguncyConfig({
+  cells: { /* … */ },
+  resolve: {
+    alias: {
+      "@/ui": "./src/ui",
+      "@app/shared": "./packages/shared",
+    },
+  },
+});
+```
+
+原因很实际：Cell 产物是一个自包含 IIFE，生产构建直接驱动 Rolldown，读不到 `vite.config.ts` 里的别名。写在项目配置里，`vp dev` 与 Cell 构建才读同一份对象。
+
+别名只支持字符串 key / 字符串目标的**封闭子集**；正则、裸包名目标、绝对路径、项目根、宿主桥接 id（如 `react`）等都会明确报错，而不是“本地生效、产物不生效”。`vite.config.ts` 里可以有本地临时别名，但不能与项目别名重叠，否则 `vp dev` 会拒绝启动。
+
+## 仓库协作方式
 
 本仓库采用 **Issue-first / PR-first**：
 
 - 设计与技术 Spec 放在 GitHub Issues；
 - 实施计划与依赖关系放在 Issues / Epic Issues；
-- 代码实现通过关联 Issue 的 Pull Request 提交；
-- 不在仓库中重复维护 `specs/`、`plans/` 文档树；
-- 未经过真实活字格运行验证的能力，不宣称为已兼容。
+- 代码通过关联 Issue 的 Pull Request 提交；
+- 不在仓库里维护 `specs/`、`plans/` 文档树；
+- 未经过真实活字格运行验证的能力，不宣称为已兼容；
+- 本地检查与真实运行验证必须分开报告。
 
-如果你想了解当前最优先的工作，可以从 [Issue #3](https://github.com/Mang-X/forguncy-react-workspace/issues/3) 开始。
+仓库安装的 Skill 位于 `.agents/skills/`，支持 Agent Skills 的工具会自动发现；本 README 与 `AGENTS.md` 都不维护重复的 Skill 注册清单。
+
+## 进一步阅读
+
+- [`examples/consumer-project/README.md`](examples/consumer-project/README.md)：示例项目每一块对应哪个契约、每个命令对外部世界做什么。
+- [`AGENTS.md`](AGENTS.md)：架构与依赖规则、`vp dev` 的本地边界、Agent 必须遵守的约束。
+- [Issue #3](https://github.com/MangMax/forguncy-react-workspace/issues/3)：v0.1 总 Epic 与任务依赖。
+- [Issue #99](https://github.com/MangMax/forguncy-react-workspace/issues/99)：本文 Quickstart 所依赖的消费入口。
+- [Issue #106](https://github.com/MangMax/forguncy-react-workspace/issues/106)：本文档票。
+- [Issue #107](https://github.com/MangMax/forguncy-react-workspace/issues/107)：最终真机消费方验收。
