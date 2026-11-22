@@ -1,0 +1,42 @@
+{
+  "name": "@forguncy-react-workspace/cell-project",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "//": [
+    "The consumer entrypoint (#99): one ordinary business project in, and the three verbs #97",
+    "names — build, read-only plan, explicit sync — out, without the caller assembling a port,",
+    "a decision list, a target or a workspace graph by hand.",
+    "",
+    "This package owns *composition*, not rules. The build is `cell-compiler`'s #97 entry, the",
+    "lock projection is `dev-harness`'s local projection (#23, the same one `vp dev` runs), and",
+    "the sync is `mcp-sync`'s executor (#19/#20/#93). Nothing here re-derives a decision, a",
+    "freshness rule, a mapping table or a mutation payload.",
+    "",
+    "`./cli` is the executable face of the same three functions. A `.ts` bin is deliberate: every",
+    "package in this repository ships source rather than a build, and Node 24+ strips the type",
+    "annotations itself (the repository `engines` floor is Node 24). The CLI runs from a project's",
+    "own tree, so imports of the workspace packages above resolve through the project's installed",
+    "links rather than through a second copy.",
+    "",
+    "There is deliberately no built-in MCP client. An authorized designer connection is the",
+    "caller's — the Agent's MCP session or a project-owned adapter — and `--port <module>` is how",
+    "a process hands one in. Shipping a client here would be a second transport next to the one",
+    "#20 measured, and the first defect it would cause is a `sync` that can start talking to a",
+    "designer nothing authorized."
+  ],
+  "dependencies": {
+    "@forguncy-react-workspace/cell-compiler": "workspace:*",
+    "@forguncy-react-workspace/core": "workspace:*",
+    "@forguncy-react-workspace/dependency-resolver": "workspace:*",
+    "@forguncy-react-workspace/dev-harness": "workspace:*",
+    "@forguncy-react-workspace/mcp-sync": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "bin": {
+    "fgc-cell": "./src/cli.ts"
+  }
+}

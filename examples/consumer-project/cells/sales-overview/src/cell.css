@@ -1,0 +1,70 @@
+/*
+ * The Cell's stylesheet, imported as an ordinary CSS module.
+ *
+ * Decision source: GitHub Issue #98
+ * (https://github.com/MangMax/forguncy-react-workspace/issues/98), used here by #99.
+ *
+ * v1 inlines a plain stylesheet into the artifact: the compiler turns this file into a call to
+ * the artifact-scope style installer, and `vp dev` serves the same text through the same support
+ * set. A CSS Module (`*.module.css`) is refused by both, deliberately — v1 has one answer to
+ * "what does a class name mean", and a second one would be a local/artifact difference nobody
+ * could see.
+ *
+ * The `url(...)` below is a *relative file* reference, which v1 inlines as a data URI. A remote
+ * `url()` would be refused: an artifact is one script, and a network fetch it does not control is
+ * a runtime dependency the page did not declare.
+ *
+ * Colours are literal on purpose: this project has no design system yet, and inventing tokens for
+ * one file would imply a system a reader could not find.
+ */
+
+.sales-overview {
+  display: grid;
+  gap: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 0.5rem;
+  background: #eef2ff url("./badge.png") center / cover no-repeat;
+}
+
+.sales-total {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.sales-total strong {
+  color: #1d4ed8;
+}
+
+.sales-alert {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.sales-self-check {
+  display: block;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.sales-self-check[data-consumer-self-check="fail"] {
+  color: #b91c1c;
+}
+
+.sales-rows {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.sales-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}

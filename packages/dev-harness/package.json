@@ -8,7 +8,14 @@
     "`./mount` is the browser half — the only module a page loads. The split is by *graph*, not",
     "by tidiness: the generated entry imports `./mount` by package name, and routing that through",
     "`.` would pull `node:module` into the page's graph. That is the same defect `core/browser`",
-    "exists to fix, and the harness must not reintroduce it one layer up."
+    "exists to fix, and the harness must not reintroduce it one layer up.",
+    "",
+    "`./local-decisions` is the lock projection a *local* process can run (#23/#99): the conformance",
+    "audit plus the freshness axes this process can observe, with the two axes only a page or a",
+    "bundler can answer reported as a boundary instead of silently withheld. It exists as its own",
+    "entry because `cell-project`'s build/plan commands need the same projection the dev server",
+    "uses, and importing `.` would pull Vite and the React plugin into a build-only process. The",
+    "module reaches `dependency-resolver/local` and `node:module`, not a bundler or a dev server."
   ],
   "//dependencies": [
     "`react` / `react-dom` are the harness's *host substitutions*, not an implementation detail.",
@@ -63,7 +70,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./mount": "./src/mount.ts"
+    "./mount": "./src/mount.ts",
+    "./local-decisions": "./src/local-decision-projection.ts"
   },
   "//devDependencies": [
     "`@types/react` / `@types/react-dom` are pinned to the host versions the harness substitutes.",

@@ -526,6 +526,17 @@ async function nearerInstallIsAttributableTo(
       } catch {
         return "unknown";
       }
+      // A workspace dependency is a *source* link, not an install: `node_modules/@app/ui` is a
+      // symlink to the workspace's own `packages/ui`, whose files are in no store and carry no
+      // lockfile of their own. Treating it as an outside tree made every workspace member with a
+      // shared package report `install-graph-unknown` — measured on this repository's own
+      // `examples/*` (#99), where a consumer project with one shared UI package could not have any
+      // record judged fresh. The entry is skipped only when it is a link *into this workspace* and
+      // its target is not itself under a `node_modules`, which is exactly what separates source
+      // from a second install.
+      if (await isWorkspaceSourceLink(packagePath, resolved, installRoot)) {
+        continue;
+      }
       // The install a lockfile describes is the one under **its own `node_modules`** — that is where
       // its tree lives (and, for pnpm, where `.pnpm/` is). Checking "under the install root
       // directory" instead would accept a subproject's tree, because a subproject is *inside* the
@@ -547,6 +558,41 @@ async function nearerInstallIsAttributableTo(
   }
 
   return "attributable";
+}
+
+/**
+ * Whether a nearer `node_modules` entry is a symlinked workspace-source package of this install.
+ *
+ * Three conditions, and each excludes a shape the attribution check must still refuse:
+ *
+ * 1. **It is a symlink.** A real directory under a nearer `node_modules` is a separate install's
+ *    package, which is the case the check exists to catch. A workspace dependency is always linked.
+ * 2. **It resolves inside the install root.** A link to somewhere else on the machine is a
+ *    different tree by definition.
+ * 3. **Its target is not under any `node_modules`.** A link into `<root>/node_modules/.pnpm/…` is
+ *    the install's own package — already attributable without this branch — while a link into a
+ *    nested project's `node_modules` is that project's install, not this one. Workspace source
+ *    (`<root>/packages/ui`) has no `node_modules` segment, which is what makes it source.
+ *
+ * Only condition 1 can fail "readably": an `lstat` error makes this `false`, so the entry is judged
+ * by the ordinary rule and an unreadable tree still reports `unknown` rather than being waved
+ * through. Fail-closed, in the same direction as the rest of this module.
+ */
+async function isWorkspaceSourceLink(packagePath: string, resolved: string, installRoot: string): Promise<boolean> {
+  let link: Awaited<ReturnType<typeof lstat>>;
+  try {
+    link = await lstat(packagePath);
+  } catch {
+    return false;
+  }
+  if (!link.isSymbolicLink()) {
+    return false;
+  }
+  const canonicalRoot = await realpath(installRoot).catch(() => resolve(installRoot));
+  if (!isInside(canonicalRoot, resolved)) {
+    return false;
+  }
+  return !resolved.split(/[\\/]/).includes("node_modules");
 }
 
 /** Whether `candidate` is `directory` itself or lies beneath it, compared on normalized paths. */

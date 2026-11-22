@@ -1,0 +1,30 @@
+{
+  "name": "@app/consumer-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "//": [
+    "A shared UI package local to the consumer example, imported by name from the Cell's authored",
+    "source. It is workspace *source*, not a runtime module (#14): the compiler flattens this file",
+    "into the Cell artifact like any other source file, it never receives a dependency decision,",
+    "and it must never appear in `frontendLibraries`.",
+    "",
+    "That is also why two Cells importing it would each carry their own copy: a React Context",
+    "declared here is local to each Cell, and module-scope state is per Cell. Cross-cell state is",
+    "Forguncy's (#4/#27), which is the boundary this example does not cross.",
+    "",
+    "`react` is declared although it is decided `host`: a package that imports a module declares",
+    "it, and the bridge supplies the page's copy at compile time. Declaring it here is not an",
+    "instruction to bundle it — that is `fgc.lock.json`'s answer, not this manifest's.",
+    "",
+    "`sideEffects: false` is what tells the bundler an unused export may be dropped, which is",
+    "the tree-shaking criterion #14 records. Nothing in this file does work at import time."
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "react": "19.2.7"
+  },
+  "exports": {
+    ".": "./src/index.tsx"
+  }
+}
