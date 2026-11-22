@@ -34,13 +34,23 @@
  *    referencing an undefined IIFE parameter and throws a bare `ReferenceError` with no
  *    `code` on the first façade call. Embedding the resolved id is what makes the
  *    generated module's own import land in the same place the authored one does.
- * 2. **The module is ESM, and re-exports the whole façade barrel.** Authored source
- *    imports `runtimeFacade` (and whatever else the façade exports) by name, and the
- *    interception replaces the specifier for *every* importer — so the generated module
- *    has to carry the names the authored imports asked for. `export *` rather than a
- *    hand-written list, for the reason `core/browser` gives about its own projection: a
- *    hand-copied list drifts the first time a name is added to one side and not the
- *    other.
+ * 2. **The module is ESM, and re-exports a whole entry — but the *production* entry.**
+ *    Authored source imports `runtimeFacade` (and whatever else the façade exports) by
+ *    name, and the interception replaces the specifier for *every* importer — so the
+ *    generated module has to carry the names the authored imports asked for. `export *`
+ *    rather than a hand-written list, for the reason `core/browser` gives about its own
+ *    projection: a hand-copied list drifts the first time a name is added to one side and
+ *    not the other.
+ *
+ *    Since #124 it re-exports `bindingSpecifier` — the package's `./cell` entry — rather
+ *    than the package barrel. The authored import is still replaced by this module, so
+ *    `runtimeFacade()` and every other *runtime* member still resolve; what the artifact
+ *    stops carrying is `local-dev.ts`, `mock-provider.ts`, `cell-fixture.ts` and the
+ *    capability registry, none of which a compiled Cell calls. Re-exporting the barrel
+ *    meant a statically imported, side-effect-free module was an edge the bundler had to
+ *    keep or drop based on what its exports happened to be used for — and measured, it kept
+ *    roughly 110 KB of contract prose. Pointing at the slim entry makes the artifact's
+ *    graph a property of the module graph rather than of a tree-shaker's proof.
  * 3. **Nothing about the Cell's own capabilities is inspected.** Which addresses a
  *    provider carries is answered when one is asked for (`provider.ts`'s taxonomy), so a
  *    Cell that uses one façade member does not get refused over another it never touches

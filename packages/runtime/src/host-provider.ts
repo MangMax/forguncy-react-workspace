@@ -80,7 +80,7 @@ import type {
   RuntimeFacadePortChannel,
   RuntimeFacadeProvider,
 } from "./contract.ts";
-import { RUNTIME_FACADE_PORT_CHANNELS, RUNTIME_FACADE_PORT_CHANNEL_MEMBERS } from "./contract.ts";
+import { RUNTIME_FACADE_PORT_CHANNELS, RUNTIME_FACADE_PORT_CHANNEL_MEMBERS } from "./port.ts";
 
 export interface HostRuntimeFacadeProviderInput {
   /**

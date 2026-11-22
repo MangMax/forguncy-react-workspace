@@ -128,7 +128,10 @@ type Interception =
   | {
       readonly kind: "runtime-binding";
       readonly id: string;
+      /** What authored source wrote, and what the interception matched. */
       readonly facadeSpecifier: string;
+      /** The entry the generated module imports (#124); resolved separately below. */
+      readonly bindingSpecifier: string;
       readonly moduleType: "esm";
     };
 
@@ -221,6 +224,7 @@ function createInterceptionResolver(decisions: readonly DependencyDecision[]): I
         kind: "runtime-binding",
         id: CELL_RUNTIME_BINDING_ID,
         facadeSpecifier: specifier,
+        bindingSpecifier: CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier,
         moduleType: "esm",
       };
     }
@@ -377,6 +381,11 @@ async function resolveCellSpecifier(
     // falls back to the process cwd, and from a directory that has no link to the façade
     // the import goes external, which ships an artifact naming an undefined IIFE
     // parameter.
+    // Two resolutions, because the generated module imports a different entry than the one the
+    // Cell wrote (#124): the authored specifier is the package barrel, and the module this
+    // binding *is* must import the package's production entry. Resolving the barrel and then
+    // importing it is what shipped the local-dev contract into every artifact, so both are
+    // resolved here and the one the binding embeds is `bindingSpecifier`'s.
     const resolvedFacade = await context.resolve(interception.facadeSpecifier, importer, {
       ...options,
       skipSelf: true,
@@ -393,7 +402,16 @@ async function resolveCellSpecifier(
         `The Cell imports "${interception.facadeSpecifier}", which could not be resolved from "${importer ?? "the entry"}", so the generated runtime binding has nothing to install from. Install the façade as a dependency of the project the Cell is compiled in.`,
       );
     }
-    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedFacade.id));
+    const resolvedBinding = await context.resolve(interception.bindingSpecifier, importer, {
+      ...options,
+      skipSelf: true,
+    });
+    if (resolvedBinding === null || resolvedBinding.external === true) {
+      throw new Error(
+        `The Cell imports "${interception.facadeSpecifier}", whose generated runtime binding needs its production entry "${interception.bindingSpecifier}", which could not be resolved from "${importer ?? "the entry"}". The package declares that subpath; a link that does not provide it cannot produce a production Cell artifact.`,
+      );
+    }
+    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedBinding.id));
     return { id: interception.id, moduleType: interception.moduleType };
   }
 

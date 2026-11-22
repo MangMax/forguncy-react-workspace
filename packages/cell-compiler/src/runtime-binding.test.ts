@@ -492,6 +492,68 @@ describe("the artifact the binding produces", () => {
 });
 
 // ---------------------------------------------------------------------------
+// What the artifact does not carry (#124)
+// ---------------------------------------------------------------------------
+
+/**
+ * The toolchain/contract symbols a production Cell artifact must not contain.
+ *
+ * Each is a *name from a module a Cell never executes*, so finding it means the compiler bound
+ * the package barrel rather than its production entry: `LOCAL_DEV_*` is `local-dev.ts`,
+ * `RUNTIME_FACADE_CAPABILITIES` is the registry in `capabilities.ts`, `RUNTIME_CONTRACT_TARGET`
+ * and `SELECTION_SIGNALS` come through the `core/browser` projection, and
+ * `createMockRuntimeFacadeProvider` is the mock. The list is names rather than module paths
+ * because a flat artifact has no module boundaries left to inspect — which is exactly why a
+ * whole-module import is invisible to every other check in this file.
+ */
+const TOOLCHAIN_SYMBOLS = [
+  "LOCAL_DEV_",
+  "RUNTIME_FACADE_CAPABILITIES",
+  "RUNTIME_CONTRACT_TARGET",
+  "SELECTION_SIGNALS",
+  "createMockRuntimeFacadeProvider",
+] as const;
+
+describe("the artifact's module graph is the production runtime, not the package barrel", () => {
+  it("carries no toolchain or contract metadata from the runtime package", async () => {
+    // The measurement this pins, on the tree that added it: 112,105 characters before, 55,982
+    // after. The 56,123-character difference is mostly `local-dev.ts`'s contract prose and the
+    // capability registry — modules a compiled Cell never calls, and which the barrel
+    // re-export put in the graph because a static import is an edge whether or not a tree
+    // shaker proves the binding unused.
+    const code = compiledCode(await compileExample());
+
+    for (const symbol of TOOLCHAIN_SYMBOLS) {
+      expect(code, `artifact carries "${symbol}"`).not.toContain(symbol);
+    }
+  });
+
+  it("still carries the runtime the Cell calls, so the check above is not vacuous", async () => {
+    // The positive control. An artifact that failed to compile at all would satisfy the previous
+    // assertion, and so would one whose façade had been externalized — so the members this Cell
+    // actually executes are asserted beside it, including the two the generated binding calls.
+    const code = compiledCode(await compileExample());
+
+    expect(code).toContain("runtimeFacade");
+    expect(code).toContain("installRuntimeFacadeProvider");
+    expect(code).toContain("createHostRuntimeFacadeProvider");
+    expect(code).toContain("cellProps: props");
+  });
+
+  it("names the binding's own entry, not the intercepted barrel specifier", async () => {
+    // Two facts that are easy to conflate and must not be: authored source writes the package
+    // specifier, which is what the bundler intercepts, and the *generated* module imports the
+    // package's `./cell` entry. If the binding imported the barrel the symbols above would come
+    // back, so this asserts the split at its source — in the generated source, before it is
+    // bundled into anything.
+    const source = renderRuntimeBindingModule("@forguncy-react-workspace/runtime/cell");
+
+    expect(CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier).toBe("@forguncy-react-workspace/runtime/cell");
+    expect(source).toContain(JSON.stringify(CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // A Cell that does not use the façade
 // ---------------------------------------------------------------------------
 

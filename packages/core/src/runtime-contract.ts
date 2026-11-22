@@ -33,6 +33,10 @@
  * or describe local development (#22).
  */
 
+// The two key tuples the production runtime needs live in their own leaf module (#124), so a
+// Cell artifact can read them without loading this file's evidence record. This module is their
+// consumer, not their owner, and it re-exports them unchanged.
+import { CELL_FORGUNCY_PROP_KEYS, CELL_PROPS_BASE_KEYS } from "./cell-props.ts";
 import type { ArchitectureDecisionSource } from "./governance.ts";
 import { RUNTIME_CONTRACT_DECISION } from "./governance.ts";
 
@@ -1076,40 +1080,30 @@ export function findCellPresetLibrary(name: CellPresetLibrary["name"]): CellPres
  * cannot drift away from its evidence.
  */
 export const CELL_PROPS_KEY_ORDER = {
-  /** Always present, in this order, before any configured property. */
-  baseKeys: ["Forguncy", "Permissions", "ServerCommands", "ImageContext"] as const,
+  /** Always present, in this order, before any configured property. See `cell-props.ts`. */
+  baseKeys: CELL_PROPS_BASE_KEYS,
   description:
     "Forguncy, then Permissions, then configured properties[].propertyName, then ImageContext; event handlers and configured permissions are injected before properties",
   evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
 };
 
-/** Derived from {@link CELL_PROPS_KEY_ORDER}. */
-export const CELL_PROPS_BASE_KEYS = CELL_PROPS_KEY_ORDER.baseKeys;
+/**
+ * Re-exported from `cell-props.ts` (#124), not redefined here.
+ *
+ * The tuple moved so a production Cell can import it without loading this evidence record;
+ * the name stays on this module because it is part of `core`'s existing public surface.
+ */
+export { CELL_PROPS_BASE_KEYS };
 
 export const CELL_FORGUNCY_FACADE = {
-  /** The runtime API surface exposed to a cell as `props.Forguncy`. */
-  keys: [
-    "ConvertDateToOADate",
-    "ConvertOADateToDate",
-    "ConvertToCssColor",
-    "DataSourceCompareType",
-    "DataSourceRelationType",
-    "Permissions",
-    "exposeMethod",
-    "getCurrentUser",
-    "getPermissions",
-    "getUploadLimit",
-    "hasPermission",
-    "logIn",
-    "logOut",
-    "uploadFiles",
-  ] as const,
+  /** The runtime API surface exposed to a cell as `props.Forguncy`. See `cell-props.ts`. */
+  keys: CELL_FORGUNCY_PROP_KEYS,
   description: "the cell's handle on Forguncy-owned capabilities, injected as props.Forguncy",
   evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
 };
 
-/** Derived from {@link CELL_FORGUNCY_FACADE}. */
-export const CELL_FORGUNCY_PROP_KEYS = CELL_FORGUNCY_FACADE.keys;
+/** Re-exported from `cell-props.ts` (#124), not redefined here. */
+export { CELL_FORGUNCY_PROP_KEYS };
 
 export const CELL_SERVER_COMMANDS_CONTRACT = {
   /** Only the names listed in `availableServerCommands` are present. */
@@ -1236,6 +1230,10 @@ export const FRONTEND_LIBRARY_RUNTIME_SEMANTICS = {
  *   Both are exported from the façade's public barrel — the binding re-exports that barrel
  *   wholesale, so a name the barrel does not carry would break authored source that
  *   imports it.
+ * - `bindingSpecifier` is the entry the *generated* module imports. It is a subpath rather
+ *   than `facadeSpecifier` because the binding used to import the whole package barrel, and
+ *   a flattening compiler carries every statically imported module into the artifact — so
+ *   every production Cell was shipping the local-dev and mock contracts it never calls.
  * - `hostNames` are the *free identifiers* the binding's source references. They are not
  *   imports: `props` and `useDataSource` are wrapper-locals the platform's own arrow IIFE
  *   declares before placing the cell source
@@ -1271,6 +1269,21 @@ export const CELL_RUNTIME_BINDING_CONTRACT = {
    * `RUNTIME_FACADE_DECISION` documents: one package, one address.
    */
   facadeSpecifier: "@forguncy-react-workspace/runtime",
+  /**
+   * The entry the *generated binding* imports.
+   *
+   * A second field rather than a suffix appended to `facadeSpecifier`, because the two are
+   * different facts: `facadeSpecifier` is what authored source writes and what the compiler
+   * intercepts, and this is what the module it emits imports. They were equal until #124, and
+   * keeping them as one value is what would make the binding quietly revert to importing the
+   * whole package barrel.
+   *
+   * The subpath is the package's production runtime (#124): `cell-runtime.ts` alone, with no
+   * `local-dev.ts`, no mock provider and no capability registry. The binding re-exports what it
+   * imports, so a Cell that imports `runtimeFacade` by name still gets it — and the artifact no
+   * longer carries the toolchain that produces the same names for other audiences.
+   */
+  bindingSpecifier: "@forguncy-react-workspace/runtime/cell",
   /** The member the binding calls to install the provider. */
   installMember: "installRuntimeFacadeProvider",
   /** The member the binding calls to build a provider from the Cell's own values. */
