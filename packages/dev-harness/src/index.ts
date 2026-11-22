@@ -127,7 +127,7 @@ export type { HarnessAuditInput } from "./local-dev-audit.ts";
 export {
   DEFAULT_LOCAL_EXTENSION_CATALOG,
   formatLocalDecisionProjection,
-  installedVitePlusToolchain,
+  installedToolchain,
   LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS,
   normalizeBuiltinExtensionCatalog,
   projectLocalDecisions,

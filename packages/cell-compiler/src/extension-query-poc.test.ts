@@ -74,6 +74,7 @@ import {
   conformanceErrors,
   localCompilationDependencies,
   readFgcLock,
+  readToolchainIdentity,
   recordedPackageNames,
   resolveInstalledVersions,
 } from "@forguncy-react-workspace/dependency-resolver";
@@ -126,6 +127,28 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
     }).fingerprint;
   }
 
+  // The example's identity, with the **install-graph** half taken from the record itself.
+  //
+  // `examples/extension-query` is a workspace member, so its install graph is the whole
+  // repository's `pnpm-lock.yaml` — and #94's digest is deliberately conservative, so any
+  // dependency change anywhere in the monorepo invalidates it. That is the accepted trade-off
+  // (#94: narrowing to the reachable subgraph is a later optimisation), but it makes the axis
+  // unsuitable as an assertion *here*: this file's subject is the deployment gate, and a case
+  // would fail whenever an unrelated PR merged — measured, a branch whose base had moved on
+  // reported `install-graph-changed` on CI for a graph that was perfectly valid for its own
+  // commit.
+  //
+  // So the install-graph and Node-patch axes are supplied from the record rather than re-derived
+  // live (`examples/extension-query/fgc.lock.json` is a committed record probed on `24.21.0`,
+  // while CI's `node-version: "24"` floats across patch releases such as `24.22.3`). `vitePlus`
+  // and `rolldown` are still read live from the project, keeping this an assertion about *this*
+  // toolchain, while Node-patch drift and install-graph drift each have their own direct coverage
+  // in `install-identity.test.ts` and `lock-freshness.test.ts`.
+  const identity = await readToolchainIdentity(exampleRoot);
+  const recorded = lock.decisions[0]?.probedWith;
+  const installGraph = recorded?.installGraph ?? identity.installGraph;
+  const node = recorded?.node ?? identity.node;
+
   return {
     resolvedVersions: versions,
     // **The record's own target, not the current contract's** (#120). This suite's claim is that
@@ -137,7 +160,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
     // its content-addressed evidence. The drift itself is asserted, one test below, rather than
     // assumed away.
     target: targetOfRecordedRun(lock),
-    toolchain: { vitePlus: "0.3.2" },
+    toolchain: { ...identity, node, installGraph },
     probeFingerprints,
     extensionVersions: { "tanstack-query": EXPECTED_VERSION },
     extensionIdentities: { "tanstack-query": EXPECTED_IDENTITY },

@@ -6,9 +6,10 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createServer } from "vite";
 
 import { RUNTIME_CONTRACT_TARGET } from "@forguncy-react-workspace/core";
-import type { ForguncyConfig, LockedDependencyDecision } from "@forguncy-react-workspace/core";
+import type { ForguncyConfig, LockedDependencyDecision, ToolchainIdentity } from "@forguncy-react-workspace/core";
+import { readToolchainIdentity } from "@forguncy-react-workspace/dependency-resolver/local";
 
-import { removeTempProject } from "./temp-project.ts";
+import { removeTempProject, writePnpmInstallFixture } from "./temp-project.ts";
 import { devHarness } from "./vite-plugin.ts";
 
 /**
@@ -58,7 +59,7 @@ const PROJECT_ROW = {
 } as const;
 
 /** A legal `extension` record for the custom package, at the version the fixture installs. */
-function extensionRecord(): LockedDependencyDecision {
+function extensionRecord(probedWith: ToolchainIdentity): LockedDependencyDecision {
   return {
     strategy: "extension",
     packageName: CHART_KIT.packageName,
@@ -68,7 +69,7 @@ function extensionRecord(): LockedDependencyDecision {
     libraryId: CHART_KIT.libraryId,
     probe: { status: "passed", fingerprint: "probe=inline-bundle;entry=x", versionIndependent: false },
     target: null,
-    probedWith: { vitePlus: null },
+    probedWith,
     extension: { version: "1.0.0", identity: "sha256:fixture" },
     rejectedCandidate: null,
     rationale: "The extension publishes one page global, so a bundled copy is a second instance.",
@@ -81,9 +82,14 @@ async function projectWithCustomExtension(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "dev-harness-custom-extension-"));
   onTestFinished(() => removeTempProject(root));
 
+  // Lockfile + pnpm install layout so #94's install-graph axis reads cleanly instead of reporting
+  // `install-graph-unknown` and withholding the extension record before the mapping audit runs.
+  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+  writePnpmInstallFixture(root);
+
   await writeFile(
     join(root, "fgc.lock.json"),
-    JSON.stringify({ schemaVersion: 1, decisions: [extensionRecord()] }),
+    JSON.stringify({ schemaVersion: 1, decisions: [extensionRecord(await readToolchainIdentity(root))] }),
     "utf8",
   );
   await mkdir(join(root, "cells", "probe", "src"), { recursive: true });
