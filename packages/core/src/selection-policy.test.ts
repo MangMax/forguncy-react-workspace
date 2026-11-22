@@ -516,6 +516,45 @@ describe("selection decision audit", () => {
     expect(problems.some(problem => problem.includes('probe report is about "some-other-package"'))).toBe(true);
   });
 
+  // #90. The probe's `environment.packageName` is the *package* — #17's identity step resolves
+  // the manifest the request belongs to — while a decision may name the exact published subpath
+  // the Cell imports. Comparing the raw strings refused every subpath record, even though the
+  // probe had just built that exact subpath entry; the comparison has to be between the packages
+  // the two names belong to.
+  it("accepts a subpath decision whose probe reported the package identity", () => {
+    const decision: DependencyDecision = { strategy: "inline", packageName: "es-toolkit/compat" };
+    const problems = auditSelectionDecision({
+      decision,
+      // The ownership answer the CLI would actually compute for this package name — the role
+      // gate runs on the name the decision uses, not on the one the probe reported.
+      ownership: assessDependencyRole({ packageName: decision.packageName, role: "cell-local-ui" }),
+      probe: probeFor("es-toolkit"),
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it("still refuses a decision about a subpath of a different package", () => {
+    const decision: DependencyDecision = { strategy: "inline", packageName: "es-toolkit/compat" };
+    const problems = auditSelectionDecision({
+      decision,
+      probe: probeFor("lodash"),
+      ownership: assessDependencyRole({ packageName: decision.packageName, role: "cell-local-ui" }),
+    });
+    expect(problems.some(problem => problem.includes('The probe report is about "lodash"'))).toBe(true);
+  });
+
+  it("refuses a scoped subpath decision probed as its scope's sibling", () => {
+    // The scoped case, where the package name has two segments: `@scope/a/sub` belongs to
+    // `@scope/a`, never to `@scope`.
+    const decision: DependencyDecision = { strategy: "inline", packageName: "@scope/a/sub" };
+    const problems = auditSelectionDecision({
+      decision,
+      probe: probeFor("@scope/b"),
+      ownership: assessDependencyRole({ packageName: decision.packageName, role: "cell-local-ui" }),
+    });
+    expect(problems.some(problem => problem.includes('The probe report is about "@scope/b"'))).toBe(true);
+  });
+
   it("refuses a strategy the probe does not satisfy", () => {
     const problems = auditSelectionDecision({
       decision: INLINE,

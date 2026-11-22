@@ -40,6 +40,7 @@
  */
 
 import type { ArchitectureDecisionSource } from "./governance.ts";
+import { packageNameOfModuleId } from "./host-bridge.ts";
 import {
   DEPENDENCY_LOCK_DECISION,
   DEPENDENCY_SELECTION_DECISION,
@@ -848,7 +849,15 @@ export function auditSelectionDecision(input: SelectionAuditInput): readonly str
         `"${decision.packageName}" was decided without a probe report, but #8 records the evidence of a "${profile}" decision as probeRequirement "${probeRequirement}". #16 requires the executed deterministic probe this decision owes — never inspection of the package's documentation alone — because the failure modes that break a cell only appear once something is built and executed.`,
       );
     } else {
-      if (probe.environment.packageName !== decision.packageName) {
+      // #90: a decision may be scoped to an exact subpath, and the compiler resolves such a
+      // record before the package root (`dependencyDecisionsFor`' exact-first precedence). The
+      // probe report's `environment.packageName` is the *package* — #17 has the identity step
+      // resolve the manifest the request belongs to, so a probe of `pkg/sub` reports `pkg` —
+      // and comparing the two spellings verbatim refused every subpath decision even though the
+      // probe had just built that exact subpath entry. The question this check exists for is
+      // "is the evidence about the artifact this decision names", and two spellings belonging to
+      // one package answer it yes; two different packages still do not.
+      if (packageNameOfModuleId(probe.environment.packageName) !== packageNameOfModuleId(decision.packageName)) {
         problems.push(
           `The probe report is about "${probe.environment.packageName}" but the decision is about "${decision.packageName}"; a decision has to cite evidence for the package it decides.`,
         );

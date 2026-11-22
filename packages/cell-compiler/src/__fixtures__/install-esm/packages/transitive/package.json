@@ -1,0 +1,18 @@
+{
+  "name": "fgc-fixture-transitive",
+  "version": "6.0.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js"
+    }
+  },
+  "dependencies": {
+    "fgc-fixture-transitive-dep": "file:./dep"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/fgc-fixture-transitive.git"
+  }
+}

@@ -118,6 +118,34 @@ probe finding 一样不可信。
 - **conformance**：把决策放进候选锁，跑 `validateLockDecisionConformance`——`extension` 的 `libraryId` 必须来自已验证目录或真实 `listFrontendLibraries` 清单；`host` 的 `globalName` 必须是目标真的提供的全局。**只拦 error**，warning 是"关于 Cell 的事实"，不阻断。
 - **写入**：读锁 → 合并 → 过上述全部检查 → 才 `writeFgcLock`。**任一检查不通过就不落盘**。
 
+### `packageName` 可以是一个已公开的子路径（#90）
+
+`packageName` 平时写包名（`es-toolkit`），但 `packageName` 就是**编译器解析时用的那个 specifier**，
+所以 Cell 导入 `es-toolkit/compat` 这类已公开子路径时，记录就应当写成那个子路径：
+
+```jsonc
+{ "packageName": "es-toolkit/compat", "role": "cell-local-ui", "strategy": "inline" }
+```
+
+```bash
+node $S record --project <root> --decision compat.json
+```
+
+两条与包名不同、但都是**实测过**的规则：
+
+- probe 报告的身份是**包**（`environment.packageName: "es-toolkit"`，#17 的 identity 步骤解析的是
+  记录所属的 manifest），而决策写的是**子路径**。`auditSelectionDecision` 比较的是二者**所属的包**，
+  所以这种"一处包名、一处子路径"的配对是合法的；两个**不同的包**照旧被拒。
+- probe 的 `export-metadata` 步骤回答的是**这次构建导入的那个入口**有没有浏览器分支，
+  不是包根有没有。子路径上会多记一条 `exports.probed-entry` 事实（`"./compat"`），
+  因为包可能根本没有 `"."` 条目——只写包名无法区分"根探测"与"子路径探测"。
+
+**未公开的子路径不会被根决策扩大为可用**：`packageName` 写成 `pkg/private` 而 `pkg` 的 `exports`
+没有 `./private` 时，probe 的 `build` 步骤失败，`record` 拒绝，锁与 `fgc-evidence/` 都不变。
+这正是"用 bundler 而不是另写一套 exports 解析"的意义——#89 把"包是否安装"与"这个 specifier
+是否被公开"分给了两个步骤，后者只有 bundler 能答。
+
+
 `writeFgcLock` 的替换是**原子**的（同目录临时文件 → `rename` 覆盖目标）。这在本流程里是**契约，不是锦上添花**：上面的证据回滚把「写锁抛错」读作「锁没变」，若底层用普通 `writeFile`（以 `w` 打开会**先截断**），中途失败就会留下半份锁——于是回滚删掉本次证据、而 stderr 还说「Nothing was written」，最坏的三件事同时发生。原子替换后目标只可能是旧文档或新文档，绝不会是混合体。
 
 `--extension-catalog` 可覆盖默认目录，且接受 #12 的两种来源，二者**不可互换**：
