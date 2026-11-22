@@ -52,6 +52,7 @@
 - `evals/walkthrough.test.ts`：把 `SKILL.md` 的走查块与 `execution_cases.json` 的 `repeatable_commands.walkthrough` 当命令**执行**（不是重抄一遍），并守住"手填编译证据"那条被撤回的说明不再出现。
 - `evals/cli-contract.test.ts`：**CLI 级**回归测试，真正 spawn 脚本，覆盖证据可追溯、`--runtime-smoke` 可达性、conformance 门。
 - `evals/cap-e2e.test.ts`：`--cell` 声明的 code budget 端到端（probe / audit / record / status 都拿到同一个上限）。
+- `evals/example-lock-evidence.test.ts`：示例锁/证据的**离线**盘点（#96，不跑 probe、不编译 Cell）：`examples/*` 每个锁都有分类，每条相对引用可解析、内容地址与文件名一致、报告里的 `environment` 与引用它的记录一致；`extension-query` 的真机记录按**历史**保留（对当前 target 判 stale），不会因为改锁而被当成当前验证。
 - `evals/execution_cases.json`：语义用例（不可执行的判断，人工/Agent 复核）**加上** `repeatable_commands`（可重复跑的命令）。每条 case 的 `executed_by` 指出谁执行它。
   - `repeatable_commands` 分两类。注意区分**读取**与**执行**——两者不同，而且占位符本身就是被断言的性质：
     - **被执行的**：`walkthrough` 由 `walkthrough.test.ts` 读出并原样跑；没有占位符的条目（当前是 `policy`）由同一套件逐条执行。
