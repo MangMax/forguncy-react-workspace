@@ -149,9 +149,9 @@ function json<T = Record<string, unknown>>(result: CommandResult): T {
  * and the CI setup step puts the same command on `PATH`. No pnpm version is pinned — the
  * fixtures are `file:` links, and their layout is what any isolated linker produces.
  */
-async function install(root: string): Promise<void> {
+async function install(root: string, extraArgs: readonly string[] = []): Promise<void> {
   try {
-    const { stdout, stderr } = await run("pnpm", ["install", "--offline", "--ignore-scripts"], {
+    const { stdout, stderr } = await run("pnpm", ["install", "--offline", "--ignore-scripts", ...extraArgs], {
       cwd: root,
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -654,13 +654,17 @@ describe("install-level gate cannot bypass invalidation (#95)", () => {
         const record = before.lock.decisions.find(entry => entry.packageName === packageName);
         expect(record?.resolvedVersion, "the record names an installed version").toBe("1.0.0");
 
-        // The installed copy moved while every version held still. This fixture install is a pnpm
-        // workspace link, so editing the `packages/` source moves the realpath'd content that
-        // `installedTree` digests (see `linkTargetsDigest`) — the install-level change #95 asks to be
-        // caught. The record's `resolvedVersion` and probe fingerprint both stay identical.
+        // The installed copy moved while every version held still. This fixture installs `file:`
+        // packages as pnpm injected copies (`node_modules/.pnpm/...`, listed in `.modules.yaml`'s
+        // `injectedDeps`), so after editing the source under `packages/` we re-run `pnpm install
+        // --offline --ignore-scripts --force` to re-materialize the installed copy on every
+        // platform (Windows hardlinks update in place, whereas Linux runners copy/clone `file:`
+        // entries and would otherwise keep the old bytes under `node_modules/.pnpm/`). The record's
+        // `resolvedVersion` and probe fingerprint both stay identical while `installedTree` moves.
         const linkedSource = join(root, "packages", "transitive", "dep", "lib", "index.js");
         const original = await readFile(linkedSource, "utf8");
         await writeFile(linkedSource, `${original}\nexport const movedBy = "rebuilt-after-record";\n`, "utf8");
+        await install(root, ["--force"]);
 
         // 1. The read-back command reports it, with the install-graph reason rather than a bare
         //    "stale".
