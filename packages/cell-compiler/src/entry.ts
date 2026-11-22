@@ -28,7 +28,12 @@
  * order — the table below is checked against `core`'s records in the tests.
  */
 
-import { CELL_USER_SCOPE_BINDINGS, emitCellEntryShapes, findCellEntryShape } from "@forguncy-react-workspace/core";
+import {
+  CELL_RUNTIME_BINDING_CONTRACT,
+  CELL_USER_SCOPE_BINDINGS,
+  emitCellEntryShapes,
+  findCellEntryShape,
+} from "@forguncy-react-workspace/core";
 import type { CellEntryKind } from "@forguncy-react-workspace/core";
 
 import type { CellArtifactDiagnostic } from "./diagnostics.ts";
@@ -43,6 +48,18 @@ import { createCellArtifactDiagnostic } from "./diagnostics.ts";
  * independently of any particular binding name.
  */
 export const CELL_ENTRY_COMPONENT_PLACEHOLDER = "{{component}}";
+
+/**
+ * Stands for the artifact-scope variable the generated runtime binding reads (#83).
+ *
+ * A placeholder for the same reason as the component one: the template has to be
+ * inspectable as data before any particular name is chosen, and the name chosen at render
+ * time is `CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable` — the one binding the two
+ * generated modules share. `entry.ts` names the placeholder, never the variable: the
+ * variable belongs to the contract, and a second literal here would be a second spelling of
+ * it.
+ */
+export const CELL_ENTRY_LIVE_PROPS_PLACEHOLDER = "{{liveProps}}";
 
 /**
  * The identifier the generated wrapper references, and therefore the identifier
@@ -71,6 +88,23 @@ export interface CellEntryWrapperSupport {
   readonly isDefault: boolean;
   /** The source to emit. Present only when `expressible`. */
   readonly template?: string;
+  /**
+   * The source to emit when the artifact also imports the runtime façade (#83).
+   *
+   * A second template rather than a placeholder inside the first, because the two are
+   * different obligations and the difference is a name that must not exist in the other
+   * case: the live-props template references
+   * {@link CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}, which only the generated
+   * binding declares — emitting it into a façade-free artifact would be a `ReferenceError`
+   * at the first render. It also has to perform an *assignment* before placing the
+   * element, which `render-call`'s and `top-level-element-variable`'s single-expression
+   * shapes cannot carry at all.
+   *
+   * Present exactly when that is possible: every expressible row except the two
+   * expression-only shapes, and its presence is what the assembler checks rather than
+   * producing a wrapper that reads the variable without setting it.
+   */
+  readonly livePropsTemplate?: string;
   /** Why this shape is or is not usable here. Always present, for every row. */
   readonly note: string;
 }
@@ -88,20 +122,26 @@ export const CELL_ENTRY_WRAPPER_SUPPORT: readonly CellEntryWrapperSupport[] = [
     expressible: true,
     isDefault: true,
     template: "function App(props) {\n  return React.createElement({{component}}, props);\n}",
-    note: "The default. A function declaration is a stable `App` binding for the platform's second resolution step, and it is the shape every other entry form can be reduced to.",
+    livePropsTemplate:
+      "function App(props) {\n  {{liveProps}} = props;\n  return React.createElement({{component}}, props);\n}",
+    note: "The default. A function declaration is a stable `App` binding for the platform's second resolution step, and it is the shape every other entry form can be reduced to. Its live variant publishes each call's props into the artifact-scope variable the generated binding reads (#83); because `App`'s parameter is the call's own props, this is where a re-render without a re-evaluated module is met.",
   },
   {
     kind: "app-arrow-assignment",
     expressible: true,
     isDefault: false,
     template: "const App = (props) => React.createElement({{component}}, props);",
-    note: "Same binding, expression form. Useful when the surrounding artifact is itself an expression context.",
+    livePropsTemplate:
+      "const App = (props) => {\n  {{liveProps}} = props;\n  return React.createElement({{component}}, props);\n};",
+    note: "Same binding, expression form. Useful when the surrounding artifact is itself an expression context. Its live variant needs a block body, because an arrow's expression position cannot carry the props assignment.",
   },
   {
     kind: "app-variable-assignment",
     expressible: true,
     isDefault: false,
     template: "var App = function (props) {\n  return React.createElement({{component}}, props);\n};",
+    livePropsTemplate:
+      "var App = function (props) {\n  {{liveProps}} = props;\n  return React.createElement({{component}}, props);\n};",
     note: "Same binding again; kept because #5 verified it separately, and a caller diffing generated output against the runtime contract will look for it by name.",
   },
   {
@@ -110,21 +150,23 @@ export const CELL_ENTRY_WRAPPER_SUPPORT: readonly CellEntryWrapperSupport[] = [
     isDefault: false,
     template:
       "class App extends React.Component {\n  render() {\n    return React.createElement({{component}}, this.props);\n  }\n}",
-    note: "A class binding resolves through the same `App` step. Emitted only on request: a function component is what the bundled module actually is.",
+    livePropsTemplate:
+      "class App extends React.Component {\n  render() {\n    {{liveProps}} = this.props;\n    return React.createElement({{component}}, this.props);\n  }\n}",
+    note: "A class binding resolves through the same `App` step. Emitted only on request: a function component is what the bundled module actually is. Its live variant publishes `this.props` from `render`, which React re-enters on every render.",
   },
   {
     kind: "render-call",
     expressible: true,
     isDefault: false,
     template: "render(React.createElement({{component}}, props));",
-    note: "The platform's first resolution step, and the only shape that needs no `App` binding at all. `render` is a wrapper-local of the generated function, so it is visible here but never on `window`.",
+    note: "The platform's first resolution step, and the only shape that needs no `App` binding at all. `render` is a wrapper-local of the generated function, so it is visible here but never on `window`. Deliberately no live variant: this runs once, at artifact evaluation, and there is no per-render entry to publish new props through — so a props change is served only if the platform re-evaluates the artifact.",
   },
   {
     kind: "top-level-element-variable",
     expressible: true,
     isDefault: false,
     template: "const element = React.createElement({{component}}, props);",
-    note: "The platform's third resolution step. Emitted only on request: it is the only supported shape with no component boundary, so the bundled module cannot use hooks of its own through it.",
+    note: "The platform's third resolution step. Emitted only on request: it is the only supported shape with no component boundary, so the bundled module cannot use hooks of its own through it. Deliberately no live variant, for the same reason `render-call` has none: the expression is evaluated once.",
   },
   {
     kind: "whole-source-expression",
@@ -188,6 +230,16 @@ export const JAVASCRIPT_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 export interface RenderCellEntryWrapperInput {
   /** Which entry shape to emit. Defaults to the documented default. */
   readonly entryKind?: CellEntryKind;
+  /**
+   * Whether the artifact imports the runtime façade, and so carries the generated binding
+   * that declares the live-props variable (#83).
+   *
+   * Defaults to `false`, and that default is the safe one: the live template references a
+   * binding nothing else declares, so emitting it for a façade-free artifact would put a
+   * free identifier in the output and throw `ReferenceError` at the first render. A caller
+   * that does not know must therefore get the plain wrapper.
+   */
+  readonly runtimeBinding?: boolean;
 }
 
 export type CellEntryWrapperRender =
@@ -220,13 +272,49 @@ export function renderCellEntryWrapper(input: RenderCellEntryWrapperInput = {}):
     };
   }
 
+  // The live variant is chosen by *two* facts, and the second one is a refusal rather than a
+  // fallback: an artifact that imports the façade must publish props into the binding's
+  // variable, and a shape that cannot carry the assignment has no way to — so silently
+  // emitting the plain template there would ship an artifact whose re-renders are stale, the
+  // defect #83 exists to remove, with nothing failing to reveal it.
+  const wantLive = input.runtimeBinding === true;
+  const liveTemplate = support.livePropsTemplate;
+  if (wantLive && liveTemplate === undefined) {
+    return {
+      status: "unsupported",
+      diagnostics: [
+        createCellArtifactDiagnostic("rejected-cell-entry-shape", kind, {
+          detail: `Entry shape "${kind}" cannot publish live props, and this artifact imports the runtime façade (#83), whose binding reads them per render. ${support.note}`,
+        }),
+      ],
+    };
+  }
+
+  // `support.template` is narrowed by the guard above; `liveTemplate` is narrowed by the
+  // refusal above it, so `wantLive` true means it is a string. The `?? support.template`
+  // is for the type system only — the branch cannot be taken.
+  const template = wantLive ? (liveTemplate ?? support.template) : support.template;
   return {
     status: "emitted",
     kind,
     // `split`/`join` rather than `String.replace`, because a replacement string
     // treats `$` specially and `$` is a legal identifier character.
-    source: support.template.split(CELL_ENTRY_COMPONENT_PLACEHOLDER).join(CELL_ENTRY_COMPONENT_BINDING),
+    source: withBindings(template!),
   };
+}
+
+/**
+ * Substitutes the two generated bindings into one template.
+ *
+ * The order is fixed — component, then live props — and the live-props replacement is a
+ * no-op on a template that does not contain the placeholder, which is why a plain wrapper
+ * and a live one are rendered by the same function rather than by two that could drift.
+ */
+function withBindings(template: string): string {
+  const withComponent = template.split(CELL_ENTRY_COMPONENT_PLACEHOLDER).join(CELL_ENTRY_COMPONENT_BINDING);
+  return withComponent
+    .split(CELL_ENTRY_LIVE_PROPS_PLACEHOLDER)
+    .join(CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable);
 }
 
 /**
