@@ -441,6 +441,41 @@ export function App() {
     expect(diagnostic?.message).toContain("no dependency decision covers it");
   });
 
+  it("refuses a tree-shaken ESM barrel inlined without a dependency decision", async () => {
+    // Issue #102's stale-evidence fault found this shape: a package's *entry* module can be
+    // absent from `entryChunk.modules` while the submodules it re-exported are inlined, because
+    // the bundler folded the barrel away. The specifier was still inlined, so an undecided
+    // package must still be refused — the resolved-entry-id check alone reported nothing and
+    // the build compiled evidence the lock had already withdrawn. `sideEffects: false` is what
+    // lets the barrel be dropped; the integration regression covers the same defect through
+    // the consumer entrypoint with the real `es-toolkit` barrel.
+    const dir = fixture("undecided-installed-barrel", {
+      "App.jsx": `import { clamp } from "sneaky-barrel";
+
+export function App() {
+  return <i>{String(clamp(5))}</i>;
+}
+`,
+      "node_modules/sneaky-barrel/package.json": JSON.stringify({
+        name: "sneaky-barrel",
+        version: "1.0.0",
+        type: "module",
+        sideEffects: false,
+        exports: { ".": "./dist/index.js" },
+      }),
+      "node_modules/sneaky-barrel/dist/index.js": 'export { clamp } from "./math/clamp.js";\n',
+      "node_modules/sneaky-barrel/dist/math/clamp.js": "export function clamp(value) { return value; }\n",
+    });
+
+    const outcome = await compileFixture(dir, "App.jsx");
+
+    expect(outcome.status).toBe("rejected");
+    if (outcome.status !== "rejected") return;
+    expect(outcome.diagnostics.map(diagnostic => diagnostic.code)).toContain("unresolved-dependency-decision");
+    const diagnostic = outcome.diagnostics.find(item => item.code === "unresolved-dependency-decision");
+    expect(diagnostic?.subject).toBe("sneaky-barrel");
+  });
+
   it("accepts an installed package inlined with an explicit inline decision", async () => {
     const dir = fixture("decided-installed", {
       "App.jsx": `import { value } from "sneaky-dep";

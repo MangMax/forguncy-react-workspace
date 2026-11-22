@@ -192,6 +192,22 @@ importers:
       '@forguncy-react-workspace/mcp-sync':
         specifier: workspace:*
         version: link:../mcp-sync
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.7
+        version: 19.2.7(@types/react@19.2.7)
+      happy-dom:
+        specifier: 21.0.4
+        version: 21.0.4
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
 
   packages/core: {}
 

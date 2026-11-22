@@ -38,5 +38,22 @@
   },
   "bin": {
     "fgc-cell": "./src/cli.ts"
+  },
+  "//devDependencies": [
+    "Test-only, for Issue #102's black-box regression (`src/integration-regression.test.ts`).",
+    "",
+    "`happy-dom` is the real DOM the emitted single-file artifact is evaluated in, and `react` /",
+    "`react-dom` are the host versions the page provides (#5 recorded 19.2.7). Rendering the",
+    "artifact with them is what makes the case an execution rather than a string check. The types",
+    "are the matching host types. Nothing in `src/` imports any of these — the compiled artifact",
+    "reads `React` from the page global, and a green run is `local` evidence only (AGENTS.md",
+    "rules 6-7), not Forguncy runtime validation."
+  ],
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.7",
+    "happy-dom": "21.0.4",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   }
 }
