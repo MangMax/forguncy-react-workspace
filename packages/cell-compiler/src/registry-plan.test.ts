@@ -72,8 +72,28 @@ describe("planning one declared Cell for compilation", () => {
     expect(plan.codeMarkerNamespace).toBe("fgc");
   });
 
-  it("copies a declared output override through untouched, with no unit conversion", () => {
-    // #77 settled the unit as characters, so the declared value is already the
+  it("carries the registry's own extension mapping set (#86)", () => {
+    // The compiler never loads a config; the registry's normalized rows are the only
+    // channel by which a project's rows reach `compileCell`'s `extensionMappings`. The
+    // plan must hand over that same object — re-deriving a set here would be a second
+    // answer to "which extensions does this project declare", and it would not be the
+    // set the config loader validated.
+    const registry = registryOf({
+      cells: projectConfig().cells,
+      extensions: { mappings: [] },
+    });
+    const plan = planCellCompile({ registry, cellId: "orderList", dependencies: DECISIONS });
+
+    expect(plan.extensionMappings).toBe(registry.extensionMappings);
+    expect(plan.extensionMappings.source).toBe("project-extended");
+    // The built-ins still apply: an empty `mappings` list adds rows, it does not
+    // replace the table.
+    expect(plan.extensionMappings.mappings).toContainEqual(
+      expect.objectContaining({ packageName: "@tanstack/react-query" }),
+    );
+  });
+
+  it("copies a declared output override through untouched, with no unit conversion", () => {    // #77 settled the unit as characters, so the declared value is already the
     // quantity `compileCell`'s `codeBudgetCharacters` compares and needs no
     // conversion here. This adapter's job stays "carry the override", not "reprice it".
     const plan = planCellCompile({ registry: registryOf(), cellId: "orderBoard", dependencies: DECISIONS });

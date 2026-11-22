@@ -42,6 +42,7 @@ import type {
   CellUserScopeBinding,
   DependencyDecision,
   FrontendLibraryReference,
+  NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
 
 import type { CellArtifactDiagnostic } from "./diagnostics.ts";
@@ -216,6 +217,23 @@ export interface CellBundlingRequest {
   readonly entry: string;
   readonly dependencies: readonly DependencyDecision[];
   /**
+   * The project's normalized extension mapping set (#85), when the project has one.
+   *
+   * Carried in the request for the same reason `dependencies` is: the resolver hook
+   * that answers a bare import is a *resolution decision*, and the two passes this
+   * compile runs must see the same table. The normalized result is passed through as
+   * it was loaded — no stage re-reads `EXTENSION_EXTERNAL_MAPPINGS` or re-merges project
+   * rows, so "which extension provides this import" has one answer per compile.
+   *
+   * Absent means "the caller did not state the project's set", which is the same state
+   * as a project whose config said nothing: the built-in table applies (`#85`'s
+   * `builtin-default`). It never means "fall back to inlining": an import the selected
+   * table intercepts is either answered by the extension global or reported, and an
+   * import it does not intercept is left to ordinary resolution, where the artifact
+   * audits decide whether that is legal.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
+  /**
    * The identifier the bundle must bind the entry's component to, so the generated
    * wrapper can reference it.
    *
@@ -253,6 +271,17 @@ export interface CellBundlingRequest {
 export interface CellResolveRequest {
   readonly entry: string;
   readonly dependencies: readonly DependencyDecision[];
+  /**
+   * The same normalized mapping set the later build receives.
+   *
+   * The preflight's whole claim is that the specifiers it audits are the specifiers the
+   * build resolves, and an `extension`-decided import resolves to the plan's virtual
+   * module only when the *same* table produced the plan. A preflight that consulted the
+   * built-in table while the build consulted the project's would resolve two different
+   * graphs — and the disagreement would only be visible as a compile that passed the
+   * preflight and failed the build, or vice versa.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
 }
 
 /**
@@ -318,6 +347,26 @@ export interface CompileCellOptions {
    * belongs to the budget Issue.
    */
   readonly codeBudgetCharacters?: number;
+  /**
+   * The project's extension mapping set, exactly as `registry.extensionMappings`
+   * normalized it (#85).
+   *
+   * This is the only channel by which a project's own rows reach the compile. Take it
+   * from the registry — or from {@link CellCompilePlan.extensionMappings}, which is the
+   * same object — rather than assembling a list here: #85's normalization is what ran
+   * the per-row and cross-row guards against the built-in table, and a re-merged list
+   * would be a second answer to "which extensions does this project declare".
+   *
+   * The set is forwarded to both the pre-bundle pass and the build (see
+   * {@link CellResolveRequest} and {@link CellBundlingRequest}) so the two consult one
+   * table. The compiler's own audits are unchanged by it: `frontendLibraries` is still
+   * derived from the *decisions*, and a decision that disagrees with the row it selects
+   * is rejected from the plan's own finding rather than from a second check here.
+   *
+   * Absent keeps the pre-#85 behaviour — the built-in table — which is the same state a
+   * project config that never mentions `extensions` normalizes to.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
   /**
    * The workspace graph this compile resolves against, when the project has one.
    *
@@ -1144,6 +1193,7 @@ export async function compileCell(
       entrySpecifiers = await resolveEntrySpecifiers({
         entry: input.entry,
         dependencies: input.dependencies,
+        ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
       });
     } catch (error) {
       return {
@@ -1186,6 +1236,7 @@ export async function compileCell(
     module = await options.bundler.bundle({
       entry: input.entry,
       dependencies: input.dependencies,
+      ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
       // The one thing the two halves of the pipeline must agree on, handed over
       // rather than assumed.
       componentBinding: CELL_ENTRY_COMPONENT_BINDING,
