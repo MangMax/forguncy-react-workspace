@@ -64,11 +64,11 @@
 
 | 选项 | 作用 |
 |---|---|
-| `--project <dir>` | probe 该包的位置；必须是**已安装**它的目录 |
+| `--project <dir>` | probe 该包的位置；必须是**已安装**它的目录。它也提供校验 `extension` 决策所用的映射集——该目录 `forguncy.config.ts` 的 `extensions` 块，经与编译器同一个规范化出口得到（#87）；没有配置时退到内置表的同名投影 |
 | `--no-cache` | 不读缓存里的旧 report（本次测量仍会作为**不可变证据**落盘） |
 | `--runtime-smoke <module>` | 执行该本地模块作为 `runtime-smoke` hook；`validatedAgainstRuntime` 需要它 |
 | `--runtime-smoke-export <name>` | 指定 hook 的导出名（默认 `default`） |
-| `--extension-catalog <file>` | 用真实清单/已验证目录校验 `extension` 的 `libraryId`（两种输入 shape 不同，见 `references/decision-recording.md`） |
+| `--extension-catalog <file>` | 用真实清单/已验证目录校验 `extension` 的 `libraryId`（两种输入 shape 不同，见 `references/decision-recording.md`；不传时用 `--project` 所指项目的 `extensions` 映射集） |
 | `--cell <id>` | 把这次运行限定到配置里声明的某个 Cell，并按该 Cell `output` 里声明的 `codeBudgetCharacters` 做**估算**比较（进指纹；决策文件里写了 `cellTarget` 就不必再传，两者不一致会被拒绝） |
 | `--imports <a,b>` | 声明 Cell 会具名导入的绑定，让 probe 的合成入口从整包命名空间变为具名导入，从而使尺寸估算偏向"下"（进指纹；同样可由决策文件的 `imports` 提供） |
 

@@ -701,19 +701,33 @@ describe("CLI contract: a raw listing is not a mapping catalog", () => {
     // about what those two fields mean.
     await withScratch(EXTENSION_QUERY, async root => {
       const decision = await decisionFile(extensionDecision("@tanstack/react-query"));
-      const cases: readonly { readonly rows: readonly Record<string, unknown>[]; readonly code: string }[] = [
-        { rows: listing({ exists: false }), code: "extension-bundle-missing" },
-        { rows: listing({ typeDefinitionAvailable: false }), code: "extension-types-missing" },
-        { rows: listing({ globalName: "WrongGlobal" }), code: "extension-global-mismatch" },
-        { rows: listing({ id: "some-other-library" }), code: "extension-library-unverified" },
+      const cases: readonly {
+        readonly rows: readonly Record<string, unknown>[];
+        readonly code: string;
+        /**
+         * Who has to fix it, from `core`'s own rule table rather than from a list here.
+         *
+         * #87's fourth plan item: a listing finding is about the *installed* extension or the
+         * *mapping row*, never about the deciding Agent — and a missing bundle is the extension
+         * package's, not the row's. The CLI prints the owner beside each problem so a reader of
+         * the refusal alone knows which document to change.
+         */
+        readonly fixOwner: string;
+      }[] = [
+        { rows: listing({ exists: false }), code: "extension-bundle-missing", fixOwner: "extension-package" },
+        { rows: listing({ typeDefinitionAvailable: false }), code: "extension-types-missing", fixOwner: "extension-package" },
+        { rows: listing({ globalName: "WrongGlobal" }), code: "extension-global-mismatch", fixOwner: "extension-metadata" },
+        { rows: listing({ id: "some-other-library" }), code: "extension-library-unverified", fixOwner: "extension-metadata" },
       ];
       try {
-        for (const { rows, code } of cases) {
+        for (const { rows, code, fixOwner } of cases) {
           const catalog = await listingFile(rows);
           try {
             const recorded = await cli(["record", "--project", root, "--extension-catalog", catalog.path, "--decision", decision.path]);
             expect(recorded.code, `${code} should refuse`).not.toBe(0);
-            expect(json<{ problems: readonly string[] }>(recorded).problems.join(" ")).toContain(code);
+            const problems = json<{ problems: readonly string[] }>(recorded).problems.join(" ");
+            expect(problems).toContain(code);
+            expect(problems, `${code} must name its fix owner`).toContain(`(fix owner: ${fixOwner})`);
             expect(existsSync(join(root, "fgc.lock.json"))).toBe(false);
           } finally {
             await catalog.cleanup();
@@ -780,6 +794,160 @@ describe("CLI contract: a raw listing is not a mapping catalog", () => {
         expect(recorded.stderr).not.toContain("at async");
       } finally {
         await catalog.cleanup();
+        await decision.cleanup();
+      }
+    });
+  }, CASE_TIMEOUT_MS);
+});
+
+/**
+ * The default catalog is the **project's** normalized mapping set (#87).
+ *
+ * Before #87 the CLI checked `extension` records against `core`'s built-in table. A project
+ * row is, by definition, a row the built-in table does not carry, so the compiler resolved a
+ * custom extension while `record` refused the decision that selected it —
+ * `extension-library-not-verified`, a *blocking* conformance error, for a configuration the
+ * artifact had already compiled from. The default now goes through the same normalization
+ * exit the compiler's registry does, and this describe is what holds that.
+ *
+ * ## Why the fixture is a scratch root with a config written into it
+ *
+ * `policy` accepts `--project`, and the CLI reads the project's rows from the config there.
+ * A scratch root beneath an example resolves this workspace's installed packages through the
+ * ancestor walk, so `record` in it can probe the package the config maps — which is what makes
+ * the positive case a real `record` rather than a `policy` surface assertion.
+ */
+describe("CLI contract: the default catalog is the project's own mappings", () => {
+  /** The custom row, in the shape #85's `extensions.mappings` reader accepts. */
+  const PROJECT_ROW = {
+    packageName: "@probe/acme-widgets",
+    libraryId: "acme-widgets",
+    globalName: "AcmeWidgets",
+    metadataSource: "verified-catalog",
+    metadataReference: "MangMax/forguncy-react-library#acme-widgets",
+    verificationRule: "A verified catalog entry whose id and global the listing confirms.",
+    verifiedBy: ["product-documentation"],
+    note: "A project row, which the built-in table does not carry.",
+  } as const;
+
+  /** The extension decision the config's row answers for. */
+  const CUSTOM_DECISION = {
+    packageName: PROJECT_ROW.packageName,
+    role: "cell-local-ui",
+    strategy: "extension",
+    libraryId: PROJECT_ROW.libraryId,
+    globalName: PROJECT_ROW.globalName,
+    extensionVersion: "1.0.0",
+    extensionIdentity: "sha256:acme-widgets-fixture",
+    rationale: "The extension publishes one page global, so the Cell reads it rather than bundling a second copy.",
+  } as const;
+
+  const CONFIG_SOURCE = [
+    'import { defineForguncyConfig } from "@forguncy-react-workspace/core";',
+    "",
+    "export default defineForguncyConfig({",
+    '  runtime: { forguncyVersion: "12.0.100", projectAlias: "cli-project-mappings" },',
+    `  extensions: { mappings: [${JSON.stringify(PROJECT_ROW)}] },`,
+    "  cells: {",
+    '    widgets: { entry: "./src/App.tsx", target: { pageName: "部件", cell: "A1" } },',
+    "  },",
+    "});",
+    "",
+  ].join("\n");
+
+  /**
+   * A scratch project that declares the custom row *and installs the package*.
+   *
+   * The install is what a real project has, and it is what lets `record` probe the package at
+   * the version the decision names. The compile path is a different question — there the
+   * mapping must answer *before* node resolution — and `examples/extension-custom` covers it.
+   */
+  async function projectWithCustomRow(root: string): Promise<void> {
+    await writeFile(join(root, "forguncy.config.ts"), CONFIG_SOURCE, "utf8");
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(
+      join(root, "src", "App.tsx"),
+      `import { widget } from ${JSON.stringify(PROJECT_ROW.packageName)};\nexport function App() { return null; }\n`,
+      "utf8",
+    );
+    const pkg = join(root, "node_modules", "@probe", "acme-widgets");
+    await mkdir(pkg, { recursive: true });
+    await writeFile(
+      join(pkg, "package.json"),
+      JSON.stringify({ name: PROJECT_ROW.packageName, version: "1.0.0", type: "module", main: "index.js" }),
+      "utf8",
+    );
+    await writeFile(join(pkg, "index.js"), "export function widget() { return null; }\n", "utf8");
+  }
+
+  it("records a custom project extension with no flag, and `policy` publishes the row", async () => {
+    await withScratch(EXTENSION_QUERY, async root => {
+      await projectWithCustomRow(root);
+      const decision = await decisionFile(CUSTOM_DECISION);
+      try {
+        const recorded = await cli(["record", "--project", root, "--no-cache", "--decision", decision.path]);
+        expect(recorded.code, recorded.stderr).toBe(0);
+        const record = (await readLock(root)).decisions.find(entry => entry.packageName === PROJECT_ROW.packageName)!;
+        expect(record.strategy).toBe("extension");
+        expect(record.libraryId).toBe(PROJECT_ROW.libraryId);
+
+        // And the surface names *where* the rows came from, so a reader can tell a project's
+        // set from the built-in default without guessing.
+        const policy = await cli(["policy", "--project", root]);
+        expect(policy.code, policy.stderr).toBe(0);
+        const surface = json<{
+          extensionCatalog: {
+            source: string;
+            declaredRows: readonly { packageName: string; libraryId: string; globalName: string }[];
+          };
+        }>(policy);
+        expect(surface.extensionCatalog.source).toContain("forguncy.config.ts");
+        expect(surface.extensionCatalog.declaredRows.map(row => row.packageName)).toContain(PROJECT_ROW.packageName);
+      } finally {
+        await decision.cleanup();
+      }
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it("still uses the built-in default in a root with no config", async () => {
+    // The other half of the default: a scratch root that declares nothing keeps working, and
+    // it says so. Without this, "reads the project's config" could mean "requires one".
+    await withScratch(PROVING_CASES, async root => {
+      const policy = await cli(["policy", "--project", root]);
+      expect(policy.code, policy.stderr).toBe(0);
+      const surface = json<{ extensionCatalog: { source: string; declaredRows: readonly { packageName: string }[] } }>(policy);
+      expect(surface.extensionCatalog.source).toContain("built-in defaults");
+      expect(surface.extensionCatalog.declaredRows.map(row => row.packageName)).toContain("@tanstack/react-query");
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it("refuses a package the project does not map, instead of accepting what the table lacks", async () => {
+    // The negative direction, and the one that keeps the change from being "accept anything":
+    // the catalog is the project's set, so an extension the project never declared is refused
+    // at `record` with the finding whose fix owner is the declared row.
+    await withScratch(EXTENSION_QUERY, async root => {
+      const decision = await decisionFile({
+        ...CUSTOM_DECISION,
+        packageName: "@probe/undeclared-widgets",
+        libraryId: "undeclared-widgets",
+        globalName: "UndeclaredWidgets",
+      });
+      const pkg = join(root, "node_modules", "@probe", "undeclared-widgets");
+      await mkdir(pkg, { recursive: true });
+      await writeFile(
+        join(pkg, "package.json"),
+        JSON.stringify({ name: "@probe/undeclared-widgets", version: "1.0.0", type: "module", main: "index.js" }),
+        "utf8",
+      );
+      await writeFile(join(pkg, "index.js"), "export function widget() { return null; }\n", "utf8");
+      try {
+        const recorded = await cli(["record", "--project", root, "--no-cache", "--decision", decision.path]);
+        expect(recorded.code).not.toBe(0);
+        expect(json<{ problems: readonly string[] }>(recorded).problems.join(" ")).toContain(
+          "extension-library-not-verified",
+        );
+        expect(existsSync(join(root, "fgc.lock.json"))).toBe(false);
+      } finally {
         await decision.cleanup();
       }
     });

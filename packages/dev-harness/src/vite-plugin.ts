@@ -58,8 +58,14 @@ import react from "@vitejs/plugin-react-swc";
 import { ForguncyConfigError, RUNTIME_CONTRACT_TARGET } from "@forguncy-react-workspace/core";
 import type { CellRegistry, ForguncyConfig, RegisteredCell } from "@forguncy-react-workspace/core";
 import type { LocalDevExtensionChoice } from "@forguncy-react-workspace/runtime";
-import { createLocalDevDiagnostic } from "@forguncy-react-workspace/runtime";
-import { resolveInstalledVersions } from "@forguncy-react-workspace/dependency-resolver/local";
+import {
+  createLocalDevDiagnostic,
+  localDevVersionFieldIsBrowserObserved,
+} from "@forguncy-react-workspace/runtime";
+import {
+  extensionCatalogOfNormalized,
+  resolveInstalledVersions,
+} from "@forguncy-react-workspace/dependency-resolver/local";
 import { cellVirtualModuleId, forguncy } from "@forguncy-react-workspace/vite-plugin-fgc";
 
 import {
@@ -77,6 +83,7 @@ import {
   unavailableHostModuleOf,
   unavailableHostModuleSource,
 } from "./host-modules.ts";
+import type { HostPackageVersionMismatch } from "./host-modules.ts";
 import {
   auditHarnessConfiguration,
   blockingLocalDevFindings,
@@ -1087,21 +1094,33 @@ export function projectAliasTarget(
  * time. It is reported because a Cell developed against a different React version is not
  * evidence about this target, and the two fixes — a stale install, a newer host — differ.
  */
-export function formatHostVersionWarning(): string | undefined {
-  const mismatches = hostPackageVersionMismatches();
+export function formatHostVersionWarning(
+  mismatches: readonly HostPackageVersionMismatch[] = hostPackageVersionMismatches(),
+): string | undefined {
   if (mismatches.length === 0) {
     return undefined;
   }
 
+  const unobservedFields = mismatches
+    .map(mismatch => mismatch.field)
+    .filter(field => !localDevVersionFieldIsBrowserObserved(field));
+  const unobserved = new Set(unobservedFields);
+
   return [
-    "The dev harness's own install is not at the version #5 recorded for this target:",
-    ...mismatches.map(
-      mismatch =>
-        `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, #5 recorded ${mismatch.field} = ${mismatch.expected}`,
+    "The dev harness's own install is not at the version recorded for this target:",
+    ...mismatches.map(mismatch =>
+      unobserved.has(mismatch.field)
+        ? `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, target records ${mismatch.field} = ${mismatch.expected} (carried from #5's 12.0.100.0 run; not observed on this build)`
+        : `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, target records ${mismatch.field} = ${mismatch.expected}`,
     ),
     "",
+    unobservedFields.length > 0
+      ? `The carried value(s) above (${[...new Set(unobservedFields)].join(", ")}) were read from the shipped runtime source, not from a running page on this build, so a mismatch here is a difference from a carried-forward number rather than a difference from an observation.`
+      : "",
     "Local UI feedback still works, and it is not evidence about this target: a Cell developed against a different React version says nothing about the page. Align this package's dependency or re-probe the target (#5).",
-  ].join("\n");
+  ]
+    .filter(line => line !== "")
+    .join("\n");
 }
 
 /**
@@ -1439,6 +1458,15 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         // is the one actually driving the loop. Absent means the comparison reports `toolchain-unknown`
         // rather than passing, which is the honest answer for a harness installed without `vite-plus`.
         toolchain: installedVitePlusToolchain(),
+        // The project's own mapping set, from the registry — not `core`'s built-in table (#87).
+        //
+        // `registry.extensionMappings` is the one normalization exit #85 built and #86 threaded into
+        // the compiler, so this is the *same* set `compileCell` plans from. Auditing against
+        // `core`'s table instead made a custom project extension a blocking conformance error here
+        // while the compiler compiled it, which is exactly the "the dev server refuses what the
+        // bundler accepts" split #87 exists to remove. Projected through the shared
+        // `extensionCatalogOfNormalized`, so `moduleIds` widen exactly as they do for the compiler.
+        extensionCatalog: extensionCatalogOfNormalized(registry.extensionMappings),
       });
 
       const audit = auditHarnessConfiguration({
@@ -1465,6 +1493,10 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         options.extensionChoices ?? [],
         registry.root,
         unmatchedExtensionChoicePackages(audit),
+        // The project's own rows, once normalized (#87): a choice for a custom extension is only
+        // meaningful against the table the compiler resolves it through. See
+        // `extension-substitutions.ts` for the refusal this replaced.
+        registry.extensionMappings.mappings,
       );
 
       const lockFindings = formatLocalDecisionProjection(projection);

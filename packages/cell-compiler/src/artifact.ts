@@ -32,6 +32,8 @@
  */
 
 import {
+  CELL_CODE_BUDGET_MEASUREMENT,
+  CELL_RUNTIME_BINDING_CONTRACT,
   CELL_USER_SCOPE_BINDINGS,
   assertCellCodeBudget,
   classifyCellCodeSize,
@@ -42,6 +44,7 @@ import type {
   CellUserScopeBinding,
   DependencyDecision,
   FrontendLibraryReference,
+  NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
 
 import type { CellArtifactDiagnostic } from "./diagnostics.ts";
@@ -210,11 +213,40 @@ export interface BundledCellModule {
    * bundler documents which plan codes translate and which do not).
    */
   readonly diagnostics?: readonly CellArtifactDiagnostic[];
+  /**
+   * Whether this module graph imports the runtime façade, so a binding was generated.
+   *
+   * The entry wrapper has to refresh the artifact-scope props variable on every `App` call
+   * (#83), and it may only do that when the binding — which declares the variable — is in
+   * the graph. Reporting it from the build is the only honest source: inferring it from
+   * `code` would be a substring check, and assuming it would put a free identifier in an
+   * artifact that has no declaration for it, which is a `ReferenceError` at the first
+   * render. Optional and absent means "no binding", so a fixture port that reports nothing
+   * gets the wrapper a façade-free Cell should have.
+   */
+  readonly runtimeBindingGenerated?: boolean;
 }
 
 export interface CellBundlingRequest {
   readonly entry: string;
   readonly dependencies: readonly DependencyDecision[];
+  /**
+   * The project's normalized extension mapping set (#85), when the project has one.
+   *
+   * Carried in the request for the same reason `dependencies` is: the resolver hook
+   * that answers a bare import is a *resolution decision*, and the two passes this
+   * compile runs must see the same table. The normalized result is passed through as
+   * it was loaded — no stage re-reads `EXTENSION_EXTERNAL_MAPPINGS` or re-merges project
+   * rows, so "which extension provides this import" has one answer per compile.
+   *
+   * Absent means "the caller did not state the project's set", which is the same state
+   * as a project whose config said nothing: the built-in table applies (`#85`'s
+   * `builtin-default`). It never means "fall back to inlining": an import the selected
+   * table intercepts is either answered by the extension global or reported, and an
+   * import it does not intercept is left to ordinary resolution, where the artifact
+   * audits decide whether that is legal.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
   /**
    * The identifier the bundle must bind the entry's component to, so the generated
    * wrapper can reference it.
@@ -253,6 +285,17 @@ export interface CellBundlingRequest {
 export interface CellResolveRequest {
   readonly entry: string;
   readonly dependencies: readonly DependencyDecision[];
+  /**
+   * The same normalized mapping set the later build receives.
+   *
+   * The preflight's whole claim is that the specifiers it audits are the specifiers the
+   * build resolves, and an `extension`-decided import resolves to the plan's virtual
+   * module only when the *same* table produced the plan. A preflight that consulted the
+   * built-in table while the build consulted the project's would resolve two different
+   * graphs — and the disagreement would only be visible as a compile that passed the
+   * preflight and failed the build, or vice versa.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
 }
 
 /**
@@ -318,6 +361,26 @@ export interface CompileCellOptions {
    * belongs to the budget Issue.
    */
   readonly codeBudgetCharacters?: number;
+  /**
+   * The project's extension mapping set, exactly as `registry.extensionMappings`
+   * normalized it (#85).
+   *
+   * This is the only channel by which a project's own rows reach the compile. Take it
+   * from the registry — or from {@link CellCompilePlan.extensionMappings}, which is the
+   * same object — rather than assembling a list here: #85's normalization is what ran
+   * the per-row and cross-row guards against the built-in table, and a re-merged list
+   * would be a second answer to "which extensions does this project declare".
+   *
+   * The set is forwarded to both the pre-bundle pass and the build (see
+   * {@link CellResolveRequest} and {@link CellBundlingRequest}) so the two consult one
+   * table. The compiler's own audits are unchanged by it: `frontendLibraries` is still
+   * derived from the *decisions*, and a decision that disagrees with the row it selects
+   * is rejected from the plan's own finding rather than from a second check here.
+   *
+   * Absent keeps the pre-#85 behaviour — the built-in table — which is the same state a
+   * project config that never mentions `extensions` normalizes to.
+   */
+  readonly extensionMappings?: NormalizedExtensionMappings;
   /**
    * The workspace graph this compile resolves against, when the project has one.
    *
@@ -468,12 +531,37 @@ export function assembleCellArtifact(input: AssembleCellArtifactInput): CompileC
   const assetDiagnostics = auditEmittedAssets(module.emittedAssets ?? []);
   const collection = collectFrontendLibraries(dependencies);
 
-  const wrapper = renderCellEntryWrapper(
-    input.entryKind === undefined ? {} : { entryKind: input.entryKind },
-  );
+  const wrapper = renderCellEntryWrapper({
+    ...(input.entryKind === undefined ? {} : { entryKind: input.entryKind }),
+    // The wrapper may only publish live props when the binding that declares the variable is
+    // in this artifact; the bundler's report is the only source that knows (#83).
+    runtimeBinding: module.runtimeBindingGenerated === true,
+  });
 
   const wrapperSource = wrapper.status === "emitted" ? wrapper.source : "";
-  const code = `${CELL_ARTIFACT_BANNER}\n${module.code}\n${wrapperSource}\n`;
+  // The artifact-scope props variable, declared *outside* the bundle and *before* it (#83).
+  //
+  // This placement is the seam, and both halves are load-bearing:
+  //
+  // - **outside the bundle's IIFE**, because the binding module is inside it, the entry
+  //   wrapper is beside it, and only a declaration at the artifact's own scope is visible to
+  //   both. Declared inside the bundle, the wrapper could not assign to it; declared after
+  //   it, the initial value would not be there when the module body installs the provider.
+  // - **only when a binding was generated**, because a façade-free artifact must not carry a
+  //   name nothing uses — and a wrapper that assigned to an undeclared variable would be a
+  //   `ReferenceError` at the first render, in strict mode, which every IIFE bundle is.
+  //
+  // `var` rather than a block-scoped declaration because the wrapper *reassigns* it, and the
+  // initial value is the evaluation's wrapper-local `props`, which is what keeps a
+  // `render-call` or `top-level-element-variable` shape working at all.
+  //
+  // Nothing here is a page global: a `var` in the platform's `new Function` body is a
+  // per-evaluation binding exactly as the provider slot is per copy.
+  const livePropsDeclaration =
+    module.runtimeBindingGenerated === true && wrapper.status === "emitted"
+      ? `var ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} = props;\n`
+      : "";
+  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${module.code}\n${wrapperSource}\n`;
 
   const sourceDiagnostics = auditArtifactSource(code, artifactOriginOf(module.code));
   const budgetDiagnostics = auditCodeBudget(code, input.codeBudgetCharacters);
@@ -936,9 +1024,11 @@ function auditCodeBudget(code: string, budget: number | undefined): readonly Cel
       detail:
         `The composed artifact is ${code.length} characters against a configured budget of ${budget}. ` +
         `The measurement is taken on the composed artifact because that is what is written into the cell. ` +
-        `Measured band: ${verdict.band} (#21). At this band's own measured points the designer write took ` +
-        `${String(write.ms)} ms at ${String(write.characters)} characters (${write.artifact}) and the ` +
-        `browser's first cell entry took ${String(browserEntry.ms)} ms at ` +
+        `Measured band: ${verdict.band} (#21). Those figures were taken against ` +
+        `${CELL_CODE_BUDGET_MEASUREMENT.target}, which is not the build this project targets, so they are ` +
+        `a carried-forward reference rather than a measurement of this target: at this band's own measured ` +
+        `points the designer write took ${String(write.ms)} ms at ${String(write.characters)} characters ` +
+        `(${write.artifact}) and the browser's first cell entry took ${String(browserEntry.ms)} ms at ` +
         `${String(browserEntry.characters)} characters (${browserEntry.artifact}). ${guidance}`,
       // The measurement travels with the diagnostic so it has exactly one producer (#77 round 5).
       // A caller that wants to record this rejection has to take these numbers — it cannot type its
@@ -1144,6 +1234,7 @@ export async function compileCell(
       entrySpecifiers = await resolveEntrySpecifiers({
         entry: input.entry,
         dependencies: input.dependencies,
+        ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
       });
     } catch (error) {
       return {
@@ -1186,6 +1277,7 @@ export async function compileCell(
     module = await options.bundler.bundle({
       entry: input.entry,
       dependencies: input.dependencies,
+      ...(options.extensionMappings === undefined ? {} : { extensionMappings: options.extensionMappings }),
       // The one thing the two halves of the pipeline must agree on, handed over
       // rather than assumed.
       componentBinding: CELL_ENTRY_COMPONENT_BINDING,

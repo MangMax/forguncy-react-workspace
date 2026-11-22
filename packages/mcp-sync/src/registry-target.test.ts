@@ -269,3 +269,99 @@ describe("planning a batch of declared Cells", () => {
     expect(plan?.extensionVerification.references).toEqual(["@tanstack/react-query"]);
   });
 });
+
+/**
+ * The registry's own extension mappings reach the sync (#87).
+ *
+ * A sync verifies that the artifact's `frontendLibraries` are the set its decisions imply,
+ * and that comparison needs the *mapping rows the artifact was compiled against*. The
+ * compiler plans from `registry.extensionMappings` (#86); before #87 the sync's only source
+ * was `core`'s built-in table, so a custom project extension compiled cleanly and then met
+ * `extension-decision-unusable` at the write boundary — a refusal for a Cell the compile had
+ * accepted, and one that could only be fixed by editing `core`.
+ *
+ * The batch path is where this is observable, because it is the one that has a registry:
+ * `planCellSyncTargets` supplies `registry.extensionMappings.mappings` unless the caller
+ * pinned a table, so a test that omits `mappings` is testing the default.
+ */
+describe("a custom project extension reaches the sync through the registry (#87)", () => {
+  const CUSTOM = { packageName: "@acme/widgets", libraryId: "acme-widgets", globalName: "AcmeWidgets" } as const;
+
+  /** The project config with the custom row, in the committed-config shape #85 defines. */
+  function configWithCustomMapping() {
+    return {
+      ...projectConfig(),
+      extensions: {
+        mappings: [
+          {
+            ...CUSTOM,
+            metadataSource: "verified-catalog",
+            metadataReference: "MangMax/forguncy-react-library#acme-widgets",
+            verificationRule: "A verified catalog entry whose id and global the listing confirms.",
+            verifiedBy: ["product-documentation"],
+            note: "A project row, which the built-in table does not carry.",
+          },
+        ],
+      },
+    };
+  }
+
+  const DECISION = {
+    strategy: "extension",
+    packageName: CUSTOM.packageName,
+    libraryId: CUSTOM.libraryId,
+    globalName: CUSTOM.globalName,
+  } as const;
+
+  /** The artifact a compile against that row produces: one library reference. */
+  function customArtifact(): CompileCellResult {
+    return {
+      code: `${CELL_ARTIFACT_BANNER}\nfunction App() { return null; }\n`,
+      frontendLibraries: [frontendLibraryReference(CUSTOM.libraryId)],
+    };
+  }
+
+  /** The listing a real project with that extension would report. */
+  const LISTING = {
+    id: CUSTOM.libraryId,
+    globalName: CUSTOM.globalName,
+    exists: true,
+    typeDefinitionAvailable: true,
+  } as const;
+
+  it("defaults to the registry's rows, so the plan verifies a custom extension", () => {
+    const [plan] = planCellSyncTargets(registryOf(configWithCustomMapping()), [
+      {
+        cellId: "orderList",
+        artifact: customArtifact(),
+        decisions: [DECISION],
+        deployed: { kind: "read", code: "" },
+        listings: [LISTING],
+        // No `mappings`: the registry's set is the answer, and the point is that a caller
+        // does not have to supply one to be verified against the project.
+      },
+    ]);
+
+    expect(plan?.extensionVerification.verification).toBe("stated");
+    expect(plan?.extensionVerification.diagnostics).toEqual([]);
+    expect(plan?.gate).toBe("ready");
+  });
+
+  it("cannot verify the same artifact against `core`'s table, which is what the default fixes", () => {
+    // The control. The registry in the test above is the only difference, and without its
+    // rows the same artifact is on a Cell the plan will not write: `extension-decision-unusable`
+    // is the finding, and its fix owner is the dependency decision rather than the project.
+    const [plan] = planCellSyncTargets(registryOf(), [
+      {
+        cellId: "orderList",
+        artifact: customArtifact(),
+        decisions: [DECISION],
+        deployed: { kind: "read", code: "" },
+        listings: [LISTING],
+      },
+    ]);
+
+    expect(plan?.gate).toBe("refused");
+    expect(plan?.diagnostics.map(diagnostic => diagnostic.code)).toContain("extension-decision-unusable");
+  });
+});

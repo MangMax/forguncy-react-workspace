@@ -379,6 +379,7 @@ export async function buildCellProject(options: BuildCellProjectOptions): Promis
     const codeBudgetCharacters = plan.output?.codeBudgetCharacters;
     const outcome = await compileCell(plan.input, {
       bundler,
+      extensionMappings: plan.extensionMappings,
       ...(options.entryKind === undefined ? {} : { entryKind: options.entryKind }),
       ...(codeBudgetCharacters === undefined ? {} : { codeBudgetCharacters }),
       ...(workspace === undefined ? {} : { workspace: workspace.graph }),
