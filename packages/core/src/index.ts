@@ -685,6 +685,49 @@ export type {
   CellCodeMeasurementPoint,
 } from "./cell-code-budget.ts";
 
+// The v1 CSS/static-asset resource policy (#98), shared by the compiler and the dev harness so
+// the two cannot answer "is this import supported" differently.
+export {
+  CELL_ASSET_INLINE_LIMIT_BYTES,
+  CELL_REJECTED_BINARY_ASSET_EXTENSIONS,
+  CELL_REJECTED_RESOURCE_QUERIES,
+  CELL_RESOURCE_SUPPORT_MATRIX,
+  CELL_STYLE_PREPROCESSOR_EXTENSIONS,
+  CELL_SUPPORTED_STATIC_ASSET_EXTENSIONS,
+  cellAssetExtensionOf,
+  cellStaticAssetMediaType,
+  effectiveCellResourceQuery,
+  encodeBase64,
+  findCellCssUnsupportedConstructs,
+  findCellCssUrlReferences,
+  formatCellAssetDataUri,
+  formatCellResourceSupportMatrix,
+  hasCellResourceQuery,
+  queryHasRejectedResourceParameter,
+  isCellCssFile,
+  isCellCssModuleFile,
+  isCellStylePreprocessorFile,
+  isInternalCellResourceQuery,
+  isRejectedCellBinaryAsset,
+  isSupportedCellStaticAsset,
+  rewriteCellCssReferences,
+  splitCellSpecifierQuery,
+} from "./cell-assets.ts";
+export type {
+  CellCssAssetLoader,
+  CellCssAssetSource,
+  CellCssInlinedAsset,
+  CellCssRewriteOutcome,
+  CellCssUnsupportedConstruct,
+  CellCssUrlReference,
+  CellCssViolation,
+  CellCssViolationKind,
+  CellResourceSupportRow,
+  CellSpecifierQuery,
+  CellSupportedStaticAssetExtension,
+  RewriteCellCssReferencesInput,
+} from "./cell-assets.ts";
+
 export {
   assertDistinctTargetClaims,
   assertUniqueTargets,

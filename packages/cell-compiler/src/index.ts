@@ -296,6 +296,34 @@ export {
   packageNameOfSpecifier,
 } from "./specifier.ts";
 
+// The v1 CSS/static-asset pipeline (#98): the inlined style/asset report, the keyed and
+// reference-counted style installer, and the pure functions a caller needs to read the ledger.
+export {
+  CELL_STYLE_INSTALLER_SOURCE,
+  CellResourcePolicyError,
+  cellResourceBudgetOf,
+  cellResourceFileIdOf,
+  cellResourceModuleIdOf,
+  cellResourceRefusalOf,
+  cellResourcesNeedStyleInstaller,
+  cellStyleIdOf,
+  createCellResourceDiagnostic,
+  formatCellResourceLedger,
+  isCellResourceFile,
+  isCellResourcePolicyError,
+  renderCellStyleInstaller,
+  resolveCellResource,
+} from "./cell-resources.ts";
+export type {
+  CellInlinedAsset,
+  CellInlinedResource,
+  CellInlinedStyle,
+  CellResourceBudget,
+  CellResourceReader,
+  CellResourceRefusal,
+  CellResourceResolution,
+} from "./cell-resources.ts";
+
 // The Rolldown-backed bundler port (#7): the concrete `CellBundlerPort`
 export { createRolldownCellBundler } from "./rolldown-bundler.ts";
 export type { CreateRolldownCellBundlerOptions } from "./rolldown-bundler.ts";

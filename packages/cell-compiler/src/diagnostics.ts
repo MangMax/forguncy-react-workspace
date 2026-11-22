@@ -42,6 +42,7 @@ export const CONTRACT_CELL_ARTIFACT_DIAGNOSTIC_CODES = [
   "source-level-import-remains",
   "rejected-cell-entry-shape",
   "rejected-cell-source-construct",
+  "rejected-cell-asset",
   "non-canonical-artifact-metadata",
   "bundler-failure",
 ] as const;
@@ -194,8 +195,18 @@ export const CELL_ARTIFACT_DIAGNOSTIC_RULES: Readonly<
     fixOwner: "cell-source",
     breaksGuarantees: ["accepted-by-react-cell-type"],
   },
-  "non-canonical-artifact-metadata": {
-    code: "non-canonical-artifact-metadata",
+  "rejected-cell-asset": {
+    code: "rejected-cell-asset",
+    origin: "issue-6-contract",
+    label: "Asset outside the v1 Cell resource support set",
+    states:
+      "A style or static-asset import reached the Cell artifact that the v1 resource policy cannot inline, so no self-contained single-file Cell can be produced from it.",
+    remediation:
+      "Follow the direction the diagnostic names: inline a supported plain CSS file or a small image/font (at or below the inline limit), or move the asset to a Forguncy frontend extension (`extension`) when it must be shared or served at runtime, or replace it with a browser-first asset v1 inlines (`replace`). CSS Modules are a v1 rejection and not a bug: use plain CSS with a Cell-owned root-class prefix, or an `extension` that owns the scoped stylesheet. Never ship the artifact as-is — a sibling asset has nowhere to be loaded from on a Forguncy page.",
+    fixOwner: "cell-source",
+    breaksGuarantees: ["inline-dependencies-flattened"],
+  },
+  "non-canonical-artifact-metadata": {    code: "non-canonical-artifact-metadata",
     origin: "issue-6-contract",
     label: "Non-canonical artifact metadata",
     states: "The artifact's generated banner or `frontendLibraries` metadata is not in its canonical form.",

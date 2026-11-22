@@ -41,11 +41,19 @@
     "`compilationDependencies` (with the conformance audit) turn the example's",
     "`fgc.lock.json` into the `dependencies` `compileCell` receives, so the test",
     "exercises the recorded chain rather than a hand-written decision constant.",
-    "Test-only: nothing in `src/` imports it, so there is no cycle with the resolver."
+    "Test-only: nothing in `src/` imports it, so there is no cycle with the resolver.",
+    "",
+    "`happy-dom` is what #98's acceptance criteria are graded against: the issue requires the",
+    "compiled artifact to be *evaluated in a real DOM* and the style/asset behaviour asserted,",
+    "not merely the imports stripped. It is a devDependency because nothing in `src/` imports it —",
+    "the artifact is compiled in Node and evaluated in `happy-dom` by a test, which is the closest",
+    "a local check can get to the page. It does not make the result a Forguncy runtime claim:",
+    "AGENTS.md rule 7 separates a green local render from real-page validation."
   ],
   "devDependencies": {
     "@forguncy-react-workspace/dependency-resolver": "workspace:*",
     "@tanstack/query-core": "5.102.8",
+    "happy-dom": "21.0.4",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

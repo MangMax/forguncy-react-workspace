@@ -89,6 +89,14 @@ import { planExtensionExternals } from "./extension-externals.ts";
 import type { HostBridgeDiagnostic, HostBridgePlan } from "./host-bridge.ts";
 import { planHostBridge } from "./host-bridge.ts";
 import { CELL_RUNTIME_BINDING_ID, renderRuntimeBindingModule } from "./runtime-binding.ts";
+import {
+  CELL_ASSET_INLINE_LIMIT_BYTES,
+  CellResourcePolicyError,
+  isCellResourceFile,
+  resolveCellResource,
+} from "./cell-resources.ts";
+import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
+import { queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -393,10 +401,29 @@ async function resolveCellSpecifier(
   source: string,
   importer: string | undefined,
   options: ResolveIdExtraOptions,
+  resources?: ResourceResolutionState,
 ): Promise<CellSpecifierResolution | null> {
-  if (!isBareSpecifier(source)) return null;
+  if (!isBareSpecifier(source)) {
+    // A relative/absolute resource import (#98) is resolved by the bundler exactly as any other
+    // file — this branch only *asks* the bundler where it landed, then decides whether the
+    // resolved file is a resource this compiler inlines. Doing it here rather than in a second
+    // `resolveId` plugin is what keeps "which file is this import" answered once.
+    if (resources !== undefined) {
+      const resource = await resolveResourceSpecifier(context, resources, virtualModules, source, importer, options);
+      if (resource !== undefined) return resource;
+    }
+    return null;
+  }
   const interception = resolver.interceptionFor(source, importer);
   if (interception === undefined) {
+    // A **bare** resource import — `import "antd/dist/reset.css"` or a package's own
+    // `pkg/logo.svg` — is a file like any other once resolved, so it takes the same path the
+    // relative branch above does. Checked before the fall-through bookkeeping because a resource
+    // is inlined by this compiler and has no package decision to audit.
+    if (resources !== undefined) {
+      const resource = await resolveResourceSpecifier(context, resources, virtualModules, source, importer, options);
+      if (resource !== undefined) return resource;
+    }
     // Record where Rolldown's own resolution lands, so a specifier that simply is not
     // installed is still reported as referenced rather than dropped — the audit decides
     // what that means, not this pass.
@@ -454,6 +481,138 @@ async function resolveCellSpecifier(
 }
 
 /**
+ * The resources one pass inlined, plus the refusals it accumulated (#98).
+ *
+ * Per-pass rather than per-bundler for the same reason the interception resolver is: a build must
+ * not see a previous build's ledger, so the object is created by whichever pass is running and
+ * read by that same pass.
+ */
+interface ResourceResolutionState {
+  /** The directory report paths are relative to, so the ledger is portable across machines. */
+  readonly dir: string;
+  readonly inlineLimitBytes: number;
+  readonly resources: CellInlinedResource[];
+  readonly refusals: CellResourceRefusal[];
+  /** One resource per resolved module id, so a CSS file imported twice is inlined once. */
+  readonly byModuleId: Map<string, CellResourceResolution>;
+}
+
+function createResourceState(dir: string, inlineLimitBytes: number): ResourceResolutionState {
+  return {
+    dir,
+    inlineLimitBytes,
+    resources: [],
+    refusals: [],
+    byModuleId: new Map(),
+  };
+}
+
+/**
+ * Resolves a relative/absolute import and, when it is a resource, compiles it inline.
+ *
+ * ## Why the bundler resolves first
+ *
+ * A resource `import "./x.css"` is an ordinary file import with an unusual payload. Asking
+ * `context.resolve` first is what keeps this module out of the resolution business: extensions,
+ * directory indexes, aliases and package `exports` are all answered by the bundler, and this
+ * function only inspects the *resolved file* it is handed. A compiler that resolved `./x` to
+ * `./x.css` itself would be the second resolver #6 forbids.
+ *
+ * ## Why a refusal throws
+ *
+ * Rolldown has no "resolve, but with a structured finding" return. A refusal has to leave the
+ * hook somehow, and the two options are (a) return nothing, which falls through to ordinary
+ * resolution and produces an artifact with a broken import, or (b) throw. (b) is chosen and the
+ * throw travels as {@link CellResourcePolicyError}, which both passes catch and reduce to their
+ * own diagnostics — the same error-into-diagnostic conversion `compileCell` already performs for
+ * `bundler-failure`, but preserving the actionable code.
+ */
+async function resolveResourceSpecifier(
+  context: PluginContext,
+  state: ResourceResolutionState,
+  virtualModules: Map<string, string>,
+  source: string,
+  importer: string | undefined,
+  options: ResolveIdExtraOptions,
+): Promise<CellSpecifierResolution | undefined> {
+  if (source.startsWith("\0")) return undefined;
+  const { path: barePath, query } = splitCellSpecifierQuery(source);
+  // A Vite resource query is refused for *any* file, not only a resource extension: `worker.js`
+  // has an ordinary `.js` extension and is still a runtime asset the compiled Cell cannot serve.
+  if (query !== undefined && queryHasRejectedResourceParameter(query)) {
+    const refusal: CellResourceRefusal = {
+      subject: source,
+      ...(importer === undefined ? {} : { importer }),
+      detail: `"${source}"${importer === undefined ? "" : ` (imported from "${importer}")`} uses the Vite query "?${query}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker — each selects a transform the single-file compiler does not implement, and a Worker or runtime asset has nowhere to be loaded from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
+    };
+    state.refusals.push(refusal);
+    throwResourceRefusal([refusal]);
+  }
+
+  // A `.svg` imported without a query is a resource; a `./data.json` is not, and must not pay for
+  // an extra `this.resolve` on every relative import in hot bundles.
+  if (!isCellResourceFile(barePath)) return undefined;
+
+  const resolved = await context.resolve(source, importer, { ...options, skipSelf: true });
+  if (resolved === null || resolved.external === true) return undefined;
+
+  const cached = state.byModuleId.get(resolved.id);
+  if (cached !== undefined) {
+    if (!cached.ok) throwResourceRefusal([cached.refusal]);
+    virtualModules.set(cached.moduleId, cached.source);
+    return { id: cached.moduleId, moduleType: "esm" };
+  }
+
+  const outcome = await resolveCellResource({
+    importer,
+    fileId: resolved.id,
+    inlineLimitBytes: state.inlineLimitBytes,
+  });
+  state.byModuleId.set(resolved.id, outcome);
+
+  if (!outcome.ok) {
+    state.refusals.push(outcome.refusal);
+    throwResourceRefusal([outcome.refusal]);
+  }
+
+  // The ledger's path is project-relative: an absolute path would make the same build's report
+  // differ between machines, which is a determinism claim the artifact contract makes.
+  state.resources.push({ ...outcome.resource, fileId: portableResourcePath(state.dir, outcome.resource.fileId) });
+  virtualModules.set(outcome.moduleId, outcome.source);
+  return { id: outcome.moduleId, moduleType: "esm" };
+}
+
+/**
+ * The module text for a resource id, or `undefined` when the id is not one this pass inlined.
+ *
+ * `moduleType: "js"` is not decoration. Rolldown infers a module's type from its *file extension*
+ * before the load hook runs, and 1.2.9 removed CSS bundling outright — so a `.css` module whose
+ * `load` returns JavaScript is still handed to the CSS pipeline and fails with `[UNSUPPORTED_FEATURE]
+ * Bundling CSS is no longer supported`. The generated module is JavaScript, so it says so.
+ */
+function resolveResourceModule(
+  state: ResourceResolutionState,
+  moduleId: string,
+): { readonly code: string; readonly moduleType: "js"; readonly moduleSideEffects: "no-treeshake" } | undefined {
+  for (const outcome of state.byModuleId.values()) {
+    if (outcome.ok && outcome.moduleId === moduleId) {
+      return { code: outcome.source, moduleType: "js", moduleSideEffects: "no-treeshake" };
+    }
+  }
+  return undefined;
+}
+
+function throwResourceRefusal(refusals: readonly CellResourceRefusal[]): never {
+  throw new CellResourcePolicyError(refusals);
+}
+
+/** A resource's report path: relative to the build root, with `/` separators. */
+function portableResourcePath(dir: string, fileId: string): string {
+  const relative = path.relative(dir, fileId);
+  return (relative.length === 0 ? path.basename(fileId) : relative).split(path.sep).join("/");
+}
+
+/**
  * The entry's bare specifiers, analysed through the same resolver the build uses
  * and **without generating any code**.
  *
@@ -492,6 +651,9 @@ async function resolveEntrySpecifiersWithRolldown(
 
   const resolver = createInterceptionResolver(request.dependencies, request.extensionMappings);
   const virtualModules = new Map<string, string>();
+  // The preflight inlines no resource (it generates no code), but it does *classify* them, so a
+  // stylesheet that references an oversized image is refused before the build rather than after.
+  const resources = createResourceState(dir, request.assetInlineLimitBytes ?? CELL_ASSET_INLINE_LIMIT_BYTES);
 
   try {
     await scan({
@@ -503,9 +665,11 @@ async function resolveEntrySpecifiersWithRolldown(
         {
           name: "cell-compiler-entry-specifier-scan",
           async resolveId(source, importer, options) {
-            return resolveCellSpecifier(this, resolver, virtualModules, source, importer, options);
+            return resolveCellSpecifier(this, resolver, virtualModules, source, importer, options, resources);
           },
           load(id) {
+            const resourceModule = resolveResourceModule(resources, id);
+            if (resourceModule !== undefined) return resourceModule;
             const source = virtualModules.get(id);
             return source === undefined ? null : source;
           },
@@ -513,6 +677,14 @@ async function resolveEntrySpecifiersWithRolldown(
       ],
     });
   } catch (error) {
+    // A resource refusal keeps its structured code rather than becoming `bundler-failure`: the
+    // caller can act on "outside the v1 support set" and cannot act on "the bundler failed".
+    //
+    // The recorded list is checked as well as the error's type because Rolldown wraps a hook's
+    // thrown error in its own build error on the way out; the plugin already recorded the
+    // refusal before throwing, so the finding survives the wrapping.
+    if (resources.refusals.length > 0) throw new CellResourcePolicyError(resources.refusals);
+    if (error instanceof CellResourcePolicyError) throw error;
     // The same reduction the build path applies, and for the same reason: this
     // message becomes a `bundler-failure` diagnostic's `detail`, which lands in CI
     // logs that get diffed, so Rolldown's ANSI framing and source frames must not
@@ -1002,6 +1174,9 @@ async function bundleWithRolldown(
   const hostFindings = resolver.hostFindings;
   const extensionFindings = resolver.extensionFindings;
   resolver.primeDiagnostics();
+  // The resource ledger (#98). One per build, read below; the modules it registers load from
+  // `virtualModules` like every other generated module, so the bundler has nothing extra to know.
+  const resources = createResourceState(dir, request.assetInlineLimitBytes ?? CELL_ASSET_INLINE_LIMIT_BYTES);
 
   let build: Awaited<ReturnType<typeof rolldown>> | undefined;
   let output: (OutputChunk | OutputAsset)[];
@@ -1024,10 +1199,12 @@ async function bundleWithRolldown(
             // The same resolution the preflight runs — see `resolveCellSpecifier` for why
             // it is shared rather than written here a second time, and why the runtime
             // binding's own façade import is resolved inside it.
-            return resolveCellSpecifier(this, resolver, virtualModules, source, importer, options);
+            return resolveCellSpecifier(this, resolver, virtualModules, source, importer, options, resources);
           },
           load(id) {
             if (id === CELL_ENTRY_SHIM_ID) return shimSource;
+            const resourceModule = resolveResourceModule(resources, id);
+            if (resourceModule !== undefined) return resourceModule;
             const source = virtualModules.get(id);
             return source === undefined ? null : source;
           },
@@ -1040,6 +1217,9 @@ async function bundleWithRolldown(
       codeSplitting: false,
     }));
   } catch (error) {
+    if (resources.refusals.length > 0) throw new CellResourcePolicyError(resources.refusals);
+    // The resource refusal keeps its code — see `resolveResourceSpecifier`.
+    if (error instanceof CellResourcePolicyError) throw error;
     throw new Error(describeBuildFailure(error));
   } finally {
     await build?.close();
@@ -1114,6 +1294,7 @@ async function bundleWithRolldown(
     // id is registered exactly when `resolveCellSpecifier` took its `runtime-binding` arm, so
     // the presence of the module is the answer rather than a search of the output text.
     runtimeBindingGenerated: virtualModules.has(CELL_RUNTIME_BINDING_ID),
+    resources: resources.resources,
     // Sorted for a byte-stable report, like every other list here: #7's determinism
     // criterion covers the whole result, and #14's audit orders a closure from this
     // set, so an unordered report would not change the verdict while an unordered

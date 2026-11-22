@@ -112,6 +112,11 @@ export type { DevHarnessOptions, DevHarnessVitePlugin } from "./vite-plugin.ts";
 // in the order the loop needs, with the project's own config preserved over the defaults.
 export { defineForguncyViteConfig } from "./vite-config.ts";
 
+// The v1 CSS/static-asset policy (#98): the same closed support set the Cell compiler applies, so
+// a local render cannot pass an import the compiled artifact would refuse.
+export { createDevCellResourcePolicy } from "./cell-assets.ts";
+export type { DevCellResourcePolicy, DevResourceTransformResult } from "./cell-assets.ts";
+
 // The project's local-dev configuration, audited at server start (#23 plan step 5)
 export {
   auditHarnessConfiguration,
