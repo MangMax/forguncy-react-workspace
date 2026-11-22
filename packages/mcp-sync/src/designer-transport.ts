@@ -39,6 +39,13 @@
  * 3. **`saved` is set only by `saveProject`.** The status call reports dirtiness; the
  *    save call reports whether the save happened. So the two are separate methods here
  *    rather than one "save" that checks and saves.
+ * 4. **`setCells` replaces `cellTypeProps` wholesale.** Measured on Forguncy 12.0.102.0
+ *    during #107's live gate: a write carrying only `code` and `frontendLibraries` erased
+ *    the Designer-configured host bindings (`dataSources`, `permissions`,
+ *    `availableServerCommands`, `properties`, `eventHandlers`, `imageDataSource`,
+ *    `libraries`, `uploadLimit`) on an existing ReactCellType Cell. The write therefore
+ *    reads the target's current props first and carries them through (#141) — see
+ *    {@link preservedCellTypePropsOf}.
  *
  * ## What this module does not claim
  *
@@ -322,37 +329,33 @@ export function createDesignerSyncPort(options: DesignerSyncPortOptions): Forgun
 
     // api.page.getCells
     async readCellSource(request: ReadCellSourceRequest): Promise<ReadCellSourceResult> {
-      const response = await callTool(DESIGNER_EXECUTE_TOOL, {
-        title: "sync: read target cell",
-        code: scriptFor(
-          { pageName: request.pageName, cell: request.cell },
-          "return await api.page.getCells({ pageName, range: cell });",
-        ),
-        permissionMode: "readAuto",
-      });
-      const result = valueOf(resultOf(response, "readCellSource"), "readCellSource");
-      // Not `arrayOf`: an empty `cells` is the *answer* for a blank Cell, not a broken
-      // response, and `arrayOf` would throw on the array being absent while the missing
-      // case here is a missing Cell. Both are checked, and they are different errors.
-      const cells = Array.isArray(result.cells) ? result.cells : undefined;
-      if (cells === undefined) {
-        throw new Error("The designer's answer to readCellSource did not include a `cells` array.");
-      }
-      if (cells.length === 0) {
-        // #20 measured this: `getCells` returns only cells that have content, a type, a
-        // name or a binding, so a fresh Cell is absent rather than empty.
-        return { kind: "blank" };
-      }
-      const [cell] = cells as readonly Record<string, unknown>[];
-      if (typeof cell !== "object" || cell === null) {
-        throw new Error("The designer's answer to readCellSource held a cell that was not an object.");
-      }
-      return readOneCell(cell);
+      const cell = await readCellRecord(callTool, request, "readCellSource", "sync: read target cell");
+      // A missing Cell is the *answer* for a blank Cell, not a broken response — see
+      // {@link readCellRecord}, which is what tells the two apart.
+      return cell === undefined ? { kind: "blank" } : readOneCell(cell);
     },
 
-    // api.page.setCells
+    // api.page.getCells (to preserve host bindings), then api.page.setCells
     async setCells(request: IssuedSetCellsRequest): Promise<void> {
-      const payload = mutationPayloadOf(request);
+      // #141: `api.page.setCells` replaces `cellTypeProps` wholesale, so the props the
+      // target already carries are read *before* the write and merged into it. Read per
+      // Cell rather than once for the request, because each entry names its own target.
+      //
+      // A read that cannot be understood stops the write. That direction is deliberate:
+      // proceeding with no preserved props is exactly the wholesale replacement this exists
+      // to prevent, and a failed read must not quietly become "the Cell had no bindings".
+      const preserved = await Promise.all(
+        request.cells.map(async cell => {
+          const existing = await readCellRecord(
+            callTool,
+            { pageName: request.pageName, cell: cell.cell },
+            "setCells",
+            "sync: read existing cell props",
+          );
+          return preservedCellTypePropsOf(existing);
+        }),
+      );
+      const payload = mutationPayloadOf(request, preserved);
       const response = await callTool(DESIGNER_EXECUTE_TOOL, {
         title: "sync: write target cell",
         code: scriptFor({ payload }, "return await api.page.setCells(payload);"),
@@ -481,23 +484,35 @@ export function runtimePageUrl(baseUrl: string, pageName: string): string {
 }
 
 /**
- * The `api.page.setCells` payload for an issued request.
+ * The `api.page.setCells` payload for an issued request, with host bindings preserved.
  *
  * Key order is fixed and the library list is already canonical, so two syncs of the same
  * artifact send byte-identical scripts — which is the first half of #19's idempotency
  * requirement and the reason this is a named function rather than an inline object: the
  * order is a property of the transport, and a reviewer has to be able to see it.
  *
+ * `preservedProps` carries what the target Cell already had (#141). It is spread *first*
+ * and the two sync-owned fields are written after it, so the artifact always wins both:
+ * the new `code`, and the artifact's own `frontendLibraries` — including an empty list,
+ * which the product treats as "clear the references", so a removed extension does not
+ * linger on the Cell. Everything else in the object is Forguncy's (`dataSources`,
+ * `permissions`, `availableServerCommands`, `properties`, `eventHandlers`,
+ * `imageDataSource`, `libraries`, `uploadLimit`, …) and is carried through untouched.
+ *
  * `rowSpan`/`colSpan` are deliberately absent, as the contract says; #20 measured that
  * omitting them *preserves* a merged Cell's geometry rather than resetting it.
  */
-function mutationPayloadOf(request: IssuedSetCellsRequest): SetCellsRequest {
+function mutationPayloadOf(
+  request: IssuedSetCellsRequest,
+  preservedProps: readonly Record<string, unknown>[],
+): SetCellsRequest {
   return {
     pageName: request.pageName,
-    cells: request.cells.map(cell => ({
+    cells: request.cells.map((cell, index) => ({
       cell: cell.cell,
       cellType: cell.cellType,
       cellTypeProps: {
+        ...preservedProps[index],
         code: cell.cellTypeProps.code,
         frontendLibraries: cell.cellTypeProps.frontendLibraries.map(library => ({
           libraryId: library.libraryId,
@@ -505,6 +520,69 @@ function mutationPayloadOf(request: IssuedSetCellsRequest): SetCellsRequest {
       },
     })),
   };
+}
+
+/**
+ * The `cellTypeProps` a write must carry through from the Cell it replaces (#141).
+ *
+ * `api.page.setCells` replaces `cellTypeProps` **wholesale** — measured during #107's live
+ * Forguncy 12.0.102.0 gate, where a write carrying only `code`/`frontendLibraries` erased
+ * the Designer-configured host bindings on an existing ReactCellType Cell. Those bindings
+ * are Forguncy's to own (AGENTS.md: "Forguncy owns the application"), so sync carries them
+ * through instead of overwriting them.
+ *
+ * Only a Cell that is already a ReactCellType contributes props, and the type check is the
+ * read-back predicate — the same one that recognises our own writes — rather than the write
+ * alias. A blank Cell has nothing to preserve, and a foreign cell type's `cellTypeProps`
+ * belong to a cell sync may not write at all: inheriting them would move one cell type's
+ * configuration onto another.
+ *
+ * The props are copied, never mutated. They arrived as parsed designer data, and a caller
+ * holding a reference to that read must not see this write appear in it.
+ */
+function preservedCellTypePropsOf(cell: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (cell === undefined || !isReactCellTypeName(cell.cellType)) return {};
+  const props = cell.cellTypeProps;
+  return typeof props === "object" && props !== null && !Array.isArray(props)
+    ? { ...(props as Record<string, unknown>) }
+    : {};
+}
+
+/**
+ * The one Cell a `getCells` answer reports for a target, or `undefined` for a blank Cell.
+ *
+ * Shared by the read mapping and by the write's host-binding preservation (#141), so the
+ * two cannot disagree about what "the designer answered" means. A missing `cells` array is
+ * refused rather than read as blank: #20 measured that the product omits a *Cell* from the
+ * array, never the array itself, so an absent array is a truncated or wrong-layer answer —
+ * and for the write it would become "there was nothing to preserve", the erasure this
+ * module is fixing. An empty array *is* the answer for a fresh Cell.
+ */
+async function readCellRecord(
+  callTool: DesignerCallTool,
+  request: ReadCellSourceRequest,
+  operation: string,
+  title: string,
+): Promise<Record<string, unknown> | undefined> {
+  const response = await callTool(DESIGNER_EXECUTE_TOOL, {
+    title,
+    code: scriptFor(
+      { pageName: request.pageName, cell: request.cell },
+      "return await api.page.getCells({ pageName, range: cell });",
+    ),
+    permissionMode: "readAuto",
+  });
+  const result = valueOf(resultOf(response, operation), operation);
+  const cells = Array.isArray(result.cells) ? result.cells : undefined;
+  if (cells === undefined) {
+    throw new Error(`The designer's answer to ${operation} did not include a \`cells\` array.`);
+  }
+  if (cells.length === 0) return undefined;
+  const [cell] = cells as readonly Record<string, unknown>[];
+  if (typeof cell !== "object" || cell === null) {
+    throw new Error(`The designer's answer to ${operation} held a cell that was not an object.`);
+  }
+  return cell;
 }
 
 /**

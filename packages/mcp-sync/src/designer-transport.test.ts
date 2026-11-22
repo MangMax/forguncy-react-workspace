@@ -61,6 +61,56 @@ function ok(value: unknown): unknown {
   };
 }
 
+/** The `payload` a write script embeds, parsed the way the designer would receive it. */
+interface WritePayload {
+  readonly pageName: string;
+  readonly cells: readonly {
+    readonly cell: string;
+    readonly cellType: string;
+    readonly cellTypeProps: Record<string, unknown>;
+  }[];
+}
+
+/**
+ * Parse the write's payload back out of the script.
+ *
+ * Asserting on the parsed object rather than on substrings is what makes "the host bindings
+ * survived" a statement about the wire payload instead of about the test's own quoting.
+ */
+function writePayloadOf(script: string): WritePayload {
+  const line = script.split("\n").find(entry => entry.startsWith("const payload = "));
+  if (line === undefined) throw new Error(`The write script carried no payload:\n${script}`);
+  return JSON.parse(line.slice("const payload = ".length, -1)) as WritePayload;
+}
+
+/**
+ * A caller for a write: it answers the pre-write host-binding read, then the write.
+ *
+ * `existingCells` is the `cells` array `getCells` reports — `[]` for a blank target — and
+ * `"unreadable"` produces an answer with no `cells` array, which is the truncated shape the
+ * transport must refuse rather than read as "nothing to preserve".
+ */
+function hostCellRecorder(existingCells: readonly unknown[] | "unreadable" = []): {
+  callTool: DesignerCallTool;
+  calls: readonly Recorded[];
+  writeScript: () => string;
+} {
+  const calls: Recorded[] = [];
+  const callTool: DesignerCallTool = async (name, args) => {
+    calls.push({ name, code: args.code, permissionMode: args.permissionMode });
+    if (args.code.includes("api.page.getCells")) {
+      return existingCells === "unreadable" ? ok({ pageName: "P" }) : ok({ pageName: "P", cells: existingCells });
+    }
+    return ok({});
+  };
+  const writeScript = (): string => {
+    const write = calls.find(call => call.code.includes("api.page.setCells"));
+    if (write === undefined) throw new Error("No setCells call was recorded.");
+    return write.code;
+  };
+  return { callTool, calls, writeScript };
+}
+
 describe("the designer transport", () => {
   it("drives every operation through the one execute tool, as a script", async () => {
     const { callTool, calls } = recorder(() => ok([]));
@@ -75,7 +125,7 @@ describe("the designer transport", () => {
   // The failure this pins: a generated source string with quotes and backslashes is
   // *data*, and a script built by interpolation would either break or, worse, run.
   it("embeds code as data, surviving quotes, backslashes and newlines", async () => {
-    const { callTool, calls } = recorder(() => ok({}));
+    const { callTool, writeScript } = hostCellRecorder();
     const port = createDesignerSyncPort({ callTool });
 
     await port.setCells(
@@ -91,7 +141,7 @@ describe("the designer transport", () => {
       }),
     );
 
-    const script = calls[0].code;
+    const script = writeScript();
     // The code travels as a JSON string literal, so the awkward characters are escaped
     // and cannot terminate the literal or start a new statement.
     expect(script).toContain(JSON.stringify(AWKWARD_CODE));
@@ -100,7 +150,7 @@ describe("the designer transport", () => {
   });
 
   it("keys library references by `libraryId` and nothing else", async () => {
-    const { callTool, calls } = recorder(() => ok({}));
+    const { callTool, writeScript } = hostCellRecorder();
     const port = createDesignerSyncPort({ callTool });
 
     await port.setCells(
@@ -122,7 +172,7 @@ describe("the designer transport", () => {
       }),
     );
 
-    const script = calls[0].code;
+    const script = writeScript();
     expect(script).toContain('"libraryId":"es-toolkit"');
     expect(script).toContain('"libraryId":"tanstack-query"');
     // No display name, no file name — #12's rule, at the wire.
@@ -131,7 +181,7 @@ describe("the designer transport", () => {
   });
 
   it("sends no cell geometry, so a merged Cell keeps it", async () => {
-    const { callTool, calls } = recorder(() => ok({}));
+    const { callTool, writeScript } = hostCellRecorder();
     const port = createDesignerSyncPort({ callTool });
 
     await port.setCells(
@@ -142,8 +192,8 @@ describe("the designer transport", () => {
     );
 
     // #20 measured that omitting these preserves geometry; sending a default would reset it.
-    expect(calls[0].code).not.toContain("rowSpan");
-    expect(calls[0].code).not.toContain("colSpan");
+    expect(writeScript()).not.toContain("rowSpan");
+    expect(writeScript()).not.toContain("colSpan");
   });
 
   it("asks for write permission only where it mutates", async () => {
@@ -173,6 +223,181 @@ describe("the designer transport", () => {
     // checkProjectErrors is a read; the write is not. A read that asked for write authority
     // would be asking the product for more than it needs.
     expect(calls.at(-1)?.permissionMode).toBe("safeWriteAuto");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Host bindings the designer owns (#141)
+// ---------------------------------------------------------------------------
+
+/**
+ * The data-loss bug this block pins: `api.page.setCells` replaces `cellTypeProps` wholesale.
+ *
+ * Measured on Forguncy 12.0.102.0 during #107's live gate — a write carrying only
+ * `code`/`frontendLibraries` erased every Designer-configured host binding on an existing
+ * ReactCellType Cell. Those fields are Forguncy's ("Forguncy owns the application"), so the
+ * write reads the target first and carries them through. These tests assert on the parsed
+ * payload, which is what the designer actually receives, not on the TypeScript value handed
+ * to the port.
+ */
+describe("preserving the host bindings a target Cell already carries", () => {
+  const HOST_BINDINGS = {
+    dataSources: [{ name: "订单表", binding: "orders" }],
+    permissions: ["订单管理员"],
+    availableServerCommands: [{ name: "SubmitOrder" }],
+    properties: { title: "订单" },
+    eventHandlers: [{ event: "click", command: "SubmitOrder" }],
+    imageDataSource: { name: "logo" },
+    libraries: [{ id: "ext-1", version: "1.0.0" }],
+    uploadLimit: 10,
+  } as const;
+
+  function existingReactCell(cellType: string, props: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      row: 0,
+      col: 0,
+      cellType,
+      cellTypeProps: {
+        ...HOST_BINDINGS,
+        code: "old code",
+        frontendLibraries: [{ libraryId: "old-extension" }],
+        ...props,
+      },
+    };
+  }
+
+  async function writeOver(
+    existingCells: readonly unknown[],
+    request: { readonly code: string; readonly frontendLibraries: readonly { readonly libraryId: string }[] },
+  ): Promise<WritePayload> {
+    const { callTool, writeScript } = hostCellRecorder(existingCells);
+    const port = createDesignerSyncPort({ callTool });
+    await port.setCells(
+      issueSetCellsRequest({
+        pageName: "OrderPage",
+        cells: [{ cell: "A1", cellType: "ReactCellTypeCellType", cellTypeProps: request }],
+      }),
+    );
+    return writePayloadOf(writeScript());
+  }
+
+  it("carries every host binding through, replacing only code and the library list", async () => {
+    const payload = await writeOver([existingReactCell("ReactCellType")], {
+      code: "new code",
+      frontendLibraries: [{ libraryId: "es-toolkit" }],
+    });
+
+    expect(payload.cells[0].cellTypeProps).toEqual({
+      ...HOST_BINDINGS,
+      code: "new code",
+      frontendLibraries: [{ libraryId: "es-toolkit" }],
+    });
+  });
+
+  // Both spellings are the same cell type to the product (#115's lesson). Preservation must
+  // not depend on which one the read happened to report.
+  it("recognises the target under each read-back cell-type name", async () => {
+    for (const cellType of ["ReactCellType", "ReactCellTypeCellType"]) {
+      const payload = await writeOver([existingReactCell(cellType)], { code: "new code", frontendLibraries: [] });
+
+      expect(payload.cells[0].cellTypeProps, cellType).toMatchObject({
+        ...HOST_BINDINGS,
+        code: "new code",
+      });
+    }
+  });
+
+  // The artifact no longer references the old extension, so the Cell must not keep claiming
+  // it. Writing `[]` is what clears it — the product persists no field for an empty list.
+  it("clears a stale library list when the new artifact references none", async () => {
+    const payload = await writeOver([existingReactCell("ReactCellType")], { code: "new code", frontendLibraries: [] });
+
+    expect(payload.cells[0].cellTypeProps).toHaveProperty("frontendLibraries", []);
+    expect(payload.cells[0].cellTypeProps).toMatchObject(HOST_BINDINGS);
+  });
+
+  it("preserves a target's host bindings even when its own code is not readable", async () => {
+    // A damaged ReactCellType Cell still owns its bindings; the type is what decides whether
+    // they are carried through, not the presence of `code`.
+    const existing = { row: 0, col: 0, cellType: "ReactCellType", cellTypeProps: { ...HOST_BINDINGS } };
+
+    const payload = await writeOver([existing], { code: "new code", frontendLibraries: [] });
+
+    expect(payload.cells[0].cellTypeProps).toEqual({
+      ...HOST_BINDINGS,
+      code: "new code",
+      frontendLibraries: [],
+    });
+  });
+
+  it("writes only code and references onto a blank cell", async () => {
+    const payload = await writeOver([], { code: "new code", frontendLibraries: [{ libraryId: "es-toolkit" }] });
+
+    expect(payload.cells[0].cellTypeProps).toEqual({
+      code: "new code",
+      frontendLibraries: [{ libraryId: "es-toolkit" }],
+    });
+  });
+
+  // A foreign cell type's props belong to a Cell sync may not write; inheriting them would
+  // move one cell type's configuration onto another.
+  it("does not inherit a foreign cell type's props", async () => {
+    const foreign = {
+      row: 0,
+      col: 0,
+      cellType: "TextCellType",
+      cellTypeProps: { dataSources: [{ name: "订单表" }], code: "foreign code" },
+    };
+
+    const payload = await writeOver([foreign], { code: "new code", frontendLibraries: [] });
+
+    expect(payload.cells[0].cellTypeProps).toEqual({ code: "new code", frontendLibraries: [] });
+  });
+
+  it("never mutates the object the read returned", async () => {
+    const existing = existingReactCell("ReactCellType");
+    const before = structuredClone(existing);
+
+    await writeOver([existing], { code: "new code", frontendLibraries: [{ libraryId: "es-toolkit" }] });
+
+    expect(existing).toEqual(before);
+  });
+
+  // The read is a read: asking for write permission to look would ask the product for more
+  // than it needs. It also has to happen before the write, or it preserves nothing.
+  it("reads the target first, as a read, then writes", async () => {
+    const { callTool, calls } = hostCellRecorder([existingReactCell("ReactCellType")]);
+    const port = createDesignerSyncPort({ callTool });
+
+    await port.setCells(
+      issueSetCellsRequest({
+        pageName: "OrderPage",
+        cells: [{ cell: "A1", cellType: "ReactCellTypeCellType", cellTypeProps: { code: "x", frontendLibraries: [] } }],
+      }),
+    );
+
+    expect(calls.map(call => call.permissionMode)).toEqual(["readAuto", "safeWriteAuto"]);
+    expect(calls[0].code).toContain("api.page.getCells");
+    expect(calls[1].code).toContain("api.page.setCells");
+  });
+
+  // The direction that must fail closed: an unreadable target means "nobody knows what
+  // bindings are there", and writing anyway would erase them — the defect #141 reports.
+  it("refuses to write when the target's props cannot be read", async () => {
+    const { callTool, calls } = hostCellRecorder("unreadable");
+    const port = createDesignerSyncPort({ callTool });
+
+    await expect(
+      port.setCells(
+        issueSetCellsRequest({
+          pageName: "OrderPage",
+          cells: [
+            { cell: "A1", cellType: "ReactCellTypeCellType", cellTypeProps: { code: "x", frontendLibraries: [] } },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/`cells` array/);
+    expect(calls.some(call => call.code.includes("api.page.setCells"))).toBe(false);
   });
 });
 
