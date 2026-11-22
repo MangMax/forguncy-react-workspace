@@ -48,7 +48,7 @@
  *
  * ## Why `export *`, and what keeps it honest
  *
- * Re-exporting the fifteen browser-safe modules wholesale rather than mirroring
+ * Re-exporting every browser-safe module wholesale rather than mirroring
  * `index.ts`'s several hundred named exports by hand is deliberate: a hand-copied
  * second list is precisely the "second copy of a rule" this repository keeps
  * finding and deleting, and it would drift silently the first time a name was added
@@ -75,9 +75,10 @@
  * a graph, not a different answer.
  */
 
-// The browser-safe modules, in the order index.ts cites them. The two that read
-// the project off disk (`cell-registry`, `config-loader`) are the only ones absent,
-// and `browser.test.ts` asserts the filesystem contact rather than this comment.
+// Every browser-safe module the barrel re-exports. The four it does not project are named by
+// `browser.test.ts`, which asserts their `node:` contact rather than this comment: `cell-registry`
+// and `config-loader` read the project off disk, `resolve-config` resolves alias targets with
+// `node:path`, and `cell-compile-fingerprint` hashes with `node:crypto`.
 export * from "./ownership.ts";
 export * from "./rejection.ts";
 export * from "./platform-conflicts.ts";
