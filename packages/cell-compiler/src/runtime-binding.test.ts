@@ -565,7 +565,7 @@ describe("the artifact's module graph is the production runtime, not the package
     expect(code).toContain("runtimeFacade");
     expect(code).toContain("installRuntimeFacadeProvider");
     expect(code).toContain("createHostRuntimeFacadeProvider");
-    expect(code).toContain("cellProps: props");
+    expect(code).toContain(`cellProps: () => ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}`);
   });
 
   it("names the binding's own entry, not the intercepted barrel specifier", async () => {
