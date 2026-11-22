@@ -42,8 +42,51 @@ export interface ExportMetadataObservation {
   readonly validation: ProbeValidationEntry;
 }
 
+export interface ExportMetadataOptions {
+  /**
+   * The specifier the build will import; defaults to the package name (the root entry).
+   *
+   * A subpath (`pkg/sub`) asks the question about that published entry. It is the same input
+   * the build step already takes, passed through so the two steps read one entry rather than
+   * the build asking about `pkg/sub` while this one answers about `pkg`.
+   */
+  readonly entry?: string;
+}
+
 /** Entry fields a browser resolver would consult, in precedence order when `exports` is absent. */
 const FALLBACK_BROWSER_FIELDS = ["browser", "module", "main"] as const;
+
+/**
+ * The exports-map key a specifier names: `.` for the package itself, `./<rest>` for a published
+ * subpath.
+ *
+ * Read from the specifier rather than from the manifest because the manifest is what is being
+ * asked — deriving the key from it would let a nonexistent subpath silently fall back to the
+ * root entry, which is the "root decision widens support" widening #90 has to leave refused.
+ * A specifier that belongs to another package cannot reach here (the identity step refuses
+ * it), so it answers `.` rather than inventing a key.
+ */
+function exportsKeyForRequest(packageName: string, entry: string): string {
+  const prefix = `${packageName}/`;
+  return entry.startsWith(prefix) && entry.length > prefix.length ? `./${entry.slice(prefix.length)}` : ".";
+}
+
+/**
+ * The value an exports map publishes for one key.
+ *
+ * Exact key first, then the longest matching `./prefix/*` pattern — Node's own precedence,
+ * restated here as the same rule rather than as a preference for a particular package layout.
+ * `undefined` means the map does not publish the key at all; the caller must not substitute
+ * the root entry for it.
+ */
+function exportsTargetForKey(exportsMap: Record<string, unknown>, key: string): unknown {
+  if (key in exportsMap) return exportsMap[key];
+  const patterns = Object.keys(exportsMap)
+    .filter(pattern => pattern.endsWith("*") && key.startsWith(pattern.slice(0, -1)))
+    .sort((a, b) => b.length - a.length);
+  const pattern = patterns[0];
+  return pattern === undefined ? undefined : exportsMap[pattern];
+}
 
 
 
@@ -106,25 +149,33 @@ function exportsTargetResolvesBrowser(target: unknown): boolean {
   return false;
 }
 
-function exportsResolveForBrowser(exportsField: unknown): boolean {
+function exportsResolveForBrowser(exportsField: unknown, exportsKey: string = "."): boolean {
+  const isRoot = exportsKey === ".";
   if (typeof exportsField === "string" || Array.isArray(exportsField)) {
-    return exportsTargetResolvesBrowser(exportsField);
+    // A bare string / array form publishes the root only, so it cannot answer a subpath.
+    return isRoot && exportsTargetResolvesBrowser(exportsField);
   }
   if (exportsField === null || typeof exportsField !== "object") {
     return false;
   }
   if (isSubpathExports(exportsField)) {
-    const subpath = (exportsField as Record<string, unknown>)["."] ?? (exportsField as Record<string, unknown>)["*"];
-    if (subpath === undefined) {
+    const map = exportsField as Record<string, unknown>;
+    if (!isRoot) {
+      const target = exportsTargetForKey(map, exportsKey);
+      return target !== undefined && exportsTargetResolvesBrowser(target);
+    }
+    const root = exportsTargetForKey(map, ".");
+    if (root === undefined) {
       // A subpath map with no root entry: the package root itself may be
-      // absent while `./feature` entries exist. The candidate fixture imports
-      // the package root, so the root is what must resolve.
+      // absent while `./feature` entries exist. With no entry named, the root
+      // is what is being asked about, and it publishes nothing.
       return false;
     }
-    return exportsTargetResolvesBrowser(subpath);
+    return exportsTargetResolvesBrowser(root);
   }
-  // Conditions map at the top level (exports: { browser: …, require: … }).
-  return exportsTargetResolvesBrowser(exportsField);
+  // Conditions map at the top level (exports: { browser: …, require: … }). This form
+  // publishes the root only, so there is no subpath answer to give from it.
+  return isRoot && exportsTargetResolvesBrowser(exportsField);
 }
 
 /**
@@ -170,12 +221,48 @@ function peerRangesOf(manifest: Readonly<Record<string, unknown>>): readonly str
 /**
  * Reads the manifest's published entry points and derives what this step may
  * observe. Pure: the identity (and therefore the manifest) already resolved.
+ *
+ * ## Which entry the question is about (#90)
+ *
+ * `identity.packageName` is the package the probe located — the *manifest's* identity — while
+ * `entry` is the specifier the build actually imports, and the two differ whenever the caller
+ * probes a published subpath (`pkg/sub`). This step's browser-resolvability question is
+ * "does the specifier the Cell will import have a browser entry", so it is asked about the
+ * entry, not about the package root. Asking about the root was wrong in both directions and
+ * both were reachable from a normal modern package:
+ *
+ * - a **subpath-only** package (`exports: { "./only": … }`, no `"."`) was reported
+ *   `ssr-or-server-only-without-browser-build` — a `supports-rejection-only` assessment — for
+ *   the entry it just successfully probed, which made every such package unrecordable;
+ * - a package whose root is Node-only while a published subpath is browser-safe had the same
+ *   rejection filed against the subpath that has a browser entry.
+ *
+ * `entry` is optional so the step stays pure and callable from its own tests: absent means
+ * "the package root", which is exactly the default the build step uses for the specifier.
+ *
+ * ## Why this did not bump `PROBE_ANALYSIS_REVISION`
+ *
+ * The revision exists so a cached report cannot answer a run whose scanner behaves differently.
+ * This change is keyed on the **entry**, which is already a fingerprint input, and it leaves a
+ * root report byte-identical (the new `exports.probed-entry` fact is only emitted when an entry
+ * is named). A subpath run's fingerprint was previously composed but its report could never
+ * become lock evidence: the audit refused the decision for the `supports-rejection-only`
+ * assessment this step produced. So there is no recorded citation a stale cache entry could
+ * answer, and bumping would instead invalidate every existing record's fingerprint — including
+ * one whose runtime validation was performed on a real page and must not be re-recorded locally.
  */
-export function observeExportMetadata(identity: ResolvedPackageIdentity): ExportMetadataObservation {
+export function observeExportMetadata(
+  identity: ResolvedPackageIdentity,
+  options: ExportMetadataOptions = {},
+): ExportMetadataObservation {
   const manifest = identity.manifest;
   const facts: ProbeFact[] = [];
   const risks: ProbeRisk[] = [];
   const rejectionFindings: ProbeRejectionFinding[] = [];
+
+  const entry = options.entry ?? identity.packageName;
+  const exportsKey = exportsKeyForRequest(identity.packageName, entry);
+  const subject = exportsKey === "." ? "the package root" : `the "${entry}" entry`;
 
   const hasExports = "exports" in manifest;
   const exportsField = manifest["exports"];
@@ -198,8 +285,13 @@ export function observeExportMetadata(identity: ResolvedPackageIdentity): Export
   // remaps a request that resolution already found. It therefore cannot create a
   // browser entry where `exports` publishes none, and a string `browser` is ignored
   // for the same reason — `exports` wins outright in both cases.
+  //
+  // #90: when the caller probes a published subpath, the question is about *that* subpath —
+  // `exports["./sub"]` — rather than about `exports["."]`. A subpath-only package has no `"."`
+  // at all, so asking the root reported the very entry the build just consumed as having no
+  // browser entry.
   const browserResolvable = hasExports
-    ? exportsResolveForBrowser(exportsField)
+    ? exportsResolveForBrowser(exportsField, exportsKey)
     : FALLBACK_BROWSER_FIELDS.some(field => fieldLooksExecutable(manifest[field])) &&
       !(typeof browserField === "object" && browserFieldExcludesRoot(manifest));
 
@@ -247,15 +339,29 @@ export function observeExportMetadata(identity: ResolvedPackageIdentity): Export
     });
   }
 
+  // When the probe is about a published subpath, the key it was asked about is recorded as its
+  // own fact: without it a reader holding `exports.browser-resolvable: true` on a subpath-only
+  // package cannot tell which entry that answer is about (the package has no root entry at all),
+  // and a report cached under a fingerprint that does not differ per entry would be
+  // indistinguishable from a root probe of the same package.
+  if (exportsKey !== ".") {
+    facts.push({
+      step: "export-metadata",
+      name: "exports.probed-entry",
+      value: exportsKey,
+    });
+  }
+
   // The step's one rejection: no browser entry means no browser artifact, and
   // that is decidable from the manifest alone (its `observedFrom` is
   // `package-manifest`). A package excluded only through the `browser` field's
   // object form is the same fact under a different spelling.
+  const entryPhrase = exportsKey === "." ? "" : ` for ${subject}`;
   if (!browserResolvable) {
     rejectionFindings.push({
       signal: "ssr-or-server-only-without-browser-build",
       step: "export-metadata",
-      summary: `"${identity.packageName}@${identity.packageVersion}" publishes no browser-resolvable entry, so a client cell has nothing to execute.`,
+      summary: `"${identity.packageName}@${identity.packageVersion}" publishes no browser-resolvable entry${entryPhrase}, so a client cell has nothing to execute.`,
       evidence: [
         hasExports
           ? "exports-map-does-not-resolve-for-browser"
@@ -269,8 +375,8 @@ export function observeExportMetadata(identity: ResolvedPackageIdentity): Export
     step: "export-metadata",
     outcome: "passed",
     detail: browserResolvable
-      ? "Read the published entry fields; a browser build has an entry point to consume."
-      : "Read the published entry fields; no browser-resolvable entry was found and the absence itself is recorded as a rejection finding.",
+      ? `Read the published entry fields; a browser build has an entry point to consume${entryPhrase}.`
+      : `Read the published entry fields; no browser-resolvable entry was found${entryPhrase} and the absence itself is recorded as a rejection finding.`,
     diagnostics: [],
   };
 

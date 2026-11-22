@@ -1,0 +1,18 @@
+{
+  "name": "fgc-fixture-sub",
+  "version": "2.0.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js"
+    },
+    "./extra": {
+      "import": "./lib/extra.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/fgc-fixture-sub.git"
+  }
+}
