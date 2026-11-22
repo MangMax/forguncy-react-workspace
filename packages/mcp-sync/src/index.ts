@@ -256,6 +256,30 @@ export {
 } from "./step-outcomes.ts";
 export type { SyncStepOutcome } from "./step-outcomes.ts";
 
+// What a failed attempt knows, and whether the same input may be retried (#93)
+export {
+  describeSyncMutationState,
+  formatSyncTransportFailure,
+  isSyncTransportError,
+  mutationAbsentByReadBack,
+  mutationHeldOtherContent,
+  mutationNotWritten,
+  mutationUnknown,
+  mutationWrittenByAcknowledgedWrite,
+  mutationWrittenByReadBack,
+  SYNC_FAILURE_STAGES,
+  SYNC_MUTATION_STATES,
+  SYNC_TRANSPORT_FAILURE_CODE,
+  SyncTransportError,
+} from "./sync-failure.ts";
+export type {
+  SyncFailureStage,
+  SyncFailureStepSnapshot,
+  SyncMutationState,
+  SyncProjectSaveState,
+  SyncTransportFailureDetails,
+} from "./sync-failure.ts";
+
 // The plan
 export {
   CELL_SYNC_HOLD_REASONS,
@@ -283,18 +307,31 @@ export type {
 
 // The flow, executed
 export {
+  CELL_SYNC_BATCH_FAILURE_POLICIES,
   CELL_SYNC_RUN_STATUSES,
+  confirmCellWriteOutcome,
   deployedStateOfRead,
   executeCellSync,
+  executeCellSyncBatch,
   executeCellSyncTargets,
+  formatCellSyncBatchReport,
   formatCellSyncRun,
   formatCellSyncRuns,
   readCellState,
+  SyncBatchTransportError,
 } from "./executor.ts";
 export type {
   CellReadOutcome,
+  CellSyncBatchFailurePolicy,
+  CellSyncBatchOutcome,
+  CellSyncBatchReport,
+  CellSyncBatchStopReason,
+  CellSyncBatchTargetRef,
   CellSyncRun,
   CellSyncRunStatus,
+  CellWriteConfirmation,
+  ConfirmCellWriteOptions,
+  ExecuteCellSyncBatchOptions,
   ExecuteCellSyncOptions,
   ExecuteCellSyncTargetOptions,
   SyncRunStep,
