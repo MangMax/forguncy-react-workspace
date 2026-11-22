@@ -53,7 +53,10 @@
  * than behind an exported function a project may call.
  */
 
-// The loop's stage record and the distinction it exists to make (#22)
+// Compatibility proxy (#105), not a second home: `runtime`'s `local-dev.ts` (#22) owns this
+// stage record and the distinction it makes. The names are re-exported so an import already
+// written against `dev-harness` keeps resolving, and #126's audit measured no cross-package
+// consumer of this copy. New code imports `@forguncy-react-workspace/runtime`.
 export {
   findLocalDevModuleIdResolution,
   formatLocalDevAudit,

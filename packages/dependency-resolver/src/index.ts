@@ -31,9 +31,10 @@
  *   `ProbeReport`, a recomputable fingerprint and a file cache under
  *   `.fgc/probe-cache/` (#17).
  *
- * The decision model, its validation, its canonical form, its migration chain and
- * its freshness rules are re-exported from `core` so a consumer of this package
- * gets the whole `fgc.lock.json` contract without reaching into a second import.
+ * The decision model, its validation, its canonical form, its migration chain and its freshness
+ * rules are owned by `core` (#8). The blocks below re-export them as a *compatibility proxy*: an
+ * import already written against this package keeps resolving, while the canonical home stays
+ * `@forguncy-react-workspace/core`. New code imports them from `core` (#105, #126 §1.6).
  *
  * What is *not* implemented here: the Agent-driven library selection that decides
  * a strategy in the first place (`Implement: Forguncy React dependency-selection
@@ -43,6 +44,11 @@
 
 import type { DependencyDecision } from "@forguncy-react-workspace/core";
 
+// Compatibility proxy (#105). These names belong to `core`; this package owns lock storage and the
+// probe, not the decision model. They are re-exported so an import already written against this
+// package keeps working, and #126's audit measured no cross-package consumer of this copy. New
+// code takes them from `@forguncy-react-workspace/core`; this block is kept for compatibility,
+// not recommended.
 export type {
   DecisionEvidenceKind,
   DecisionEvidenceLink,
@@ -288,9 +294,15 @@ export interface ResolveDependencyInput {
 /**
  * Placeholder for the probe-driven resolution path.
  *
- * Kept throwing rather than faked: without an executed probe there is no
- * evidence to record, and #8 explicitly rules out auto-selecting a library
- * without Agent reasoning and probe evidence.
+ * Retained for compatibility, and measured as unused: #105's reference scan found no import of
+ * this function or {@link ResolveDependencyInput} under `packages/`, `examples/` or
+ * `.agents/skills/`. It stays a refusal rather than a guess: without an executed probe there is
+ * no evidence to record, and #8 explicitly rules out auto-selecting a library without Agent
+ * reasoning and probe evidence.
+ *
+ * The implemented path is `runDependencyProbe` → `recordDependencyDecision`/`upsertLockDecision`,
+ * driven by the dependency-selection Skill (#17/#18). Removing this name is a later, deliberate
+ * step; until then it is a documented refusal, not a usable API.
  */
 export async function resolveDependency(_input: ResolveDependencyInput): Promise<DependencyDecision> {
   throw new Error(
