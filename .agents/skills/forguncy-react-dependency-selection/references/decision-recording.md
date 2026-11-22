@@ -150,12 +150,29 @@ node $S record --project <root> --decision compat.json
 
 `--extension-catalog` 可覆盖默认目录，且接受 #12 的两种来源，二者**不可互换**：
 
+**默认目录是项目自己的映射集（#87）**：`<projectRoot>/forguncy.config.ts` 的 `extensions`
+块经 `normalizeExtensionMappings` 规范化后的结果——和编译器 `compileCell` 规划时读的**同一个出口**
+（`registry.extensionMappings`）。因此在配置里加一行项目映射，就能让自定义扩展在
+`record`、`vp dev`、`compile`、`sync` 各阶段被同一套行识别，无需改 `core` 的内置表；
+`policy --project <dir>` 的 `extensionCatalog.source` 会指出这些行来自哪个配置文件。
+项目根下没有配置时，默认是内置表经同一出口得到的投影，`source` 会写明
+`built-in defaults (no project config)`。配置里的 `extensions` 块本身有问题时是**拒绝**，
+不是退回内置表——退回会用一套项目没写过的行去做校验。
+
 | 输入 | shape | 怎么用 |
 |---|---|---|
 | 已验证 mapping 目录 | `packageName` / `libraryId` / `globalName` 行 | 直接作为目录用——它**声明了**每个 npm 包由哪个扩展提供 |
-| 原始 `listFrontendLibraries` 清单 | `id` / `name` / `globalName` / `exists` / `typeDefinitionAvailable` | 拿**本仓库声明的行**去比对该清单（`auditExtensionLibraryMetadata`）；`name` 是显示名，**绝不**当作 npm 包名 |
+| 原始 `listFrontendLibraries` 清单 | `id` / `name` / `globalName` / `exists` / `typeDefinitionAvailable` | 拿**项目声明的行**去比对该清单（`auditExtensionLibraryMetadata`）；`name` 是显示名，**绝不**当作 npm 包名 |
 
-清单**不能**用来建立"某个扩展提供某个包"这条关系——那条关系只记录在声明的表里。所以清单里出现一个本仓库未声明的包时，会报 `extension-mapping-not-declared`，告诉你该换输入，而不是让你去找一行来加。
+清单**不能**用来建立"某个扩展提供某个包"这条关系——那条关系只记录在声明的行（项目配置或
+`--extension-catalog` 的 mapping 目录）里。所以清单里出现一个项目未声明的包时，会报
+`extension-mapping-not-declared`，告诉你该换输入，而不是让你去找一行来加。
+
+目录声明与真实清单是两个**分开**的校验，失败要指向各自的修复者：缺 `exists`
+（bundle）、缺 `typeDefinitionAvailable`（types）是 `extension-package` 的问题，
+global 不一致是 `extension-metadata` 的问题——每条拒绝都带 `(fix owner: …)`，
+从 `core` 的规则表读出而不是在这里重写。映射行本身的问题（缺行、重复行）是
+`dependency-decision` / `extension-mapping` 的，只有在真正用到清单时才会被问。
 
 脚本会**自动**为决策补两条 `spec-issue` 链接：#16（决策所依据的 Spec），以及架构拒绝时的 #4（#8 规则 5 要求架构冲突可追溯到归属决策）。URL 从 `core` 读出，不硬编码。
 

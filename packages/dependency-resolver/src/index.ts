@@ -161,6 +161,7 @@ export {
   CONFORMANCE_PROBLEM_CODES,
   DEFAULT_HOST_BRIDGE_MANIFEST,
   extensionCatalogForMappings,
+  extensionCatalogOfNormalized,
   JSX_RUNTIME_MODULE_IDS,
   PRESET_PROVIDED_HOST_GLOBALS,
   validateLockDecisionConformance,

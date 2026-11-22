@@ -26,9 +26,21 @@
     "`@forguncy-react-workspace/core` is a devDependency because its only use is",
     "`defineForguncyConfig` in the committed config, which the config loader imports — the",
     "same arrangement `examples/dev-harness` records at length. The Cell's authored source",
-    "does not import `core`, so nothing in the artifact's module graph reaches it."
+    "does not import `core`, so nothing in the artifact's module graph reaches it.",
+    "",
+    "`cell-compiler`, `dependency-resolver`, `dev-harness` and `mcp-sync` are devDependencies",
+    "for the same reason and for one more: this example is #87's end-to-end case, and the chain",
+    "it must exercise — record → status → dev substitute → compileCell → recorded-port sync —",
+    "runs those four packages against this project's own config. They are *not* dependencies of",
+    "the Cell: nothing in `src/` imports them, and a test asserts the compiled artifact carries",
+    "none of them. Declaring them here rather than in the test package is what lets a test run",
+    "from this directory with the project's own resolution."
   ],
   "devDependencies": {
-    "@forguncy-react-workspace/core": "workspace:*"
+    "@forguncy-react-workspace/cell-compiler": "workspace:*",
+    "@forguncy-react-workspace/core": "workspace:*",
+    "@forguncy-react-workspace/dependency-resolver": "workspace:*",
+    "@forguncy-react-workspace/dev-harness": "workspace:*",
+    "@forguncy-react-workspace/mcp-sync": "workspace:*"
   }
 }

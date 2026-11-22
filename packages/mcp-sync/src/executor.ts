@@ -692,7 +692,10 @@ export async function executeCellSyncTargets(
         artifact: planOptions.artifact,
         decisions: planOptions.decisions,
         port: planOptions.port,
-        ...(planOptions.mappings === undefined ? {} : { mappings: planOptions.mappings }),
+        // The project's normalized mapping set, unless the caller supplied one explicitly (#87) —
+        // the same rule `planCellSyncTargets` applies, for the same reason: the batch's registry is
+        // the one place this run knows what `compileCell` planned the artifact against.
+        mappings: planOptions.mappings ?? registry.extensionMappings.mappings,
         ...(planOptions.overwrite === undefined ? {} : { overwrite: planOptions.overwrite }),
       }),
     );
