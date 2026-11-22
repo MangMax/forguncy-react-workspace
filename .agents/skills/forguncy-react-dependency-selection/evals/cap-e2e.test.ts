@@ -1022,7 +1022,7 @@ describe("CLI contract: the declared cell code cap reaches probe, audit, record 
 
         // Both records were measured under their own Cell's cap, so both are fresh.
         const stable = await cli(["status", "--project", root]);
-        expect(stable.code, stable.stderr).toBe(0);
+        expect(stable.code, `${stable.stderr}\n${stable.stdout}`).toBe(0);
         const fresh = json<{ decisions: readonly { cellTarget: string; freshness: string }[] }>(stable).decisions;
         expect(fresh.map(entry => entry.cellTarget).sort()).toEqual(["alpha", "beta"]);
         expect(fresh.map(entry => entry.freshness)).toEqual(["fresh", "fresh"]);

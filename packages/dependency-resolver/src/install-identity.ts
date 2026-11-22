@@ -1835,6 +1835,12 @@ async function linkTargetsDigest(installRoot: string): Promise<string | null> {
       if (!entry.isDirectory()) {
         continue;
       }
+      // Skip this toolchain's own scratch/output directories (`.fgc/`, `fgc-evidence/`) — matching
+      // `collectPackageFiles` — and `.git/`: neither is part of the project's install graph, and
+      // descending into `.fgc/` causes concurrent scratch runs to race with `readdir(location)`.
+      if (isToolchainArtifact(entry.name) || entry.name === ".git") {
+        continue;
+      }
       const path = join(directory, entry.name);
       let complete: boolean;
       if (entry.name === "node_modules") {
