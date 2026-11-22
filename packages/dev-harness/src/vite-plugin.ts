@@ -59,7 +59,10 @@ import { ForguncyConfigError, RUNTIME_CONTRACT_TARGET } from "@forguncy-react-wo
 import type { CellRegistry, ForguncyConfig, RegisteredCell } from "@forguncy-react-workspace/core";
 import type { LocalDevExtensionChoice } from "@forguncy-react-workspace/runtime";
 import { localDevVersionFieldIsBrowserObserved } from "@forguncy-react-workspace/runtime";
-import { resolveInstalledVersions } from "@forguncy-react-workspace/dependency-resolver/local";
+import {
+  extensionCatalogOfNormalized,
+  resolveInstalledVersions,
+} from "@forguncy-react-workspace/dependency-resolver/local";
 import { cellVirtualModuleId, forguncy } from "@forguncy-react-workspace/vite-plugin-fgc";
 
 import {
@@ -810,6 +813,15 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         // is the one actually driving the loop. Absent means the comparison reports `toolchain-unknown`
         // rather than passing, which is the honest answer for a harness installed without `vite-plus`.
         toolchain: installedVitePlusToolchain(),
+        // The project's own mapping set, from the registry — not `core`'s built-in table (#87).
+        //
+        // `registry.extensionMappings` is the one normalization exit #85 built and #86 threaded into
+        // the compiler, so this is the *same* set `compileCell` plans from. Auditing against
+        // `core`'s table instead made a custom project extension a blocking conformance error here
+        // while the compiler compiled it, which is exactly the "the dev server refuses what the
+        // bundler accepts" split #87 exists to remove. Projected through the shared
+        // `extensionCatalogOfNormalized`, so `moduleIds` widen exactly as they do for the compiler.
+        extensionCatalog: extensionCatalogOfNormalized(registry.extensionMappings),
       });
 
       const audit = auditHarnessConfiguration({
@@ -833,6 +845,10 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         options.extensionChoices ?? [],
         registry.root,
         unmatchedExtensionChoicePackages(audit),
+        // The project's own rows, once normalized (#87): a choice for a custom extension is only
+        // meaningful against the table the compiler resolves it through. See
+        // `extension-substitutions.ts` for the refusal this replaced.
+        registry.extensionMappings.mappings,
       );
 
       const lockFindings = formatLocalDecisionProjection(projection);

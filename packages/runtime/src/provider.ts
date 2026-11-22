@@ -436,7 +436,7 @@ const RUNTIME_FACADE_ABSENCE_DESCRIPTIONS: readonly Omit<
     cause:
       "The installed provider does not carry the address, or carries something that is not the shape the ReactCellType runtime injects there — the bindings record itself, a base prop, the handle, a handle member, or the `useDataSource` hook. Every one of those is injected on every Cell, so either way the provider was not built from the Cell's own props, and this is a wiring fault rather than a state a page can be in.",
     remediation:
-      "Build the provider through `createHostRuntimeFacadeProvider()` from the cell's own `props`, or through `createMockRuntimeFacadeProvider()` in local development. Both fill the addresses the runtime always injects, in the shapes it injects them.",
+      "Build the provider through `createHostRuntimeFacadeProvider()` from the cell's own `props`, or through the mock provider in local development. Both fill the addresses the runtime always injects, in the shapes it injects them.",
   },
   {
     id: "capability-not-supplied",

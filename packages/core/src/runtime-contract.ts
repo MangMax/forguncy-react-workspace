@@ -33,6 +33,10 @@
  * or describe local development (#22).
  */
 
+// The two key tuples the production runtime needs live in their own leaf module (#124), so a
+// Cell artifact can read them without loading this file's evidence record. This module is their
+// consumer, not their owner, and it re-exports them unchanged.
+import { CELL_FORGUNCY_PROP_KEYS, CELL_PROPS_BASE_KEYS } from "./cell-props.ts";
 import type { ArchitectureDecisionSource } from "./governance.ts";
 import { RUNTIME_CONTRACT_DECISION } from "./governance.ts";
 
@@ -1075,40 +1079,30 @@ export function findCellPresetLibrary(name: CellPresetLibrary["name"]): CellPres
  * cannot drift away from its evidence.
  */
 export const CELL_PROPS_KEY_ORDER = {
-  /** Always present, in this order, before any configured property. */
-  baseKeys: ["Forguncy", "Permissions", "ServerCommands", "ImageContext"] as const,
+  /** Always present, in this order, before any configured property. See `cell-props.ts`. */
+  baseKeys: CELL_PROPS_BASE_KEYS,
   description:
     "Forguncy, then Permissions, then configured properties[].propertyName, then ImageContext; event handlers and configured permissions are injected before properties",
   evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
 };
 
-/** Derived from {@link CELL_PROPS_KEY_ORDER}. */
-export const CELL_PROPS_BASE_KEYS = CELL_PROPS_KEY_ORDER.baseKeys;
+/**
+ * Re-exported from `cell-props.ts` (#124), not redefined here.
+ *
+ * The tuple moved so a production Cell can import it without loading this evidence record;
+ * the name stays on this module because it is part of `core`'s existing public surface.
+ */
+export { CELL_PROPS_BASE_KEYS };
 
 export const CELL_FORGUNCY_FACADE = {
-  /** The runtime API surface exposed to a cell as `props.Forguncy`. */
-  keys: [
-    "ConvertDateToOADate",
-    "ConvertOADateToDate",
-    "ConvertToCssColor",
-    "DataSourceCompareType",
-    "DataSourceRelationType",
-    "Permissions",
-    "exposeMethod",
-    "getCurrentUser",
-    "getPermissions",
-    "getUploadLimit",
-    "hasPermission",
-    "logIn",
-    "logOut",
-    "uploadFiles",
-  ] as const,
+  /** The runtime API surface exposed to a cell as `props.Forguncy`. See `cell-props.ts`. */
+  keys: CELL_FORGUNCY_PROP_KEYS,
   description: "the cell's handle on Forguncy-owned capabilities, injected as props.Forguncy",
   evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
 };
 
-/** Derived from {@link CELL_FORGUNCY_FACADE}. */
-export const CELL_FORGUNCY_PROP_KEYS = CELL_FORGUNCY_FACADE.keys;
+/** Re-exported from `cell-props.ts` (#124), not redefined here. */
+export { CELL_FORGUNCY_PROP_KEYS };
 
 export const CELL_SERVER_COMMANDS_CONTRACT = {
   /** Only the names listed in `availableServerCommands` are present. */
@@ -1235,6 +1229,10 @@ export const FRONTEND_LIBRARY_RUNTIME_SEMANTICS = {
  *   Both are exported from the façade's public barrel — the binding re-exports that barrel
  *   wholesale, so a name the barrel does not carry would break authored source that
  *   imports it.
+ * - `bindingSpecifier` is the entry the *generated* module imports. It is a subpath rather
+ *   than `facadeSpecifier` because the binding used to import the whole package barrel, and
+ *   a flattening compiler carries every statically imported module into the artifact — so
+ *   every production Cell was shipping the local-dev and mock contracts it never calls.
  * - `hostNames` are the *free identifiers* the binding's source references. They are not
  *   imports: `props` and `useDataSource` are wrapper-locals the platform's own arrow IIFE
  *   declares before placing the cell source
@@ -1247,10 +1245,24 @@ export const FRONTEND_LIBRARY_RUNTIME_SEMANTICS = {
  *
  * `installTiming` states the one ordering requirement the artifact can satisfy: the
  * binding module's body runs when the artifact is evaluated, which is before the
- * platform's `App` binding is ever called and therefore before any façade call. Whether
- * the platform *re-evaluates* the artifact when a property changes — and so whether a
- * re-render reads fresh `props` — is not decidable from this repository; it is recorded
- * as an open question below and belongs to #83/#84.
+ * platform's `App` binding is ever called and therefore before any façade call.
+ *
+ * #83 separated two questions that this timing used to leave folded together. The
+ * *install* is still once per artifact evaluation, but the *props it reads* are live:
+ * {@link CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} names a binding the compiler
+ * declares at artifact scope and the entry wrapper assigns on every `App` call, so a
+ * re-render re-invokes `App` with new props (`property-change-re-render`') without
+ * re-evaluating the modules and the provider still answers with them. That is the
+ * second branch of `artifact-re-evaluated-per-render`, and #83's executed regression
+ * (`runtime-lifecycle.test.ts`) is what established that it was broken before: the
+ * provider was built from a `props` snapshot, so every façade call after a prop change
+ * returned the first evaluation's values, silently.
+ *
+ * What is still not decidable from this repository is which branch the platform
+ * takes — whether the artifact is re-evaluated (`presetGlobalsBoundPerRenderInstant`
+ * and `property-change-re-render` suggest it may be) or `App` is re-invoked. The
+ * artifact is now correct under either branch; #84 is where the product's actual
+ * behaviour is observed.
  *
  * ## What the contract deliberately does not require
  *
@@ -1258,9 +1270,11 @@ export const FRONTEND_LIBRARY_RUNTIME_SEMANTICS = {
  * recorded here rather than left to be inferred from an absent field: a requirement
  * stated in prose that no generated code meets is worse than no requirement, because a
  * reader takes it as a description of what ships. Whether a teardown is needed is a
- * lifecycle question, and the evidence for it does not exist yet — so the contract states
- * the ordering it can guarantee and leaves the rest to #83, which owns the multi-Cell and
- * unmount behaviour.
+ * lifecycle question, and #83's execution settled the part it could: the slot is per
+ * copy, an older evaluation keeps its own provider after a newer one installs, and
+ * dropping one Cell does not disturb another (`runtime-lifecycle.test.ts`). What
+ * cannot be proved locally — whether teardown reaches the artifact at all — remains
+ * #84's, per `CELL_HOST_RUNTIME_SEMANTICS`' `unmount-clears-the-cell-root`.
  */
 export const CELL_RUNTIME_BINDING_CONTRACT = {
   /**
@@ -1270,6 +1284,21 @@ export const CELL_RUNTIME_BINDING_CONTRACT = {
    * `RUNTIME_FACADE_DECISION` documents: one package, one address.
    */
   facadeSpecifier: "@forguncy-react-workspace/runtime",
+  /**
+   * The entry the *generated binding* imports.
+   *
+   * A second field rather than a suffix appended to `facadeSpecifier`, because the two are
+   * different facts: `facadeSpecifier` is what authored source writes and what the compiler
+   * intercepts, and this is what the module it emits imports. They were equal until #124, and
+   * keeping them as one value is what would make the binding quietly revert to importing the
+   * whole package barrel.
+   *
+   * The subpath is the package's production runtime (#124): `cell-runtime.ts` alone, with no
+   * `local-dev.ts`, no mock provider and no capability registry. The binding re-exports what it
+   * imports, so a Cell that imports `runtimeFacade` by name still gets it — and the artifact no
+   * longer carries the toolchain that produces the same names for other audiences.
+   */
+  bindingSpecifier: "@forguncy-react-workspace/runtime/cell",
   /** The member the binding calls to install the provider. */
   installMember: "installRuntimeFacadeProvider",
   /** The member the binding calls to build a provider from the Cell's own values. */
@@ -1292,6 +1321,22 @@ export const CELL_RUNTIME_BINDING_CONTRACT = {
    * `second-address-for-a-cell-binding`.
    */
   hostNames: ["props", "useDataSource"] as const,
+  /**
+   * The artifact-scope binding the entry wrapper assigns on every `App` call.
+   *
+   * A generated name rather than one the platform provides: the binding module's body
+   * runs once, at artifact evaluation, but the entry wrapper (`entry.ts`) is called on
+   * every render. So the two halves need one binding they both can name, declared at
+   * artifact scope — which is exactly what the IIFE the bundler emits already is.
+   *
+   * This is what makes a re-render see new props without a re-evaluated module: the
+   * provider reads {@link CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable} instead of a
+   * snapshot of the wrapper-local `props`, and the wrapper refreshes it before placing
+   * the element. It is an artifact-internal name, not a host address, which is why it
+   * is *not* one of `hostNames`: no template may read it as a free identifier, only
+   * through the declaration both generated modules share.
+   */
+  livePropsVariable: "__fgcCellProps",
   /**
    * When the binding installs, stated as the ordering guarantee a generator can meet.
    *
@@ -1368,8 +1413,8 @@ export const RUNTIME_CONTRACT_UNKNOWNS: readonly RuntimeContractUnknown[] = [
     question:
       "Does the platform re-evaluate a Cell artifact's modules when a property changes, or evaluate them once and re-render the existing tree?",
     whyOpen:
-      "The generated runtime binding installs the host provider from the Cell's `props` when the artifact is evaluated (#82). If the platform evaluates the artifact once and then re-invokes the `App` binding with new props, the installed provider holds the first render's props and a re-render reads stale values — silently, with every check in the façade passing. The recorded execution model gives the nesting but not the invocation count, so this is not decidable from the repository.",
-    ownedBy: "#83",
+      "Half of this is now answered from the artifact's side and half is not. **Settled locally (#83):** the generated binding installs the host provider at artifact evaluation but reads the Cell's props through a reader over an artifact-scope variable the entry wrapper refreshes on every `App` call, so a re-render sees fresh props whether the platform re-invokes `App` or re-evaluates the modules. A re-evaluation simply assigns again. What remains open is which branch the product actually takes — that changes nothing about the artifact's correctness, but it is still not observable from this repository. Related and still open: whether teardown reaches the artifact at all (`unmount-clears-the-cell-root` is read from the product source, not executed), which is why no teardown was added.",
+    ownedBy: "#84",
   },
   {
     id: "absolute-source-ceiling",

@@ -71,7 +71,20 @@ export interface VerifyExtensionReferencesOptions {
    * {@link ExtensionVerificationStatus}.
    */
   readonly listings?: readonly ExtensionLibraryListing[];
-  /** The mapping table to audit against. Defaults to `core`'s shipped table. */
+  /**
+   * The mapping table to audit against.
+   *
+   * **Supply the project's normalized set** (`registry.extensionMappings.mappings`), which is
+   * what `planCellSyncTargets` and `executeCellSyncTargets` do automatically (#87). The artifact
+   * being verified was compiled against those rows; substituting `core`'s built-in table here
+   * cannot bind a project row's decision to an interception, so `planExtensionExternals` reports
+   * `extension-mapping-missing` at the write boundary after `compileCell` accepted it — the
+   * sync-side half of #87's defect.
+   *
+   * Optional because a dry run may legitimately have no registry. Omitted means `core`'s shipped
+   * table through `planExtensionExternals`, which is a *weaker* claim than the project's set and
+   * must not be reported as the project's.
+   */
   readonly mappings?: readonly ExtensionExternalMapping[];
 }
 

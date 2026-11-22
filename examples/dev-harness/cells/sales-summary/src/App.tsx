@@ -22,7 +22,7 @@
  *    that never runs on the page.
  * 2. **No local-only module.** There is no `.dev.tsx` twin and no harness wrapper around this
  *    component. The harness mounts *this* file — the compiler inlines *this* file — and
- *    `LOCAL_DEV_FORBIDDEN_PATTERNS`' `second-local-component` records why a twin is worse than
+ *    the local-dev contract's `second-local-component` rule records why a twin is worse than
  *    a branch: it keeps looking right while it drifts.
  * 3. **The imports are the ordinary ones.** `react` is imported by name. On the page, #9's
  *    host bridge binds that specifier to the page's React object; under `vp dev`, the harness
@@ -110,7 +110,7 @@ function ExportButton() {
       type="button"
       onClick={() => {
         void refreshOrders({ top: 3 }).catch(error => {
-          // Left to the console rather than swallowed into state: `LOCAL_DEV_ERROR_SURFACING`
+          // Left to the console rather than swallowed into state: the local-dev error-surfacing contract
           // records that the local loop must let a failure be loud, and a `catch` that rendered
           // a fallback would be the swallowed-error pattern by another name.
           console.error(error);

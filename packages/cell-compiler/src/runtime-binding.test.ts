@@ -489,6 +489,96 @@ describe("the artifact the binding produces", () => {
     expect(code).not.toContain(repositoryRoot);
     expect(code).not.toContain(repositoryRoot.split("\\").join("/"));
   });
+
+  it("declares the live props variable before the bundle, and only when there is a binding (#83)", async () => {
+    // The placement is the fix. The binding module's body runs at artifact evaluation; the
+    // entry wrapper runs after it, in the same function scope, and assigns this render's
+    // props to a variable the provider reads. That variable therefore has to be declared
+    // *outside* the bundle's IIFE (or the wrapper could not reach it) and *before* the
+    // bundle runs (or the provider's reader would close over a binding in its temporal dead
+    // zone and fail later, at a render, instead of at evaluation).
+    const liveVariable = CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable;
+    const code = compiledCode(await compileExample());
+    const declaration = `var ${liveVariable} = props;`;
+
+    expect(code).toContain(declaration);
+    // "before the bundle" is asserted as "before the entry binding is assigned", which is
+    // the first line of the bundler's IIFE.
+    expect(code.indexOf(declaration)).toBeLessThan(
+      code.indexOf(`var ${CELL_ENTRY_COMPONENT_BINDING} =`),
+    );
+    // The binding reads it through the arrow the factory takes as a reader, not a snapshot.
+    expect(code).toContain(`cellProps: () => ${liveVariable}`);
+    // And the wrapper publishes each call's props into it.
+    expect(code).toContain(`${liveVariable} = props;`);
+
+    // The negative control: a Cell that never imports the façade carries no declaration,
+    // because there is no binding to read one — and an artifact-scope name nothing uses is
+    // exactly the "initialise for a capability the artifact does not use" #9 refuses.
+    expect(await compilePlainCell()).not.toContain(`var ${liveVariable}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What the artifact does not carry (#124)
+// ---------------------------------------------------------------------------
+
+/**
+ * The toolchain/contract symbols a production Cell artifact must not contain.
+ *
+ * Each is a *name from a module a Cell never executes*, so finding it means the compiler bound
+ * the package barrel rather than its production entry: `LOCAL_DEV_*` is `local-dev.ts`,
+ * `RUNTIME_FACADE_CAPABILITIES` is the registry in `capabilities.ts`, `RUNTIME_CONTRACT_TARGET`
+ * and `SELECTION_SIGNALS` come through the `core/browser` projection, and
+ * `createMockRuntimeFacadeProvider` is the mock. The list is names rather than module paths
+ * because a flat artifact has no module boundaries left to inspect — which is exactly why a
+ * whole-module import is invisible to every other check in this file.
+ */
+const TOOLCHAIN_SYMBOLS = [
+  "LOCAL_DEV_",
+  "RUNTIME_FACADE_CAPABILITIES",
+  "RUNTIME_CONTRACT_TARGET",
+  "SELECTION_SIGNALS",
+  "createMockRuntimeFacadeProvider",
+] as const;
+
+describe("the artifact's module graph is the production runtime, not the package barrel", () => {
+  it("carries no toolchain or contract metadata from the runtime package", async () => {
+    // The measurement this pins, on the tree that added it: 112,105 characters before, 55,982
+    // after. The 56,123-character difference is mostly `local-dev.ts`'s contract prose and the
+    // capability registry — modules a compiled Cell never calls, and which the barrel
+    // re-export put in the graph because a static import is an edge whether or not a tree
+    // shaker proves the binding unused.
+    const code = compiledCode(await compileExample());
+
+    for (const symbol of TOOLCHAIN_SYMBOLS) {
+      expect(code, `artifact carries "${symbol}"`).not.toContain(symbol);
+    }
+  });
+
+  it("still carries the runtime the Cell calls, so the check above is not vacuous", async () => {
+    // The positive control. An artifact that failed to compile at all would satisfy the previous
+    // assertion, and so would one whose façade had been externalized — so the members this Cell
+    // actually executes are asserted beside it, including the two the generated binding calls.
+    const code = compiledCode(await compileExample());
+
+    expect(code).toContain("runtimeFacade");
+    expect(code).toContain("installRuntimeFacadeProvider");
+    expect(code).toContain("createHostRuntimeFacadeProvider");
+    expect(code).toContain(`cellProps: () => ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}`);
+  });
+
+  it("names the binding's own entry, not the intercepted barrel specifier", async () => {
+    // Two facts that are easy to conflate and must not be: authored source writes the package
+    // specifier, which is what the bundler intercepts, and the *generated* module imports the
+    // package's `./cell` entry. If the binding imported the barrel the symbols above would come
+    // back, so this asserts the split at its source — in the generated source, before it is
+    // bundled into anything.
+    const source = renderRuntimeBindingModule("@forguncy-react-workspace/runtime/cell");
+
+    expect(CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier).toBe("@forguncy-react-workspace/runtime/cell");
+    expect(source).toContain(JSON.stringify(CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -516,9 +606,12 @@ describe("a Cell whose source never calls the façade", () => {
     // The positive control, asserted beside it so neither can pass alone. It looks for the
     // *generated call site* rather than the member name: `installRuntimeFacadeProvider` also
     // occurs in the inlined façade source, so matching the bare name would pass for an
-    // artifact that carried the package but generated no binding at all. `cellProps: props`
-    // is the free-identifier reference only the generated module makes.
-    expect(compiledCode(await compileExample())).toContain("cellProps: props");
+    // artifact that carried the package but generated no binding at all. The arrow reader is
+    // the reference only the generated module makes — a Cell that passes its own props through
+    // some other path cannot produce `() => <the binding's live variable>`.
+    expect(compiledCode(await compileExample())).toContain(
+      `cellProps: () => ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}`,
+    );
   });
 });
 
@@ -546,15 +639,24 @@ describe("the rendered runtime binding module", () => {
     // entry templates, applied to the second generated module in this package.
     const source = renderRuntimeBindingModule("/abs/path/to/runtime/index.ts");
 
+    // `props` is the one declared name the module no longer references directly, and that is
+    // the #83 fix rather than a drift: the module passes `() => <live variable>` so a re-render
+    // is served, and the *entry wrapper* is what assigns the wrapper-local `props` into that
+    // variable. The reference therefore moved to the other generated module, where
+    // `entry.test.ts` asserts it. What stays checked here is that the module does not smuggle
+    // in a *second* free identifier: its only identifier inside the provider input is the live
+    // variable the artifact declares.
     for (const name of CELL_RUNTIME_BINDING_HOST_NAMES) {
+      if (name === "props") continue;
       expect(source, name).toMatch(new RegExp(`\\b${name}\\b`));
     }
-    // The mirror: the two free identifiers the template is allowed to use are exactly the
-    // declared ones. Checked by asking which declared-or-not names the source references in
-    // the provider input, which is the only place a free identifier may appear.
+    // The mirror: the two provider-input *fields* are exactly the port's declared ones, and
+    // the props field's value is the arrow reading the artifact's live variable — which is why
+    // the right-hand side is checked as a whole rather than as a bare identifier.
     const providerInput = /createHostRuntimeFacadeProvider\(\{([\s\S]*?)\}\)/.exec(source)?.[1] ?? "";
-    const referenced = [...providerInput.matchAll(/(\w+):\s*(\w+)/g)].map(match => match[2]);
-    expect(referenced.sort()).toEqual([...CELL_RUNTIME_BINDING_HOST_NAMES].sort());
+    const fields = [...providerInput.matchAll(/(\w+):\s*(.+?),\n/g)].map(match => match[1]);
+    expect(fields.sort()).toEqual(Object.keys(CELL_RUNTIME_BINDING_CONTRACT.providerInput).sort());
+    expect(providerInput).toContain(`() => ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}`);
   });
 
   it("embeds the specifier it is handed, and calls the contract's members", () => {
@@ -632,7 +734,9 @@ describe("a façade-importing Cell compiled against a workspace graph", () => {
     // The façade is workspace source, so it is flattened rather than left external — and
     // the closure is what says so, not the absence of a diagnostic.
     expect(outcome.workspace?.closure?.externalModules ?? []).toEqual([]);
-    expect(compiledCode(outcome)).toContain("cellProps: props");
+    expect(compiledCode(outcome)).toContain(
+      `cellProps: () => ${CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}`,
+    );
   });
 });
 

@@ -1,0 +1,36 @@
+{
+  "name": "fgc-install-esm-consumer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "//": [
+    "The install-level consumer for #90. It is a real project in the shape pnpm installs:",
+    "every dependency below is a `file:` link into `./packages/`, and the packages that have",
+    "their own dependencies declare them the same way, so the install graph (including its",
+    "virtual store and per-package links) is produced by the package manager rather than by a",
+    "hand-written `node_modules` tree.",
+    "",
+    "The test copies this directory to a temporary root and runs `pnpm install --offline`",
+    "there, so this committed tree is never written to. Nothing here is a registry dependency:",
+    "`--offline` therefore touches no network, and a fresh runner installs in about a second.",
+    "",
+    "`fgc-fixture-transitive-dep` is listed here as well as in `fgc-fixture-transitive`'s own",
+    "manifest. Under pnpm's isolated layout a package reached only through its parent is not",
+    "addressable from the project root, so `probe --project <root> fgc-fixture-transitive-dep`",
+    "could not locate it — while the compiler still requires a decision for every bare specifier",
+    "the bundle inlines. Declaring it here is what a real project does when its Cells reach a",
+    "transitive package. The *import* stays transitive: `consumer/App.tsx` imports only",
+    "`fgc-fixture-transitive`, and the test asserts the dependency entered the artifact through",
+    "that import."
+  ],
+  "dependencies": {
+    "@fgc-fixture/scoped-esm": "file:./packages/scoped",
+    "fgc-fixture-browser-cond": "file:./packages/browser-cond",
+    "fgc-fixture-hidden": "file:./packages/hidden",
+    "fgc-fixture-import-only": "file:./packages/import-only",
+    "fgc-fixture-sub": "file:./packages/sub",
+    "fgc-fixture-subpath-only": "file:./packages/subpath-only",
+    "fgc-fixture-transitive": "file:./packages/transitive",
+    "fgc-fixture-transitive-dep": "file:./packages/transitive/dep"
+  }
+}

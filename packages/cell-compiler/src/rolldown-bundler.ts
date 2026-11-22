@@ -55,7 +55,11 @@
 import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
-import type { DependencyDecision, ExtensionExternalDiagnostic } from "@forguncy-react-workspace/core";
+import type {
+  DependencyDecision,
+  ExtensionExternalDiagnostic,
+  NormalizedExtensionMappings,
+} from "@forguncy-react-workspace/core";
 import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
 import {
   rolldown,
@@ -128,7 +132,10 @@ type Interception =
   | {
       readonly kind: "runtime-binding";
       readonly id: string;
+      /** What authored source wrote, and what the interception matched. */
       readonly facadeSpecifier: string;
+      /** The entry the generated module imports (#124); resolved separately below. */
+      readonly bindingSpecifier: string;
       readonly moduleType: "esm";
     };
 
@@ -171,7 +178,10 @@ interface InterceptionResolver {
  * *callers* do it, through {@link resolveCellSpecifier} — one implementation, two call
  * sites, which is the same rule this function exists to enforce.
  */
-function createInterceptionResolver(decisions: readonly DependencyDecision[]): InterceptionResolver {
+function createInterceptionResolver(
+  decisions: readonly DependencyDecision[],
+  extensionMappings: NormalizedExtensionMappings | undefined,
+): InterceptionResolver {
   // Every bare specifier resolved at all, intercepted or not. This is the set #14's
   // workspace audit traces its closure from, so it must include the ones the plans
   // *did* intercept — a workspace package the host bridge claimed is still a module
@@ -195,7 +205,17 @@ function createInterceptionResolver(decisions: readonly DependencyDecision[]): I
   }
 
   function consultExtensionPlan(referencedSpecifiers: readonly string[]): ExtensionExternalsPlan {
-    const plan = planExtensionExternals({ decisions, referencedSpecifiers });
+    // The project's own set, passed through exactly as #85 normalized it. Never
+    // re-read or re-merged here: a bundler that fell back to `core`'s table while the
+    // caller had project rows would answer a mapped import from the wrong catalog —
+    // and, when the package happened to be installed, silently inline the npm copy
+    // instead. `undefined` is "the caller stated no set", which is the built-in
+    // default, not a licence to skip the plan.
+    const plan = planExtensionExternals({
+      decisions,
+      referencedSpecifiers,
+      ...(extensionMappings === undefined ? {} : { mappings: extensionMappings.mappings }),
+    });
     for (const finding of plan.diagnostics) extensionFindings.set(`${finding.code} ${finding.subject}`, finding);
     return plan;
   }
@@ -221,6 +241,7 @@ function createInterceptionResolver(decisions: readonly DependencyDecision[]): I
         kind: "runtime-binding",
         id: CELL_RUNTIME_BINDING_ID,
         facadeSpecifier: specifier,
+        bindingSpecifier: CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier,
         moduleType: "esm",
       };
     }
@@ -377,6 +398,11 @@ async function resolveCellSpecifier(
     // falls back to the process cwd, and from a directory that has no link to the façade
     // the import goes external, which ships an artifact naming an undefined IIFE
     // parameter.
+    // Two resolutions, because the generated module imports a different entry than the one the
+    // Cell wrote (#124): the authored specifier is the package barrel, and the module this
+    // binding *is* must import the package's production entry. Resolving the barrel and then
+    // importing it is what shipped the local-dev contract into every artifact, so both are
+    // resolved here and the one the binding embeds is `bindingSpecifier`'s.
     const resolvedFacade = await context.resolve(interception.facadeSpecifier, importer, {
       ...options,
       skipSelf: true,
@@ -393,7 +419,16 @@ async function resolveCellSpecifier(
         `The Cell imports "${interception.facadeSpecifier}", which could not be resolved from "${importer ?? "the entry"}", so the generated runtime binding has nothing to install from. Install the façade as a dependency of the project the Cell is compiled in.`,
       );
     }
-    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedFacade.id));
+    const resolvedBinding = await context.resolve(interception.bindingSpecifier, importer, {
+      ...options,
+      skipSelf: true,
+    });
+    if (resolvedBinding === null || resolvedBinding.external === true) {
+      throw new Error(
+        `The Cell imports "${interception.facadeSpecifier}", whose generated runtime binding needs its production entry "${interception.bindingSpecifier}", which could not be resolved from "${importer ?? "the entry"}". The package declares that subpath; a link that does not provide it cannot produce a production Cell artifact.`,
+      );
+    }
+    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedBinding.id));
     return { id: interception.id, moduleType: interception.moduleType };
   }
 
@@ -437,7 +472,7 @@ async function resolveEntrySpecifiersWithRolldown(
     throw new Error(`The entry "${request.entry}" does not exist at ${resolvedEntry}.`);
   }
 
-  const resolver = createInterceptionResolver(request.dependencies);
+  const resolver = createInterceptionResolver(request.dependencies, request.extensionMappings);
   const virtualModules = new Map<string, string>();
 
   try {
@@ -898,7 +933,9 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
   const virtualModules = new Map<string, string>();
   // One resolver, shared with the pre-bundle specifier pass, so the two cannot
   // disagree about what the entry imports — see `createInterceptionResolver`.
-  const resolver = createInterceptionResolver(request.dependencies);
+  // The project's mapping set rides along for the same reason: both passes must
+  // consult the table the caller selected, not `core`'s shipped default.
+  const resolver = createInterceptionResolver(request.dependencies, request.extensionMappings);
   const fallThroughResolutions = resolver.fallThroughResolutions;
   const referencedPackages = resolver.referencedPackages;
   const hostFindings = resolver.hostFindings;
@@ -1010,6 +1047,11 @@ async function bundleWithRolldown(dir: string, request: CellBundlingRequest): Pr
     inlinedPackageSizes,
     inlinedSpecifiers,
     emittedAssets,
+    // Whether the generated binding made it into this graph. The wrapper needs it to decide
+    // whether it may reference the artifact-scope props variable (#83); the binding module's
+    // id is registered exactly when `resolveCellSpecifier` took its `runtime-binding` arm, so
+    // the presence of the module is the answer rather than a search of the output text.
+    runtimeBindingGenerated: virtualModules.has(CELL_RUNTIME_BINDING_ID),
     // Sorted for a byte-stable report, like every other list here: #7's determinism
     // criterion covers the whole result, and #14's audit orders a closure from this
     // set, so an unordered report would not change the verdict while an unordered

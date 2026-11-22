@@ -1,0 +1,17 @@
+{
+  "name": "fgc-fixture-browser-cond",
+  "version": "4.0.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "browser": "./browser/index.js",
+      "import": "./node-only/index.js",
+      "default": "./node-only/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/fgc-fixture-browser-cond.git"
+  }
+}
