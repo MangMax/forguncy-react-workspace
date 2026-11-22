@@ -1558,6 +1558,40 @@ describe("#94: identity comes from the install graph, not from a declaration", (
     expect(nested.member.lockfile).not.toBeNull();
     expect(nested.member.patches).not.toBeNull();
   });
+
+  it("digests pnpm @file+ store slots by content even when .modules.yaml omits injectedDeps", async () => {
+    // Regression caught on Linux CI (#95): pnpm 9/10 materializes standalone `file:` dependencies
+    // into `.pnpm/<name>@file+<path>` without always recording them under `injectedDeps` in
+    // `.modules.yaml`. Because the slot name carries only the path, name-only hashing kept
+    // `installedTree` identical after the `file:` package's files changed.
+    await withProject(async root => {
+      await writeFileAt(join(root, "package.json"), JSON.stringify({ name: "consumer", version: "0.0.0" }));
+      await writeFileAt(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+      await writeFileAt(
+        join(root, "node_modules", ".modules.yaml"),
+        "nodeLinker: isolated\nhoistPattern:\n  - '*'\npublicHoistPattern: []\n",
+      );
+      const slotPkg = join(
+        root,
+        "node_modules",
+        ".pnpm",
+        "local-dep@file+packages+dep",
+        "node_modules",
+        "local-dep",
+      );
+      await writeFileAt(join(slotPkg, "package.json"), JSON.stringify({ name: "local-dep", version: "1.0.0" }));
+      await writeFileAt(join(slotPkg, "index.js"), "export const v = 1;\n");
+
+      const before = await readInstallGraphIdentity(root);
+      expect(before.installedTree).not.toBeNull();
+
+      await writeFileAt(join(slotPkg, "index.js"), "export const v = 2;\n");
+
+      const after = await readInstallGraphIdentity(root);
+      expect(after.installedTree).not.toBeNull();
+      expect(after.installedTree).not.toBe(before.installedTree);
+    });
+  });
 });
 
 describe("#94: the versions recorded are the ones that actually ran", () => {

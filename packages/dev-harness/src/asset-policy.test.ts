@@ -75,7 +75,7 @@ async function serverFor(entry: string | undefined): Promise<ViteDevServer> {
 
 afterAll(async () => {
   await Promise.all(servers.map(server => server.close()));
-});
+}, 30_000);
 
 /** The transformed source of one module, or the error Vite rejected it with. */
 async function transform(server: ViteDevServer, id: string): Promise<string> {

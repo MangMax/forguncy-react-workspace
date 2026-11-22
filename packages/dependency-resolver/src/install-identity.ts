@@ -1183,6 +1183,26 @@ async function pnpmInstalledTreeDigest(installRoot: string): Promise<string | nu
     return null;
   }
 
+  // Local `file:` slots materialized inside `.pnpm/` (`<name>@file+<encoded-path>`). Unlike
+  // registry tarballs whose slot directory name carries an immutable version, a `file:` slot's name
+  // encodes only its source path and stays identical when the package's source files change. Newer
+  // pnpm releases list them in `.modules.yaml`'s `injectedDeps`, while pnpm 9/10 installs of
+  // standalone `file:` dependencies can omit `injectedDeps` entirely — measured on Linux CI, where
+  // editing and re-installing a `file:` fixture left `installedTree` unchanged. Digesting every
+  // `@file+` slot directly covers all pnpm versions at zero cost for registry-only projects.
+  const fileSlots: string[] = [];
+  for (const slot of slots) {
+    if (!slot.name.includes("@file+")) {
+      continue;
+    }
+    const files = await storeSlotContentDigest(storeDirectory, slot.name);
+    if (files === null) {
+      return null;
+    }
+    fileSlots.push(`${slot.name}:${files}`);
+  }
+  fileSlots.sort();
+
   // Build state last, because it is the one manager field that describes something this module then
   // has to read off disk itself. Review round 11: a slot's **name** does not cover what a lifecycle
   // script left behind in it. Measured on a real registry package — `esbuild@0.25.0`, whose postinstall
@@ -1212,7 +1232,16 @@ async function pnpmInstalledTreeDigest(installRoot: string): Promise<string | nu
     return null;
   }
 
-  return digestOf(canonicalJson({ ...fields, store: store, links, injected, builds }));
+  return digestOf(
+    canonicalJson({
+      ...fields,
+      store: store,
+      links,
+      injected,
+      ...(fileSlots.length > 0 ? { fileSlots } : {}),
+      builds,
+    }),
+  );
 }
 
 /**

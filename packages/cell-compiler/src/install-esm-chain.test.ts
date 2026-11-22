@@ -665,6 +665,10 @@ describe("install-level gate cannot bypass invalidation (#95)", () => {
         const original = await readFile(linkedSource, "utf8");
         await writeFile(linkedSource, `${original}\nexport const movedBy = "rebuilt-after-record";\n`, "utf8");
         await install(root, ["--force"]);
+        const installedAfter = await readFile(join(root, "node_modules", packageName, "lib", "index.js"), "utf8");
+        expect(installedAfter, "re-installing the edited file: fixture must update the materialized copy").toContain(
+          "rebuilt-after-record",
+        );
 
         // 1. The read-back command reports it, with the install-graph reason rather than a bare
         //    "stale".
