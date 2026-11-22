@@ -33,9 +33,15 @@
  * The plan is also where the runtime constants a compiled artifact must agree
  * with travel: the code marker namespace the artifact's stamp will use comes from
  * `registry.runtime`, not from a default re-declared here.
+ *
+ * And it is where the project's extension mapping set travels (#86). The compiler
+ * cannot read a config — `#26`/`#85` load and normalize one in `core` — so the
+ * registry's normalized rows are carried on the plan and handed to `compileCell` as
+ * `extensionMappings`. That is the whole wiring path: one object, normalized once,
+ * read by the pre-bundle pass, the build and the externals plan.
  */
 
-import type { CellRegistry, RegisteredCell } from "@forguncy-react-workspace/core";
+import type { CellRegistry, NormalizedExtensionMappings, RegisteredCell } from "@forguncy-react-workspace/core";
 
 import type { CompileCellInput } from "./artifact.ts";
 
@@ -58,6 +64,18 @@ export interface CellCompilePlan {
   readonly target: CellCompileTarget;
   /** The artifact stamp namespace, from `registry.runtime` (default `fgc`). */
   readonly codeMarkerNamespace: string;
+  /**
+   * The project's extension mapping set, from `registry.extensionMappings` (#85).
+   *
+   * The compile seam's half of #86: `planExtensionExternals`, the pre-bundle pass and
+   * the build must all plan against the same rows, and the registry is where those rows
+   * were normalized once — against the project's `extensions` block and the built-in
+   * table. Carrying the *normalized* result rather than a re-merged list is what keeps
+   * "which extensions does this project declare" a single answer: a caller passes this
+   * object to `compileCell` as `extensionMappings`, and no stage re-reads `core`'s
+   * built-in table or re-applies the merge rule.
+   */
+  readonly extensionMappings: NormalizedExtensionMappings;
   /**
    * The declared output overrides, verbatim.
    *
@@ -82,7 +100,7 @@ export function planCellCompile(options: {
   const { registry, cellId, dependencies } = options;
   const cell: RegisteredCell = registry.require(cellId);
 
-  return buildPlan(cell, registry.runtime.codeMarkerNamespace, dependencies);
+  return buildPlan(cell, registry.runtime.codeMarkerNamespace, registry.extensionMappings, dependencies);
 }
 
 /**
@@ -98,12 +116,15 @@ export function planCellCompiles(options: {
   readonly dependencies: CompileCellInput["dependencies"];
 }): readonly CellCompilePlan[] {
   const { registry, dependencies } = options;
-  return registry.cells.map(cell => buildPlan(cell, registry.runtime.codeMarkerNamespace, dependencies));
+  return registry.cells.map(cell =>
+    buildPlan(cell, registry.runtime.codeMarkerNamespace, registry.extensionMappings, dependencies),
+  );
 }
 
 function buildPlan(
   cell: RegisteredCell,
   codeMarkerNamespace: string,
+  extensionMappings: NormalizedExtensionMappings,
   dependencies: CompileCellInput["dependencies"],
 ): CellCompilePlan {
   return {
@@ -115,6 +136,7 @@ function buildPlan(
       locatorKey: cell.target.locatorKey,
     },
     codeMarkerNamespace,
+    extensionMappings,
     ...(cell.output === undefined ? {} : { output: cell.output }),
   };
 }
