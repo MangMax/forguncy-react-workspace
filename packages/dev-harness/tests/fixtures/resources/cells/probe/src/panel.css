@@ -1,0 +1,8 @@
+/*
+ * The dev-loop twin of `packages/cell-compiler/tests/fixtures/css-assets/`'s stylesheet: the same
+ * two reference shapes, so the same rewrite is asked of the dev server that the compiler applies.
+ */
+.dev-resource-probe {
+  background-image: url("./pixel.png");
+  border-image: url('./pixel.png') 1;
+}
