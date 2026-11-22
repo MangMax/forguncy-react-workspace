@@ -11,10 +11,21 @@
     "`node:fs`/`node:path` destructuring broke both a browser dev graph and a compiled",
     "Cell artifact. `cell-registry` and `config-loader` are genuinely node-side and are",
     "deliberately absent from it; `browser.test.ts` asserts that, and asserts the two",
-    "surfaces agree in both directions rather than letting this entry grow its own API."
+    "surfaces agree in both directions rather than letting this entry grow its own API.",
+    "",
+    "`./cell-props` is the leaf the production Cell runtime binds to (#124): the two pure key",
+    "tuples a compiled Cell needs (`CELL_PROPS_BASE_KEYS`, `CELL_FORGUNCY_PROP_KEYS`), with no",
+    "imports at all. It exists because those tuples used to be derived inside",
+    "`runtime-contract.ts`, which carries the evidence record that explains them — so reading",
+    "two keys meant loading every execution fact and open question into a flat Cell artifact.",
+    "The tuples are still defined once; `runtime-contract.ts` imports them and re-exports the",
+    "same bindings, so this subpath is a smaller *graph*, not a second definition.",
+    "`cell-props.test.ts` asserts it reaches nothing and that the values are the record's own."
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./browser": "./src/browser.ts"
-  }
+    "./browser": "./src/browser.ts",
+    "./cell-props": "./src/cell-props.ts"
+  },
+  "sideEffects": false
 }
