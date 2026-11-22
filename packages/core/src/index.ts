@@ -169,6 +169,8 @@ export {
   CELL_PRESET_LIBRARY_DEFAULT,
   CELL_PROPS_BASE_KEYS,
   CELL_PROPS_KEY_ORDER,
+  CELL_RUNTIME_BINDING_CONTRACT,
+  CELL_RUNTIME_BINDING_HOST_NAMES,
   CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR,
   CELL_SERVER_COMMANDS_CONTRACT,
   CELL_SERVER_COMMAND_RESULT_KEYS,
@@ -194,6 +196,8 @@ export {
   persistedDefaultCellPreset,
   rejectedCellSourceConstructs,
   RUNTIME_CONTRACT_TARGET,
+  RUNTIME_CONTRACT_TARGET_FIELD_SOURCES,
+  RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
   RUNTIME_CONTRACT_UNKNOWNS,
   RUNTIME_EVIDENCE_CHANNELS,
 } from "./runtime-contract.ts";
@@ -212,6 +216,8 @@ export type {
   CellUserScopeBinding,
   FrontendLibraryReference,
   RuntimeContractTarget,
+  RuntimeContractTargetField,
+  RuntimeContractTargetFieldSource,
   RuntimeContractUnknown,
   RuntimeEvidenceChannel,
 } from "./runtime-contract.ts";
@@ -316,6 +322,7 @@ export {
   EXTENSION_GLOBAL_NAME_PATTERN,
   EXTENSION_GLOBAL_READ_TIMING,
   EXTENSION_LIBRARY_ID_PATTERN,
+  EXTENSION_MAPPING_ALLOWED_FIELDS,
   EXTENSION_LIBRARY_REFERENCE_FIELD_NAME,
   EXTENSION_LOAD_ORDER_RULES,
   EXTENSION_METADATA_SOURCES,
@@ -343,6 +350,23 @@ export type {
   ExtensionMetadataSource,
   ExtensionVerificationBasis,
 } from "./extension-externals.ts";
+
+export {
+  DEFAULT_BUILTIN_MAPPINGS,
+  EXTENSION_MAPPINGS_ALLOWED_FIELDS,
+  EXTENSION_MAPPINGS_CONFIG_FIELD,
+  extensionMappingOrigin,
+  formatExtensionMappingsConfig,
+  normalizeExtensionMappings,
+} from "./extension-mappings-config.ts";
+export type {
+  ExtensionMappingsDiagnostic,
+  ExtensionMappingsDiagnosticCode,
+  ExtensionMappingsSource,
+  NormalizeExtensionMappingsOptions,
+  NormalizeExtensionMappingsResult,
+  NormalizedExtensionMappings,
+} from "./extension-mappings-config.ts";
 
 export {
   assertFgcLockDocument,
@@ -608,6 +632,7 @@ export {
 export type {
   CellCodeBudgetOverrides,
   CellConfig,
+  ExtensionMappingsConfig,
   ForguncyConfig,
   ForguncyConfigSchemaVersion,
   ForguncyTargetLocator,
@@ -621,6 +646,7 @@ export {
   CELL_CODE_BUDGET_DECISION,
   CELL_CODE_BUDGET_GOVERNING_DECISIONS,
   CELL_CODE_BUDGET_MEASUREMENT,
+  CELL_CODE_BUDGET_REBASE_101,
   CELL_CODE_INLINE_CEILING_CHARACTERS,
   CELL_CODE_PROJECT_VOLUME_OBSERVATION,
   CELL_CODE_REVIEW_CEILING_CHARACTERS,

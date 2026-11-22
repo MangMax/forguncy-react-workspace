@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -94,6 +94,47 @@ describe("loading a project config", () => {
     expect(error.codes).toContain("secret-looking-field");
     expect(error.codes).toContain("dependency-decision-in-config");
     expect(error.message).toContain(join(untypedRoot, "forguncy.config.mjs"));
+  });
+
+  it("validates a hand-written config's extension mappings, not only a typed one's", async () => {
+    // #85's last criterion, asked as a question about *this* loader: "JSON/TS 配置、目录和
+    // listing 的职责边界在本票和测试中一致". A `.ts` config gets `defineForguncyConfig`'s
+    // excess-property checking in the editor, and a `.mjs` one — or a hand-edited `.ts` —
+    // gets none of it, so the shape has to be checked from the loaded module rather than
+    // trusted. Written to a scratch directory rather than added as a fixture: this is
+    // about what the loader does with a document it did not author.
+    const root = scratchDir();
+    writeFileSync(
+      join(root, "forguncy.config.mjs"),
+      [
+        "export default {",
+        "  cells: {},",
+        "  extensions: {",
+        "    mappings: [",
+        "      {",
+        "        packageName: '@tanstack/react-query',",
+        "        libraryId: 'other-library',",
+        "        globalName: 'OtherGlobal',",
+        "        metadataSource: 'verified-catalog',",
+        "        metadataReference: 'some/other-catalog',",
+        "        verificationRule: 'A second claim for a package the built-in table already maps.',",
+        "        verifiedBy: ['product-documentation'],",
+        "        note: 'a hand-written row that collides with the built-in table',",
+        "      },",
+        "    ],",
+        "  },",
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    const error = await captureLoadError(() => loadForguncyConfig({ root }));
+
+    // The collision with the built-in table is reported with its config path, through the
+    // same error type and `codes` accessor every other config problem uses — so a caller
+    // does not have to know which sub-module found it.
+    expect(error.codes).toContain("extension-mapping-conflict");
+    expect(error.diagnostics.map(diagnostic => diagnostic.path)).toContain("extensions.mappings");
   });
 
   it("normalizes through the same path as every other consumer", async () => {
@@ -369,5 +410,44 @@ describe("the freshness boundary: what the default loader does not cover", () =>
     expect(third.require("scratch").target.locatorKey).toBe("新页#B2");
     expect(global.__fgcGraphEvaluations).toBe(2);
     delete global.__fgcGraphEvaluations;
+  });
+});
+
+describe("project roots that are awkward for a shell and a filesystem", () => {
+  /**
+   * A root containing a space and non-ASCII characters, which is the ordinary case on the Windows
+   * machines this repository is developed on and is not exotic on Linux either.
+   *
+   * Decision source: GitHub Issue #101 — a Cell project under `C:\…\我的 项目\` has to configure
+   * the same way one under `/tmp/fgc/` does. Measured before this test existed: the config already
+   * resolved correctly end to end, so what this pins is the property rather than a fix — a path
+   * that started truncating at the space, or a `file://` URL that lost its percent-encoding, would
+   * show here first.
+   *
+   * The root is used three ways in one load, and each is a separate way to get it wrong: walked to
+   * find the config file, converted to a URL to import it, and joined to resolve the entry. That is
+   * the whole of the claim; it is not a compile or probe test.
+   */
+  it("loads a config from a root with a space and non-ASCII characters", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "fgc-awkward-root-"));
+    const root = join(parent, "我的 项目 with space");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "cell.ts"), "export const cell = 1;\n");
+    writeFileSync(
+      join(root, "forguncy.config.mjs"),
+      'export default { cells: { scratch: { entry: "./src/cell.ts", target: { pageName: "中文 页", cell: "D4" } } } };\n',
+    );
+
+    try {
+      // The file is found by walking the root, imported through a `file://` URL built from it, and
+      // its relative entry is resolved against it — three separate places the root is used.
+      expect(findForguncyConfigFile({ root })).toBe(join(root, "forguncy.config.mjs"));
+
+      const registry = await loadForguncyConfig({ root });
+      expect(registry.require("scratch").entryPath).toBe(resolve(root, "src", "cell.ts"));
+      expect(registry.require("scratch").target.locatorKey).toBe("中文 页#D4");
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 });

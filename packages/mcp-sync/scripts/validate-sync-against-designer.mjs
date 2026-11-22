@@ -1,5 +1,6 @@
 /**
- * #20's real-designer validation: the executor, against Forguncy 12.0.100.0.
+ * #20's real-designer validation: the executor, against Forguncy 12.0.100.0 — re-run by #115
+ * against 12.0.101.0 through the shipped adapter.
  *
  * This is not an automated test. It is the *executed* half of #20's acceptance criteria —
  * "No manual copy/paste is needed for a generated Cell artifact", "Syncing the same
@@ -7,6 +8,36 @@
  * "Runtime generation output can be handed to browser/runtime verification" — run against
  * a live designer session with a disposable page, and it is recorded here so the run is
  * reproducible and its raw observations are the evidence rather than a summary of them.
+ *
+ * ## What a run of this discharges, and what #115 changed about it
+ *
+ * `guarantees.ts` records real-project executions as rows — a build, a route set, an environment —
+ * and `unexecutedRuntimeCoverage()` reports the (promise, route, version) cells no single row
+ * covers. Read it before reporting a run here as coverage. On the build this repository supports,
+ * a passing run of both sibling scripts leaves nothing open; the older build's cells are short
+ * of coverage, but #120 narrowed *support* to 12.0.101.0, so they are history rather than an
+ * outstanding item and are not in the default report.
+ *
+ * Both routes are now reached through the **shipped adapter**, which is what makes a run of
+ * this script adapter-level evidence rather than executor-level:
+ *
+ * - Steps 1–6 exercise the **write** route.
+ * - Step 7 asserts the **unchanged** route (#92: no write, but the error check and the
+ *   generation still run, with this run's own locator).
+ *
+ * That was not true before #115. The two calls below were the blocker, and both are now fixed
+ * in `designer-transport.ts`: `readOneCell` compared the Cell's read-back `cellType` against the
+ * *write* alias, so a second sync reported `refused` instead of `identical` — with the old
+ * comparison restored, step 6 of this very script fails with `foreign-code` / `refused` — and
+ * 12.0.101.0 has no `api.app.generatePageAsync`, only `api.app.generateProject`.
+ *
+ * The script itself is unchanged by #115 apart from this header: what the repository needed was
+ * the adapter fixed, not the evidence loosened. `validate-unchanged-against-designer.mjs` is the
+ * sibling run that drives the unchanged route on its own and asserts the refusal path.
+ *
+ * The `runtime.forguncyVersion` this script builds is `12.0.101.0` since #120, matching the
+ * contract target. It is the project *declaration* the flow writes into its disposable project,
+ * not a measurement: the run's actual build is the one `getProjectSaveStatus` reports.
  *
  * ## Why it is a script and not a vitest test
  *
@@ -356,10 +387,28 @@ async function main() {
   record("7. second run", {
     status: secondRun.status,
     steps: secondRun.steps.map(step => `${step.order}.${step.stepId}=${step.status}`),
+    runtime: secondRun.status === "unchanged" ? secondRun.runtime : undefined,
   });
+  // #92's criterion: the second sync issues no write *and* still validates. The status is
+  // `unchanged`, not `refused` — a skip is a finished sync rather than a conflict — and the
+  // steps after the write are the ones that make the locator below trustworthy.
   check(
-    "the second run issues no write",
-    secondRun.status === "held" && secondRun.steps.find(step => step.stepId === "write-cell-source")?.status === "not-reached",
+    "the second run issues no write, and reports unchanged rather than refused",
+    secondRun.status === "unchanged" &&
+      // `skipped`, not `not-reached`: an unchanged target is a deliberate non-write (#92).
+      secondRun.steps.find(step => step.stepId === "write-cell-source")?.status === "skipped",
+    secondRun.status,
+  );
+  check(
+    "the unchanged run still checked the project and generated the page",
+    secondRun.status === "unchanged" &&
+      secondRun.steps.find(step => step.stepId === "check-project-errors")?.status === "ran" &&
+      secondRun.steps.find(step => step.stepId === "generate-page")?.status === "ran",
+  );
+  check(
+    "the unchanged run returned a locator this run generated",
+    secondRun.status === "unchanged" && secondRun.runtime.pageUrl.includes(encodeURIComponent(PAGE)),
+    secondRun.status === "unchanged" ? secondRun.runtime.pageUrl : secondRun.status,
   );
 
   // --- Divergence: a Cell the repository did not write is refused -------------------
@@ -372,11 +421,11 @@ async function main() {
   record("8. a hand-written Cell", {
     divergence: foreignRun.plan.divergence.kind,
     status: foreignRun.status,
-    dispatch: foreignRun.status === "held" ? foreignRun.dispatch.reason : undefined,
+    dispatch: foreignRun.status === "refused" ? foreignRun.dispatch.reason : undefined,
   });
   check(
     "a hand-written Cell is refused, not overwritten",
-    foreignRun.status === "held" &&
+    foreignRun.status === "refused" &&
       foreignRun.plan.divergence.kind === "foreign-code" &&
       foreignRun.dispatch.reason === "gate-refused",
   );
@@ -438,7 +487,7 @@ async function main() {
   // the executor is given *ids*, and the coordinates it writes are the config's.
   const registry = createCellRegistry(
     {
-      runtime: { forguncyVersion: "12.0.100", projectAlias: "fgc-sync-validation" },
+      runtime: { forguncyVersion: "12.0.101", projectAlias: "fgc-sync-validation" },
       cells: {
         probeA: { entry: "cells/probeA/App.tsx", target: { pageName: PAGE, cell: "F1" } },
         probeB: { entry: "cells/probeB/App.tsx", target: { pageName: PAGE, cell: "G1" } },

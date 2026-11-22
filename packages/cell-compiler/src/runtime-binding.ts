@@ -1,0 +1,214 @@
+/**
+ * The generated module that installs the host provider inside a Cell.
+ *
+ * Decision source: GitHub Issue #82 — "修复 Runtime：在生产 Cell 入口自动安装 Host
+ * Provider"
+ * (https://github.com/Mang-X/forguncy-react-workspace/issues/82), under #81.
+ *
+ * ## The gap this module closes, and why nothing else could
+ *
+ * `packages/runtime/src/host-provider.ts` states the requirement and cannot meet it: the
+ * values a host provider is built from — `props` and `useDataSource` — are
+ * *wrapper-locals* of the arrow IIFE the ReactCellType runtime wraps cell source in
+ * (`CELL_SOURCE_EXECUTION_MODEL.userCodeNesting`). They exist in the Cell's lexical scope
+ * and nowhere else; `props` is not even a window property. So the package cannot reach
+ * them, and `#27` forbids it from sniffing for them. Something *generated into the Cell*
+ * has to do the wiring, and this module is that something: `core` declares the contract
+ * (`CELL_RUNTIME_BINDING_CONTRACT`), the bundler intercepts the façade specifier, and the
+ * source below is what the interception hands back.
+ *
+ * Before #82 the artifact had no such module, and the failure was invisible from the
+ * compile side: a Cell calling `runtimeFacade()` compiled cleanly and threw
+ * `provider-not-installed` the moment it ran. The local dev loop could not reveal it
+ * either, because `dev-harness` installs a *mock* provider itself — the one path that
+ * executed the Cell was the one path that supplied what the artifact lacked.
+ *
+ * ## Three decisions, each with a reason
+ *
+ * 1. **The module's own façade import is resolved to an explicit specifier, not left
+ *    bare.** This is not a style choice and it was measured. A `\0`-prefixed virtual
+ *    module has no directory, so Rolldown resolves a bare specifier in it against the
+ *    *process* cwd: from `examples/dev-harness` (where the workspace link exists) it
+ *    resolves, and from `packages/cell-compiler` (where it does not) it becomes an
+ *    external import — which assembly then refuses, or worse, which ships an artifact
+ *    referencing an undefined IIFE parameter and throws a bare `ReferenceError` with no
+ *    `code` on the first façade call. Embedding the resolved id is what makes the
+ *    generated module's own import land in the same place the authored one does.
+ * 2. **The module is ESM, and re-exports a whole entry — but the *production* entry.**
+ *    Authored source imports `runtimeFacade` (and whatever else the façade exports) by
+ *    name, and the interception replaces the specifier for *every* importer — so the
+ *    generated module has to carry the names the authored imports asked for. `export *`
+ *    rather than a hand-written list, for the reason `core/browser` gives about its own
+ *    projection: a hand-copied list drifts the first time a name is added to one side and
+ *    not the other.
+ *
+ *    Since #124 it re-exports `bindingSpecifier` — the package's `./cell` entry — rather
+ *    than the package barrel. The authored import is still replaced by this module, so
+ *    `runtimeFacade()` and every other *runtime* member still resolve; what the artifact
+ *    stops carrying is `local-dev.ts`, `mock-provider.ts`, `cell-fixture.ts` and the
+ *    capability registry, none of which a compiled Cell calls. Re-exporting the barrel
+ *    meant a statically imported, side-effect-free module was an edge the bundler had to
+ *    keep or drop based on what its exports happened to be used for — and measured, it kept
+ *    roughly 110 KB of contract prose. Pointing at the slim entry makes the artifact's
+ *    graph a property of the module graph rather than of a tree-shaker's proof.
+ * 3. **Nothing about the Cell's own capabilities is inspected.** Which addresses a
+ *    provider carries is answered when one is asked for (`provider.ts`'s taxonomy), so a
+ *    Cell that uses one façade member does not get refused over another it never touches
+ *    — #9's rule, and the reason this module does not walk the props.
+ *
+ * ## The props it hands over are read, not captured (#83)
+ *
+ * See {@link renderRuntimeBindingModule}: the provider input's props field is an arrow over
+ * the artifact-scope variable `artifact.ts` declares and the entry wrapper assigns, so the
+ * install happens once but the values are the current render's. That is a deliberate
+ * exception to "renders source from the contract and nothing else": the *timing* is still
+ * the contract's `installTiming`, the naming is still `CELL_RUNTIME_BINDING_CONTRACT`, and
+ * what changed is which *value* the generated module passes for a field the contract already
+ * named.
+ *
+ * Scope note: this module renders source and declares the names that source references.
+ * It does not drive a bundler, decide when the interception applies, or assemble an
+ * artifact — `rolldown-bundler.ts` owns the first two and `artifact.ts` the third. What it
+ * does own is the answer to "what exactly is generated, and how do we know it only names
+ * things a Cell may name", which is why {@link CELL_RUNTIME_BINDING_HOST_NAMES} exists as
+ * a declared list rather than a claim in a comment.
+ */
+
+import { CELL_RUNTIME_BINDING_CONTRACT, CELL_RUNTIME_BINDING_HOST_NAMES } from "@forguncy-react-workspace/core";
+
+import { cellEntryWrapperNamesAreVerified } from "./entry.ts";
+
+/**
+ * The first line of the module this file generates.
+ *
+ * The same reasoning #6 gives for the artifact banner: a file a machine composed has to be
+ * recognizable as one, or a reviewer reading a bundle cannot tell generated wiring from a
+ * dependency that happens to look like it.
+ */
+export const RUNTIME_BINDING_GENERATED_BANNER =
+  "/* generated by @forguncy-react-workspace/cell-compiler from the runtime binding contract (#82) — do not edit */";
+
+/**
+ * The virtual module id the generated binding is registered under.
+ *
+ * Fixed and path-free, like the entry shim's: the module exists per build, is never read
+ * from disk, and is told apart from authored modules by its `\0` prefix rather than by
+ * anything in the id. The *resolved façade specifier* travels inside the module's source,
+ * which is where it belongs — an id carrying a machine path would make the id (and so any
+ * warning attributed to it) differ between two checkouts of the same project.
+ *
+ * The prefix is also load-bearing at resolution time: `rolldown-bundler.ts` skips
+ * interception for an importer whose id starts with `\0`, which is what keeps this module's
+ * own façade import from being replaced by another copy of itself.
+ */
+export const CELL_RUNTIME_BINDING_ID = "\0cell-runtime-binding";
+
+/**
+ * The names the generated binding's source references, re-exported through this module.
+ *
+ * Derived from `core`'s contract rather than written here, and re-exported rather than
+ * reached for through `core` by every caller: the check that keeps these honest
+ * ({@link runtimeBindingNamesAreVerified}) belongs beside the template that uses them.
+ */
+export { CELL_RUNTIME_BINDING_HOST_NAMES };
+
+/**
+ * Renders the module that installs a host provider built from the Cell's own values.
+ *
+ * `facadeSpecifier` is the **resolved** specifier of the façade module — an absolute path
+ * in a workspace, or a `node_modules` path in a published install — never the bare package
+ * name authored source wrote. See the module header's first decision for why that
+ * distinction is load-bearing rather than tidy.
+ *
+ * ## What changed in #83, and the failure it removed
+ *
+ * The first version passed `props` — the wrapper-local itself — into
+ * `createHostRuntimeFacadeProvider`. That reads correctly, and it is wrong: the binding
+ * module's body runs **once**, when the artifact is evaluated, while the wrapper-local
+ * `props` is a parameter of the arrow IIFE the platform re-enters with new values on
+ * every render. So the provider captured the *first* evaluation's props object and every
+ * façade call afterwards returned stale permissions, stale commands and a stale image
+ * context — silently, with every check in the façade passing. #83's executed regression
+ * (`runtime-lifecycle.test.ts`) reproduced exactly that: after a props replacement,
+ * `hasPermission` still answered the old value and `cellProp("ImageContext")` still
+ * returned the old marker.
+ *
+ * The fix is the seam the two generated modules already share: the artifact-scope
+ * variable {@link CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable}. The entry wrapper
+ * assigns this evaluation's props to it on **every** `App` call
+ * (`entry.ts`), and this module hands the provider a function that reads it, so a re-render
+ * (or a re-evaluated module, which simply assigns again) reads whatever the last render
+ * supplied. Nothing is hoisted to a page global: the variable is declared inside the
+ * artifact's own IIFE, so it is per evaluation exactly as the slot is per copy.
+ *
+ * `useDataSource` stays a direct value rather than a getter, and the asymmetry is the
+ * recorded one: it is a wrapper-local *hook* the Cell calls during render, so the value
+ * in scope when the module body ran is the function, and a hook's identity changing per
+ * render is not something the façade may assume either way. Reading it live would be a
+ * second address for the same binding — `RUNTIME_FACADE_FORBIDDEN_PATTERNS`
+ * `second-address-for-a-cell-binding`.
+ *
+ * ## Why there is no guard and no branch
+ *
+ * The body is deliberately three statements and no control flow. There is no
+ * `typeof props !== "undefined"` guard and no environment branch: `props` and
+ * `useDataSource` are declared by the platform's own wrapper before the cell source runs,
+ * so a guard would be dead code that reads like a supported state, and an environment
+ * branch is the second code path `RUNTIME_FACADE_RESOLUTION_MODEL` exists to forbid.
+ *
+ * Re-installing is safe and deliberate: `installRuntimeFacadeProvider` replaces a provider
+ * of the same kind, which is what makes an HMR pass or a re-evaluated module normal rather
+ * than a conflict.
+ */
+export function renderRuntimeBindingModule(facadeSpecifier: string): string {
+  const { installMember, createProviderMember, providerInput, livePropsVariable } =
+    CELL_RUNTIME_BINDING_CONTRACT;
+  // JSON rather than a template placeholder: the specifier is a path, and a path on
+  // Windows contains backslashes that a naive interpolation would emit as escape
+  // sequences inside the generated string literal. `JSON.stringify` produces a literal
+  // that parses back to exactly this string in any of the separators Rolldown reports.
+  const specifierLiteral = JSON.stringify(facadeSpecifier);
+  // The arrow body reads the artifact-scope variable on *every* call, which is what makes
+  // the provider answer with the props of the render that is happening now. The variable
+  // itself is declared by `artifact.ts` *before* this module's bundle, which is what keeps
+  // the entry wrapper — which runs after it in the same function scope — able to assign to
+  // it. Declaring it here instead would put it inside the bundle's IIFE, where the wrapper
+  // cannot reach it.
+  const livePropsReader = `() => ${livePropsVariable}`;
+  return [
+    RUNTIME_BINDING_GENERATED_BANNER,
+    `import * as __fgcRuntimeModule from ${specifierLiteral};`,
+    `__fgcRuntimeModule.${installMember}(`,
+    `  __fgcRuntimeModule.${createProviderMember}({`,
+    // The reader, not the value: see the function header for the failure this replaced.
+    `    ${providerInput.cellProps}: ${livePropsReader},`,
+    // The hook is handed over as it is, and stays that way — see the header's asymmetry.
+    `    ${providerInput.useDataSource}: useDataSource,`,
+    `  })`,
+    `);`,
+    `export * from ${specifierLiteral};`,
+    ``,
+  ].join("\n");
+}
+
+/**
+ * Whether every name the generated binding references is one a Cell may name.
+ *
+ * The predicate is `entry.ts`'s, applied to this module's own name list — a generated
+ * module that reached for an invented global would ship an artifact that throws
+ * `ReferenceError` at evaluation, before React or the façade is involved, and no artifact
+ * audit could see it because a free identifier is not an import.
+ *
+ * The check is one-directional here and its mirror lives in the test: this asks "is every
+ * declared name verified", and the test asks "does every declared name actually occur in
+ * the rendered source". Together they are what makes the declaration mean something — the
+ * first alone would pass for a list of names the template never uses.
+ */
+export function runtimeBindingNamesAreVerified(
+  names: readonly string[] = CELL_RUNTIME_BINDING_HOST_NAMES,
+): boolean {
+  // `entry.ts`'s predicate rather than a second copy of the rule: "which names a Cell may
+  // name" is decided once, by the module that owns the wrapper templates, and the
+  // dependency runs one way — `entry.ts` knows nothing about this module.
+  return cellEntryWrapperNamesAreVerified(names);
+}

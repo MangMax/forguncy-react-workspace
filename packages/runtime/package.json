@@ -14,12 +14,29 @@
     "",
     "A reviewer tempted to collapse the two back into one should read `core`'s `src/browser.ts`",
     "first: `browser.test.ts` asserts the projection's module list and its `node:`-free graph,",
-    "which is what keeps this claim from being a comment."
+    "which is what keeps this claim from being a comment.",
+    "",
+    "`./cell` is the production Cell entry (#124): `cell-runtime.ts` re-exported alone, reaching",
+    "`provider.ts`, `host-provider.ts`, `port.ts` and `core/cell-props` — never `local-dev.ts`,",
+    "`mock-provider.ts`, `cell-fixture.ts` or the capability registry. The compiler's generated",
+    "binding imports this subpath (its resolved id is embedded in the binding source), so a Cell",
+    "artifact carries the runtime and none of the toolchain. `.` remains the whole package, with",
+    "the same exports it had before, because `dev-harness`, `examples/runtime-facade` and the",
+    "tests read the contracts from there.",
+    "",
+    "`sideEffects: false` is a declaration, not a hope: no module in either package does work at",
+    "import time besides building its own constants. `provider.ts`'s one `let` is a slot that",
+    "starts `undefined` and is only written by `installRuntimeFacadeProvider`; `capabilities.ts`",
+    "builds its derived channel lists from `core` records, which is pure computation over data",
+    "this package already imports. Nothing registers a global, patches a prototype or reads the",
+    "environment."
   ],
   "dependencies": {
     "@forguncy-react-workspace/core": "workspace:*"
   },
   "exports": {
-    ".": "./src/index.ts"
-  }
+    ".": "./src/index.ts",
+    "./cell": "./src/cell.ts"
+  },
+  "sideEffects": false
 }

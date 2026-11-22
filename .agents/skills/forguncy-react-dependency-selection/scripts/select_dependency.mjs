@@ -264,8 +264,15 @@ function print(value, _options) {
  * the ownership gate, the stage order or an acceptance criterion's enforcement
  * point fails a test instead of leaving the Skill teaching the previous rule.
  */
-async function policySurface() {
+async function policySurface(options) {
   const toolchain = (await resolver.probeLockEnvironment(REPOSITORY_ROOT)).toolchain;
+  // The catalog `record`/`audit` will check `extension` records against, for the project the
+  // caller named — `--project` or the current directory (#87). Published rather than only
+  // observable through a record attempt, so a reader can see *which* rows the CLI uses: a
+  // project row appears in `declaredRows` exactly as a built-in one does.
+  const { normalized, configPath } = await projectExtensionMappings(
+    fromWorkingDirectory(options.project ?? "."),
+  );
   return {
     governingSpecReferenceLine: core.SELECTION_GOVERNING_SPEC_REFERENCE_LINE,
     ownershipInvariant: core.APPLICATION_OWNERSHIP_INVARIANT,
@@ -317,10 +324,13 @@ async function policySurface() {
     // of only observable through a record attempt. A row covering several module ids
     // (`@tanstack/query-core` riding on the `@tanstack/react-query` row) appears once per
     // id, which is what makes "the projection does not drop `moduleIds`" checkable here.
+    //
+    // The rows are the *project's* normalized set (#87): a custom row the config declares
+    // shows up here beside the built-in ones, and `source` names which of the two answered.
     extensionCatalog: {
-      source: "core EXTENSION_EXTERNAL_MAPPINGS",
-      mappings: catalogEntriesFor(core.EXTENSION_EXTERNAL_MAPPINGS),
-      declaredRows: core.EXTENSION_EXTERNAL_MAPPINGS.map((mapping) => ({
+      source: configPath === undefined ? "built-in defaults (no project config)" : configPath,
+      mappings: catalogEntriesFor(normalized.mappings),
+      declaredRows: normalized.mappings.map((mapping) => ({
         packageName: mapping.packageName,
         moduleIds: mapping.moduleIds ?? [],
         libraryId: mapping.libraryId,
@@ -830,9 +840,18 @@ async function runProbe(options, packageName, cellTarget, imports) {
     });
   } catch (error) {
     if (error instanceof resolver.ProbeIdentityError) {
+      // The error's own message names *which* identity failure this was — absence, an
+      // alias, an unversioned or unreadable manifest, a bad specifier, an unreadable
+      // project — and those have different fixes. Reporting every one of them as
+      // "not installed" (as this did before #89) sent a reader to run `install` for a
+      // corrupt file that is already present.
+      //
+      // The tail is a pointer, not advice: it used to read "A probe describes an
+      // installed artifact, not a package name", which is install advice appended to
+      // failures that are not about installation — the same misdirection one layer up.
       fail(
-        `Cannot probe "${packageName}": it is not installed in "${projectRoot}". Point --project at a directory that declares it — a probe describes an installed artifact, not a package name. ` +
-          `\`examples/probe-proving-cases\` declares es-toolkit and @embedpdf/pdfium.`,
+        `${error.message} (project "${projectRoot}") ` +
+          `See \`examples/probe-proving-cases\`, which declares es-toolkit and @embedpdf/pdfium.`,
       );
     }
     // A hook returning a finding shape the protocol refuses surfaces as a throw from
@@ -910,13 +929,16 @@ function probePayload({ projectRoot, result, evidencePath }) {
  *                                    // omitted or null for the whole namespace
  *     "rejection": { … },            // replace; omitted for an architectural
  *                                    // rejection, which uses the assessment's own
- *     "artifactEvidence": {         // required exactly when the rejection code is
- *       "codeCharacters": 200000,   // `cell-code-budget-exceeded`: the composed Cell
- *       "budgetCharacters": 100000  // exceeded its cap. Reproduced from the compile's
- *     }                             // own `cell-code-budget-exceeded` diagnostic, and
- *                                    // `budgetCharacters` must equal the Cell's declared
- *                                    // `output.codeBudgetCharacters`.
  *   }
+ *
+ * `artifactEvidence` is deliberately **absent** from that shape, and supplying it is refused
+ * rather than ignored. A rejection whose evidence is a composed Cell compile names *which*
+ * rejection it is (`rejection.code: "cell-code-budget-exceeded"` plus a `cellTarget`); this
+ * script compiles that Cell and takes the two character counts from the compiler's own
+ * `cell-code-budget-exceeded` diagnostic. The numbers are the script's to produce, not the
+ * file's to state — a rejection certified by numbers the deciding file chose is exactly the
+ * evidence #77 removed. `artifactEvidence` is therefore a **lock** field, written after the
+ * compile, and never a decision-file field.
  */
 function decisionFromFile(document) {
   const { packageName, role, strategy } = document;
@@ -1093,11 +1115,80 @@ function catalogEntriesFor(mappings) {
 }
 
 /**
+ * The project's extension mappings, normalized once, memoized per project root.
+ *
+ * This is the Skill's half of #87: the catalog a conformance audit checks an `extension`
+ * record against has to be the *project's* set — the one `forguncy.config.ts` declared and
+ * `core`'s `normalizeExtensionMappings` validated — not this repository's built-in table.
+ * A custom project extension is exactly a row the built-in table does not carry, so a
+ * default that fell back to `EXTENSION_EXTERNAL_MAPPINGS` refused at `record` the very
+ * decision `compileCell` accepted from the same config.
+ *
+ * Two states, and they are deliberately different:
+ *
+ * - **A project config** is loaded through `loadForguncyConfig`, which runs the same
+ *   normalization, collision and admissibility checks the compiler's registry does. A
+ *   malformed `extensions` block is a refusal, not a fallback: falling back would audit
+ *   against a set the project did not write and could report a fabricated `libraryId` as
+ *   verified.
+ * - **No project config** answers `normalizeExtensionMappings({})` — the built-in default,
+ *   computed through the *same exit*. That keeps a scratch root (the CLI's own tests use
+ *   one) working while leaving one table-defining factory rather than a second literal.
+ *
+ * `requireEntryFiles: false` because this reads mappings, not Cells: the audit does not own
+ * whether an entry exists, and a project mid-edit should not be refused here for a reason
+ * `compileCell` will report at its own boundary.
+ *
+ * Memoized because `status` and `audit` project many records and would otherwise re-load the
+ * same config file once per extension record; the cache is per process and per root, so it
+ * cannot mix two projects.
+ */
+const projectMappingsCache = new Map();
+
+async function projectExtensionMappings(projectRoot) {
+  const cached = projectMappingsCache.get(projectRoot);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const configFile = core.findForguncyConfigFile({ root: projectRoot });
+  if (configFile === undefined) {
+    const normalized = core.normalizeExtensionMappings({});
+    if (!normalized.ok) {
+      fail(
+        `The built-in extension mapping table does not normalize, so the default catalog cannot be derived:\n${normalized.diagnostics
+          .map(diagnostic => `  - ${diagnostic.path}: ${diagnostic.message}`)
+          .join("\n")}`,
+      );
+    }
+    const answer = { normalized: normalized.mappings, configPath: undefined };
+    projectMappingsCache.set(projectRoot, answer);
+    return answer;
+  }
+
+  let registry;
+  try {
+    registry = await core.loadForguncyConfig({ root: projectRoot, configFile, requireEntryFiles: false });
+  } catch (error) {
+    fail(
+      `Cannot read the extension mappings this project declares in "${configFile}": ${error instanceof Error ? error.message : String(error)} Nothing was decided: a conformance audit against a different set would not be a check of this project.`,
+    );
+  }
+
+  const answer = { normalized: registry.extensionMappings, configPath: configFile };
+  projectMappingsCache.set(projectRoot, answer);
+  return answer;
+}
+
+/**
  * The verified extension catalog a conformance audit checks `extension` records against.
  *
- * Defaults to this repository's verified mappings, expanded from
- * `EXTENSION_EXTERNAL_MAPPINGS` so a moved or added row moves here too — restating the
- * table would be the second source of truth the rest of this script avoids.
+ * **The default is the project's own normalized set (#87).** It is read from
+ * `forguncy.config.ts` through `normalizeExtensionMappings` (see
+ * {@link projectExtensionMappings}) and projected by `dependency-resolver`, so the CLI, the
+ * compiler and the sync all check one set of rows. Before #87 this default was
+ * `core`'s built-in table, which meant a project row was visible to the compiler and invisible
+ * to `record` — "the Skill refuses what the bundler accepts", the first failure mode #87 names.
  *
  * `--extension-catalog` accepts either of the two sources #12 names, and they are
  * handled differently on purpose:
@@ -1110,20 +1201,27 @@ function catalogEntriesFor(mappings) {
  *   `id` / `name` / `globalName` / `exists` / `typeDefinitionAvailable`, where `name` is
  *   a display name — `"TanStack Query for ReactCellType"` is not an npm package, and a
  *   catalog built from it can never match `@tanstack/react-query`. So a listing is used
- *   for what it can actually establish: this repository's declared rows for the packages
+ *   for what it can actually establish: the *project's* declared rows for the packages
  *   the lock decides are checked against it through `auditExtensionLibraryMetadata`,
- *   which is #12's own id/global/bundle/types audit. The packages come from the shipped
- *   table because that is the only place the package→extension relation is recorded; the
- *   listing confirms the identity, it does not invent the mapping.
+ *   which is #12's own id/global/bundle/types audit. The packages come from the project's
+ *   normalized set because that is the only place the package→extension relation is
+ *   recorded; the listing confirms the identity, it does not invent the mapping.
  *
  * Returns refusal problems separately from the catalog so the caller reports them in the
  * same channel as every other refusal — `audit` and `record` have to agree, and a
  * verification failure is a refusal, not a crash.
  */
 async function extensionCatalogFor(options, lock) {
+  const projectRoot = fromWorkingDirectory(options.project ?? ".");
+  const { normalized, configPath } = await projectExtensionMappings(projectRoot);
+
   const override = options["extension-catalog"];
   if (override === undefined) {
-    return { extensionCatalog: { mappings: catalogEntriesFor(core.EXTENSION_EXTERNAL_MAPPINGS) }, problems: [] };
+    return {
+      extensionCatalog: resolver.extensionCatalogOfNormalized(normalized),
+      problems: [],
+      source: configPath === undefined ? "built-in defaults (no project config)" : configPath,
+    };
   }
 
   const at = fromWorkingDirectory(override);
@@ -1182,25 +1280,32 @@ async function extensionCatalogFor(options, lock) {
   });
 
   // Only the rows the lock actually decides are audited: a listing is one project's
-  // designer state, and holding it to every row of the shipped table would report a
+  // designer state, and holding it to every row of the project's set would report a
   // finding for each extension this project legitimately does not use.
+  const declaredRows = normalized.mappings;
   const decided = new Set(
     lock.decisions.filter(decision => decision.strategy === "extension").map(decision => decision.packageName),
   );
-  const relevant = core.EXTENSION_EXTERNAL_MAPPINGS.filter(
+  const relevant = declaredRows.filter(
     mapping => decided.has(mapping.packageName) || (mapping.moduleIds ?? []).some(id => decided.has(id)),
   );
 
   // `auditExtensionLibraryMetadata` is #12's own audit of a mapping against real metadata:
   // stable id, published global, bundle presence, type definitions. Reused rather than
   // re-derived so the CLI and the compiler cannot disagree about what "verified" means.
+  //
+  // The findings it raises are about the *listing*, and their fix owners are the listing's:
+  // a missing bundle or type definition is the extension owner's to fix, a wrong global is
+  // the mapping row's. That is why this audit runs only on the listing path and never on
+  // the declared-rows path — a config row is not a listing, and asking it to prove a bundle
+  // exists would be asking the wrong document the right question (#87's fourth plan item).
   const diagnostics = core.auditExtensionLibraryMetadata(listings, { mappings: relevant });
   if (diagnostics.length > 0) {
     return {
       extensionCatalog: { mappings: [] },
-      // Formatted like `validateLockDecisionConformance`'s problems so every refusal this
-      // command prints reads the same way.
-      problems: diagnostics.map(diagnostic => `${diagnostic.subject}: [${diagnostic.code}] ${diagnostic.detail}`),
+      problems: diagnostics.map(
+        diagnostic => `${diagnostic.subject}: [${diagnostic.code}] ${diagnostic.detail} (fix owner: ${core.extensionExternalDiagnosticRule(diagnostic.code).fixOwner})`,
+      ),
     };
   }
 
@@ -1209,14 +1314,14 @@ async function extensionCatalogFor(options, lock) {
   );
   if (unverifiable.length > 0) {
     // A listing confirms identities; it cannot establish which npm package an extension
-    // provides, and that relation lives in the shipped table. Saying so here is better
-    // than letting the conformance audit report the same package as merely "not
+    // provides, and that relation lives in the project's declared rows. Saying so here is
+    // better than letting the conformance audit report the same package as merely "not
     // verified" — the caller needs to know the *listing* was the wrong input for this.
     return {
       extensionCatalog: { mappings: [] },
       problems: unverifiable.map(
         packageName =>
-          `${packageName}: [extension-mapping-not-declared] A raw listing cannot establish that an extension provides "${packageName}": only a declared mapping records which npm package an extension answers for, and this repository declares none for it. Pass a verified mapping catalog with a \`packageName\` row instead, or use a package the shipped table declares.`,
+          `${packageName}: [extension-mapping-not-declared] A raw listing cannot establish that an extension provides "${packageName}": only a declared mapping records which npm package an extension answers for, and this project declares none for it (${configPath ?? "no forguncy.config.ts"}). Pass a verified mapping catalog with a \`packageName\` row instead, or declare the row under \`extensions.mappings\` in the project config (Issue #85).`,
       ),
     };
   }
@@ -2176,7 +2281,12 @@ Commands:
   status  --project <dir>         Read the lock back and report each record's freshness.
 
 Options:
-  --project <dir>   Project root holding the package (default: current directory).
+  --project <dir>   Project root holding the package (default: current directory). It also
+                    supplies the extension mappings \`extension\` records are checked against:
+                    the catalog is \`forguncy.config.ts\`'s \`extensions\` block normalized once
+                    (Issue #85), so a custom project extension is verified here exactly as the
+                    compiler resolves it (#87). With no config in that root, the built-in
+                    table is the normalized default.
   --decision <file> The Agent-formed decision JSON. See this script's header for its shape.
   --no-cache        Force a fresh probe instead of reusing .fgc/probe-cache/. The
                     measurement is still persisted as evidence, so the lock's
@@ -2242,7 +2352,7 @@ const { command, options } = parseArguments(process.argv.slice(2));
 
 switch (command) {
   case "policy":
-    print(await policySurface(), options);
+    print(await policySurface(options), options);
     break;
   case "probe": {
     const packageName = options.positionals[0];

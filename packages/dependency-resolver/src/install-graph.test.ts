@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -123,6 +123,45 @@ describe("resolving exact installed versions", () => {
     expect(versions).toEqual({ react: "19.2.7", "react/jsx-runtime": "19.2.7" });
   });
 
+  it("resolves the same install when the project root is not a canonical path", async () => {
+    // The GitHub Windows runner addresses its temp directory through an 8.3 short name
+    // (`C:\Users\RUNNER~1\AppData\Local\Temp`), and `realpath` expands it to `runneradmin`.
+    // `package-locator` realpaths the directory it located, so the located path is canonical
+    // while the `projectRoot` a caller handed in is not — and the prefix test in
+    // `isInProjectGraph` is then false for every package, so the entire install graph reads as
+    // `not-installed`. Measured on CI as 17 assertion failures across this file,
+    // `local-decision-projection`, `extension-substitutions` and `local-dev-audit-server`, all
+    // of them `expected {} to deeply equal { dayjs: '1.11.13' }` in some form — while the same
+    // commit was green on a developer machine whose temp path has no short name.
+    //
+    // The stand-in is a junction **beside** the real directory, not inside it. That placement is
+    // the whole of the test: the guard also accepts any path under an ancestor's `node_modules`,
+    // so a link created as a child of the real root resolves through an ancestor and the case
+    // passes even with the defect present — measured, which is why this is a sibling. The
+    // assertion is that the two spellings of one directory answer identically.
+    const base = await mkdtemp(join(tmpdir(), "fgc-install-graph-alias-"));
+    const real = join(base, "real-project");
+    await writeFileAt(join(real, "package.json"), JSON.stringify({ name: "probe-project", version: "0.0.0" }));
+    await install(real, "dayjs", { name: "dayjs", version: "1.11.13" });
+
+    const alias = join(base, "alias");
+    try {
+      await symlink(real, alias, "junction");
+    } catch (error) {
+      // A platform without the privilege to create it (Windows without developer mode). The
+      // property is still worth asserting where it can be; skipping is honest, and the CI leg
+      // that found this runs on a file system that supports it.
+      process.stderr.write(`install-graph: junction unavailable, skipping the alias case: ${String(error)}\n`);
+      return;
+    }
+
+    const canonical = await resolveInstalledVersions(real, ["dayjs"]);
+    const viaAlias = await resolveInstalledVersions(alias, ["dayjs"]);
+
+    expect(canonical.versions).toEqual({ dayjs: "1.11.13" });
+    expect(viaAlias).toEqual(canonical);
+  });
+
   it("reports a package that is not installed rather than throwing", async () => {
     // A lock can record a package the workspace has not installed — an edit in
     // progress — and `LockEnvironment` already turns a missing entry into
@@ -158,6 +197,93 @@ describe("resolving exact installed versions", () => {
 
     expect(versions).toEqual({});
     expect(unresolved).toEqual([{ packageName: "versionless", reason: "manifest-without-version" }]);
+  });
+
+  it("reads the version of an import-only package rather than calling it not installed", async () => {
+    // #89's defect, at this module's level: `exports` publishing only an `import`
+    // branch fails both `require.resolve` attempts, so the package was reported as
+    // missing from the install graph while it is installed. The lock's staleness
+    // rule is this map's consumer, so a false "not installed" makes a recorded
+    // decision report `package-version-unknown` for a package that never moved.
+    const root = await project();
+    await install(root, "import-only-lib", {
+      name: "import-only-lib",
+      version: "3.2.1",
+      type: "module",
+      exports: { ".": { import: "./lib/index.js" } },
+    });
+    await writeFileAt(join(root, "node_modules", "import-only-lib", "lib", "index.js"), "export const a = 1;\n");
+
+    const { versions, unresolved } = await resolveInstalledVersions(root, ["import-only-lib"]);
+
+    expect(versions).toEqual({ "import-only-lib": "3.2.1" });
+    expect(unresolved).toEqual([]);
+  });
+
+  it("reads the version of a package whose exports publishes no root entry", async () => {
+    const root = await project();
+    await install(root, "subpath-only-lib", {
+      name: "subpath-only-lib",
+      version: "4.0.0",
+      type: "module",
+      exports: { "./only": { import: "./lib/only.js" } },
+    });
+    await writeFileAt(join(root, "node_modules", "subpath-only-lib", "lib", "only.js"), "export const a = 1;\n");
+
+    const { versions } = await resolveInstalledVersions(root, ["subpath-only-lib"]);
+
+    expect(versions).toEqual({ "subpath-only-lib": "4.0.0" });
+  });
+
+  it("reports an unreadable manifest as such, not as a missing package", async () => {
+    // Reachable for the first time (#89). The climb this module used to run swallowed
+    // a JSON parse failure and kept walking, so a corrupt package root came back as
+    // `not-installed` — telling the reader to run `install` when the file is present
+    // and broken.
+    const root = await project();
+    await writeFileAt(join(root, "node_modules", "corrupt", "package.json"), '{ "name": "corrupt", ');
+
+    const { versions, unresolved } = await resolveInstalledVersions(root, ["corrupt"]);
+
+    expect(versions).toEqual({});
+    expect(unresolved).toEqual([{ packageName: "corrupt", reason: "manifest-unreadable" }]);
+  });
+
+  it("does not report a missing package when the project's own manifest is unreadable", async () => {
+    // The catch-all this replaces turned every resolver failure into `not-installed`, so a
+    // corrupt *project* manifest made every recorded package look uninstalled — and the
+    // lock's reader would be told to run `install` for a project file that is broken.
+    const root = await mkdtemp(join(tmpdir(), "fgc-install-graph-base-"));
+    await writeFile(join(root, "package.json"), '{ "name": "broken", ', "utf8");
+
+    const { versions, unresolved } = await resolveInstalledVersions(root, ["dayjs"]);
+
+    expect(versions).toEqual({});
+    expect(unresolved).toEqual([{ packageName: "dayjs", reason: "base-unreadable" }]);
+  });
+
+  it("reports a request that is not a package name as invalid-specifier", async () => {
+    // A lock record naming `node:fs` or `./x` is a lock defect, not an unrun install.
+    const root = await project();
+
+    const { unresolved } = await resolveInstalledVersions(root, ["node:fs", "./local.js"]);
+
+    expect(unresolved).toEqual([
+      { packageName: "./local.js", reason: "invalid-specifier" },
+      { packageName: "node:fs", reason: "invalid-specifier" },
+    ]);
+  });
+
+  it("reports a manifest that declares no name as a name mismatch, not as the request", async () => {
+    // A manifest that parses but names nothing cannot be recorded as the artifact the
+    // request names — that is the same defect as an alias from a caller's side.
+    const root = await project();
+    await install(root, "nameless", { version: "1.0.0" });
+
+    const { versions, unresolved } = await resolveInstalledVersions(root, ["nameless"]);
+
+    expect(versions).toEqual({});
+    expect(unresolved).toEqual([{ packageName: "nameless", reason: "manifest-name-mismatch" }]);
   });
 
   it("does not answer for the project root when the package is absent", async () => {

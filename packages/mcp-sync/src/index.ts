@@ -59,7 +59,14 @@ export {
 export type { CellSyncTargetPlan, ResolvedCellSyncTarget } from "./registry-target.ts";
 
 // The designer surface the flow needs, and the operations it deliberately lacks
-export { FORGUNCY_SYNC_PORT_METHODS, REACT_CELL_TYPE_NAME } from "./port.ts";
+// `REACT_CELL_TYPE_READ_BACK_NAMES` is exported beside `REACT_CELL_TYPE_NAME` because the two
+// answer different questions — what sync *writes* versus what a read reports for the same cell
+// type — and #115 is what happens when one is used for the other.
+export {
+  FORGUNCY_SYNC_PORT_METHODS,
+  REACT_CELL_TYPE_NAME,
+  REACT_CELL_TYPE_READ_BACK_NAMES,
+} from "./port.ts";
 export type {
   ForguncySyncPort,
   ForguncySyncPortMethod,
@@ -101,6 +108,7 @@ export {
   SYNC_CAPABILITY_IDS,
   syncCapabilityEvidenceChannels,
   SYNC_EVIDENCE_SOURCE_IDS,
+  observedVersionsOf,
   SYNC_EVIDENCE_SOURCES,
   syncMutationStep,
   unestablishedSyncCapabilities,
@@ -150,16 +158,44 @@ export type {
 } from "./diagnostics.ts";
 
 // What a sync promises
+// Two coverage reports, and they answer different questions about the same triple:
+// `unexecutedRuntimeCoverage` is per (promise, route, version) cell, and
+// `unexecutedRuntimeVersionCoverage` groups those cells by version — which is the shape a
+// caller asking "is this build validated?" wants. Three independent booleans could not express
+// a cell, which is what #116's review found.
 export {
   EXECUTED_AGAINST_DESIGNER,
+  EXECUTED_AGAINST_REPROBE,
+  findSyncExecution,
   findSyncGuarantee,
   locallyCheckableSyncGuarantees,
   realRuntimeSyncGuarantees,
+  SYNC_EXECUTIONS,
+  SYNC_EXECUTION_IDS,
+  SYNC_MEASURED_VERSION_CONTEXT,
+  SYNC_MEASURED_VERSIONS,
+  SYNC_SUPPORTED_VERSIONS,
   SYNC_GUARANTEE_IDS,
   SYNC_GUARANTEES,
+  SYNC_RUNTIME_ROUTE_MEANINGS,
+  SYNC_RUNTIME_ROUTES,
+  syncCoverageCells,
   unexecutedRealRuntimeSyncGuarantees,
+  unexecutedRuntimeCoverage,
+  unexecutedRuntimeVersionCoverage,
 } from "./guarantees.ts";
-export type { SyncGuarantee, SyncGuaranteeId } from "./guarantees.ts";
+export type {
+  SyncCoverageCell,
+  SyncExecution,
+  SyncExecutionId,
+  SyncMeasuredVersion,
+  SyncSupportedVersion,
+  SyncGuarantee,
+  SyncGuaranteeId,
+  SyncRuntimeRoute,
+  UnexecutedCoverage,
+  UnexecutedVersionCoverage,
+} from "./guarantees.ts";
 
 // The generated-artifact fingerprint and its marker
 export {
@@ -237,6 +273,8 @@ export type {
   CellSyncHoldReason,
   CellSyncMutation,
   CellSyncPlan,
+  CellSyncRefusalDispatch,
+  CellSyncRefusalReason,
   CellSyncWrite,
   PlanCellSyncOptions,
   SyncStepPlan,

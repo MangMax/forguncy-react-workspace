@@ -1,13 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createServer } from "vite";
 
+import { RUNTIME_CONTRACT_TARGET } from "@forguncy-react-workspace/core";
 import type { ForguncyConfig } from "@forguncy-react-workspace/core";
 
-import { removeTempProject } from "./temp-project.ts";
+import { canonicalTempProject, removeTempProject } from "./temp-project.ts";
 import { devHarness } from "./vite-plugin.ts";
 
 /**
@@ -35,7 +35,11 @@ import { devHarness } from "./vite-plugin.ts";
  */
 /** A throwaway project with a Cell, a shim, and a substitute package the project's tree installs. */
 function projectWithShim(): { root: string; shimMarker: string; substitutePackageMarker: string } {
-  const root = mkdtempSync(join(tmpdir(), "dev-harness-subst-"));
+  // Canonicalized, because this project is *served*: Vite refuses to serve any path that looks
+  // like a Windows short name (`looksLikeWindowsShortNamePath`), before its allow list is even
+  // consulted. On the GitHub Windows runner `os.tmpdir()` is `C:\Users\RUNNER~1\…`, so a raw
+  // temp root makes every authored module a 403. See `canonicalTempProject`.
+  const root = canonicalTempProject("dev-harness-subst-");
   onTestFinished(() => removeTempProject(root));
 
   const shimMarker = "PROJECT_SHIM_MARKER_7f3a";
@@ -131,8 +135,8 @@ function projectWithShim(): { root: string; shimMarker: string; substitutePackag
           probe: { status: "passed", fingerprint: "probe=x", versionIndependent: false },
           target: {
             product: "Forguncy",
-            productVersion: "12.0.100.0",
-            productBuild: "12.0.100.0+3d6e56feb0e449ed1cc71cc44d9f34060a06f623",
+            productVersion: RUNTIME_CONTRACT_TARGET.productVersion,
+            productBuild: RUNTIME_CONTRACT_TARGET.productBuild,
             hostReactVersion: "19.2.7",
           },
           probedWith: { vitePlus: "0.3.2" },
@@ -298,8 +302,8 @@ function writeLockWithCellScopedDecision(
     probe: { status: "passed", fingerprint: "probe=x", versionIndependent: false },
     target: {
       product: "Forguncy",
-      productVersion: "12.0.100.0",
-      productBuild: "12.0.100.0+3d6e56feb0e449ed1cc71cc44d9f34060a06f623",
+      productVersion: RUNTIME_CONTRACT_TARGET.productVersion,
+      productBuild: RUNTIME_CONTRACT_TARGET.productBuild,
       hostReactVersion: "19.2.7",
     },
     probedWith: { vitePlus: "0.3.2" },
@@ -457,8 +461,8 @@ describe("a stale choice is reported but never applied", () => {
             probe: { status: "passed", fingerprint: "probe=x", versionIndependent: false },
             target: {
               product: "Forguncy",
-              productVersion: "12.0.100.0",
-              productBuild: "12.0.100.0+3d6e56feb0e449ed1cc71cc44d9f34060a06f623",
+              productVersion: RUNTIME_CONTRACT_TARGET.productVersion,
+              productBuild: RUNTIME_CONTRACT_TARGET.productBuild,
               hostReactVersion: "19.2.7",
             },
             probedWith: { vitePlus: "0.3.2" },
@@ -640,8 +644,8 @@ describe("a declaration that cannot be honoured fails loudly rather than resolvi
             probe: { status: "passed", fingerprint: "probe=x", versionIndependent: false },
             target: {
               product: "Forguncy",
-              productVersion: "12.0.100.0",
-              productBuild: "12.0.100.0+3d6e56feb0e449ed1cc71cc44d9f34060a06f623",
+              productVersion: RUNTIME_CONTRACT_TARGET.productVersion,
+              productBuild: RUNTIME_CONTRACT_TARGET.productBuild,
               hostReactVersion: "19.2.7",
             },
             probedWith: { vitePlus: "0.3.2" },

@@ -50,7 +50,11 @@
  * `extension` record with no catalog produced no complaint at all.
  */
 
-import type { DependencyStrategy, LockedDependencyDecision } from "@forguncy-react-workspace/core";
+import type {
+  DependencyStrategy,
+  LockedDependencyDecision,
+  NormalizedExtensionMappings,
+} from "@forguncy-react-workspace/core";
 import {
   CELL_PRESET_LIBRARIES,
   compareLockDecisions,
@@ -133,6 +137,73 @@ export interface VerifiedExtensionMapping {
 
 export interface ExtensionCatalog {
   readonly mappings: readonly VerifiedExtensionMapping[];
+}
+
+/**
+ * The catalog a project's normalized mappings imply, for the audit above.
+ *
+ * This is #85's boundary between a *mapping set* and a *catalog*, and the two are not
+ * the same shape on purpose:
+ *
+ * - a mapping row is the compiler's record — it carries `metadataSource`,
+ *   `metadataReference`, `verifiedBy`, `verificationRule` and a `note`, because a row
+ *   the compiler compiles against has to say where its identity came from;
+ * - a catalog row is the audit's input — three fields, because the only question
+ *   `auditExtensionRecord` asks is "does this package resolve to this library and this
+ *   global".
+ *
+ * Widening the catalog to the mapping shape would give the audit fields it never reads
+ * and would make `--extension-catalog`'s mapping form (which is written by hand, and by
+ * an Agent) carry provenance the audit cannot check. Narrowing a mapping to the catalog
+ * shape loses provenance, so the projection goes one way only: a mapping set produces a
+ * catalog, and a catalog never produces a mapping set — the same direction #12's rule
+ * requires, because a catalog cannot say which npm package an extension provides.
+ *
+ * One row per module id, which is the shape `auditExtensionRecord` matches on: a
+ * decision names a package, and `@tanstack/query-core` is a package a decision may
+ * name even though it rides on another row's key. Expanding here rather than in the
+ * audit is what keeps the audit's lookup a plain filter.
+ *
+ * Takes the rows rather than a `NormalizedExtensionMappings`, so a caller that has a
+ * plain list — a test, or the Skill's `--extension-catalog` reader, which accepts a
+ * hand-written verified catalog — is not forced through the config shape to reach it.
+ * A caller holding the project's normalized set should use
+ * {@link extensionCatalogOfNormalized} instead, which is the same projection without a
+ * place to supply a second row list.
+ */
+export function extensionCatalogForMappings(
+  mappings: readonly { readonly packageName: string; readonly moduleIds?: readonly string[]; readonly libraryId: string; readonly globalName: string }[],
+): ExtensionCatalog {
+  return {
+    mappings: mappings.flatMap(mapping =>
+      [mapping.packageName, ...(mapping.moduleIds ?? [])].map(packageName => ({
+        packageName,
+        libraryId: mapping.libraryId,
+        globalName: mapping.globalName,
+      })),
+    ),
+  };
+}
+
+/**
+ * The catalog a project's normalized mapping set implies.
+ *
+ * The one-argument convenience every stage needs, and the reason it takes the *normalized*
+ * set rather than a row list: `registry.extensionMappings` is the single normalization exit
+ * (#85), so a stage that passed `normalized.mappings` to {@link extensionCatalogForMappings}
+ * itself would be choosing a subset of that exit — and the two callers that exist
+ * (the dev harness's conformance audit and the sync's extension verification) both read
+ * `registry.extensionMappings.mappings`. Taking the whole object keeps the projection
+ * impossible to point at a second table: there is no row list to supply.
+ *
+ * `projectMappings` and `builtinMappings` are deliberately *not* used here. The catalog is
+ * what a recorded extension decision is checked against; a decision does not say whether its
+ * row came from the project or the repository, and the compiler plans from the union —
+ * `normalized.mappings` — so auditing against a subset would refuse a decision the compiler
+ * accepts.
+ */
+export function extensionCatalogOfNormalized(normalized: NormalizedExtensionMappings): ExtensionCatalog {
+  return extensionCatalogForMappings(normalized.mappings);
 }
 
 export interface ConformanceOptions {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hostBridgeGlobalMappings, HOST_BRIDGE_MAPPINGS } from "@forguncy-react-workspace/core";
+import { hostBridgeGlobalMappings, HOST_BRIDGE_MAPPINGS, normalizeExtensionMappings } from "@forguncy-react-workspace/core";
 
 import type {
   ConformanceDiagnostic,
@@ -15,6 +15,8 @@ import {
   auditLockDecisionConformance,
   conformanceErrors,
   DEFAULT_HOST_BRIDGE_MANIFEST,
+  extensionCatalogForMappings,
+  extensionCatalogOfNormalized,
   FGC_LOCK_SCHEMA_VERSION,
   forguncyTargetIdentity,
   JSX_RUNTIME_MODULE_IDS,
@@ -453,6 +455,169 @@ describe("extension records against #12", () => {
     expect(codes(empty)).toEqual(["extension-library-not-verified"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The catalog a project's mappings imply (#85)
+// ---------------------------------------------------------------------------
+
+describe("a catalog projected from a mapping set (#85)", () => {
+  it("expands a row's `moduleIds` into their own catalog rows", () => {
+    // The shape `auditExtensionRecord` matches on is per *package*, while a mapping row
+    // is keyed by its primary package and lists its siblings. A projection that copied
+    // only `packageName` therefore answered for a strict subset of the packages the
+    // compiler accepts — measured on the shipped table before this function existed:
+    // the hand-written projection in `dev-harness` produced a catalog containing only
+    // `@tanstack/react-query`, and a decision naming `@tanstack/query-core` came back
+    // `extension-library-not-verified` as a **blocking** error while `planExtensionExternals`
+    // accepted the same decision.
+    const projected = extensionCatalogForMappings([
+      { packageName: "primary-package", moduleIds: ["sibling-package"], libraryId: "lib", globalName: "Lib" },
+    ]);
+
+    expect(projected.mappings).toEqual([
+      { packageName: "primary-package", libraryId: "lib", globalName: "Lib" },
+      { packageName: "sibling-package", libraryId: "lib", globalName: "Lib" },
+    ]);
+  });
+
+  it("makes a decision naming a row's sibling package checkable, where the old projection refused it", () => {
+    // The regression itself, asserted end to end rather than on the projection's shape:
+    // the harness and the compiler must agree about which packages a row answers for.
+    const projected = extensionCatalogForMappings([
+      { packageName: "@tanstack/react-query", moduleIds: ["@tanstack/query-core"], libraryId: "tanstack-query", globalName: "TanStackQuery" },
+    ]);
+
+    expect(
+      auditLockDecisionConformance(lock(extensionRecord("@tanstack/query-core", "tanstack-query", "TanStackQuery")), {
+        extensionCatalog: projected,
+      }),
+    ).toEqual([]);
+  });
+
+  it("carries no provenance, so the audit is not handed fields it cannot check", () => {
+    // The direction is deliberate: a mapping set produces a catalog, never the reverse,
+    // because a catalog cannot say which npm package an extension provides (#12's rule)
+    // and the audit has nothing to check a `metadataReference` against.
+    const projected = extensionCatalogForMappings([
+      { packageName: "some-package", libraryId: "lib", globalName: "Lib" },
+    ]);
+
+    expect(Object.keys(projected.mappings[0]!).sort()).toEqual(["globalName", "libraryId", "packageName"]);
+  });
+
+  it("projects a project's own rows and the built-in table through one function", () => {
+    // The seam #85 leaves to #87: a project row reaches the audit the same way a
+    // built-in row does, so "the harness audits as the compiler does" holds for both.
+    const projected = extensionCatalogForMappings([
+      { packageName: "@tanstack/react-query", moduleIds: ["@tanstack/query-core"], libraryId: "tanstack-query", globalName: "TanStackQuery" },
+      { packageName: "@acme/widgets", libraryId: "acme-widgets", globalName: "AcmeWidgets" },
+    ]);
+
+    expect(projected.mappings.map(mapping => mapping.packageName)).toEqual([
+      "@tanstack/react-query",
+      "@tanstack/query-core",
+      "@acme/widgets",
+    ]);
+    expect(
+      auditLockDecisionConformance(lock(extensionRecord("@acme/widgets", "acme-widgets", "AcmeWidgets")), {
+        extensionCatalog: projected,
+      }),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * The one-argument catalog every stage that holds a registry uses (#87).
+ *
+ * `extensionCatalogForMappings` takes a row list, which is right for a caller whose rows
+ * come from somewhere else — a test, a hand-written verified catalog. It is the wrong
+ * shape for a stage holding `registry.extensionMappings`, because that object *is* the
+ * normalization exit and a stage reaching into it for `.mappings` is choosing a subset of
+ * one answer. {@link extensionCatalogOfNormalized} is that projection with no row list to
+ * supply, so the dev harness and the sync cannot audit against a table the compiler never
+ * planned from.
+ */
+describe("the catalog a project's normalized mappings imply (#87)", () => {
+  it("audits a project row exactly as it audits a built-in one", () => {
+    // A custom extension is the case: the compiler plans from `extensions.mappings` in
+    // `forguncy.config.ts`, and a catalog that stopped at `core`'s table reported the same
+    // decision `extension-library-not-verified` — the "Skill accepts, harness refuses"
+    // split #87 names. The row here is deliberately not in the shipped table.
+    const normalized = normalizedMappings({
+      extensions: { mappings: [{ ...projectRow("@acme/widgets", "acme-widgets", "AcmeWidgets") }] },
+    });
+    const catalog = extensionCatalogOfNormalized(normalized);
+
+    expect(catalog.mappings.map(mapping => mapping.packageName)).toEqual(
+      expect.arrayContaining(["@tanstack/react-query", "@tanstack/query-core", "@acme/widgets"]),
+    );
+    expect(
+      auditLockDecisionConformance(lock(extensionRecord("@acme/widgets", "acme-widgets", "AcmeWidgets")), {
+        extensionCatalog: catalog,
+      }),
+    ).toEqual([]);
+  });
+
+  it("widens `moduleIds` on a project row the way it does on a built-in one", () => {
+    // One row, two npm imports, one library: the compiler intercepts both ids, so the audit
+    // has to see both. A projection that kept `packageName` only would refuse the sibling.
+    const normalized = normalizedMappings({
+      extensions: {
+        mappings: [{ ...projectRow("@acme/widgets", "acme-widgets", "AcmeWidgets"), moduleIds: ["@acme/widgets-core"] }],
+      },
+    });
+
+    const catalog = extensionCatalogOfNormalized(normalized);
+    expect(catalog.mappings.map(mapping => mapping.packageName)).toEqual(
+      expect.arrayContaining(["@acme/widgets", "@acme/widgets-core"]),
+    );
+    expect(
+      auditLockDecisionConformance(lock(extensionRecord("@acme/widgets-core", "acme-widgets", "AcmeWidgets")), {
+        extensionCatalog: catalog,
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not answer with the row of a package the project replaced the built-in table for", () => {
+    // `builtinMappings: false` is a *stated* empty built-in set, so a package whose only rows
+    // were built-in ones is not in the catalog — and a decision naming it is refused. Deriving
+    // from `normalized.mappings` rather than from `builtinMappings` is what makes that true.
+    const normalized = normalizedMappings({ extensions: { builtinMappings: false } });
+    const catalog = extensionCatalogOfNormalized(normalized);
+
+    expect(catalog.mappings).toEqual([]);
+    expect(
+      auditLockDecisionConformance(lock(extensionRecord("@tanstack/react-query", "tanstack-query", "TanStackQuery")), {
+        extensionCatalog: catalog,
+      }).map(diagnostic => diagnostic.code),
+    ).toEqual(["extension-library-not-verified"]);
+  });
+});
+
+/** A project row in the shape #85's config reader accepts. */
+function projectRow(packageName: string, libraryId: string, globalName: string) {
+  return {
+    packageName,
+    libraryId,
+    globalName,
+    metadataSource: "verified-catalog" as const,
+    metadataReference: `MangMax/forguncy-react-library#${libraryId}`,
+    verificationRule: "A verified catalog entry whose id and global the listing confirms.",
+    verifiedBy: ["product-documentation"] as const,
+    note: "a project row, which the built-in table does not carry",
+  };
+}
+
+/** #85's normalization, or a throw that prints the diagnostics. */
+function normalizedMappings(config: unknown) {
+  const result = normalizeExtensionMappings(config);
+  if (!result.ok) {
+    throw new Error(
+      result.diagnostics.map(diagnostic => `${diagnostic.path}: [${diagnostic.code}] ${diagnostic.message}`).join("\n"),
+    );
+  }
+  return result.mappings;
+}
 
 describe("the audit itself", () => {
   it("reports nothing for an empty lock", () => {

@@ -107,6 +107,10 @@ export {
 } from "./vite-plugin.ts";
 export type { DevHarnessOptions, DevHarnessVitePlugin } from "./vite-plugin.ts";
 
+// The top-level Vite config helper (#125): the plugin, the host plan and Fast Refresh assembled
+// in the order the loop needs, with the project's own config preserved over the defaults.
+export { defineForguncyViteConfig } from "./vite-config.ts";
+
 // The project's local-dev configuration, audited at server start (#23 plan step 5)
 export {
   auditHarnessConfiguration,
@@ -124,6 +128,7 @@ export {
   formatLocalDecisionProjection,
   installedVitePlusToolchain,
   LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS,
+  normalizeBuiltinExtensionCatalog,
   projectLocalDecisions,
 } from "./local-decision-projection.ts";
 export type { LocalDecisionProjection, WithheldLocalDecision } from "./local-decision-projection.ts";

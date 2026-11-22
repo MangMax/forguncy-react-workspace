@@ -1,0 +1,15 @@
+{
+  "name": "fgc-fixture-hidden",
+  "version": "5.0.2",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./esm/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/fgc-fixture-hidden.git"
+  }
+}

@@ -12,6 +12,8 @@ import {
   CELL_PRESET_LIBRARY_DEFAULT,
   CELL_PROPS_BASE_KEYS,
   CELL_PROPS_KEY_ORDER,
+  CELL_RUNTIME_BINDING_CONTRACT,
+  CELL_RUNTIME_BINDING_HOST_NAMES,
   CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR,
   CELL_SERVER_COMMANDS_CONTRACT,
   CELL_SERVER_COMMAND_RESULT_KEYS,
@@ -38,8 +40,10 @@ import {
   rejectedCellSourceConstructs,
   RUNTIME_CONTRACT_TARGET,
   RUNTIME_CONTRACT_UNKNOWNS,
+  RUNTIME_CONTRACT_TARGET_FIELD_SOURCES,
+  RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
 } from "./runtime-contract.ts";
-import type { RuntimeEvidenceChannel } from "./runtime-contract.ts";
+import type { RuntimeContractTargetField, RuntimeEvidenceChannel } from "./runtime-contract.ts";
 import {
   citesDecision,
   citesEveryArchitectureDecision,
@@ -85,6 +89,13 @@ const NON_FACT_EXPORTS: readonly string[] = [
   // An unanswered question is recorded precisely because nobody observed an
   // answer, so requiring evidence on it would be backwards.
   "RUNTIME_CONTRACT_UNKNOWNS",
+  // The *absence* of an observation, listed per field. Its entries are field names, not claims
+  // about the product, and the evidence that they are absent is the absence itself — which is
+  // the same reasoning as `RUNTIME_CONTRACT_UNKNOWNS` above, and the reason
+  // `RUNTIME_CONTRACT_TARGET.evidence` had to drop `generated-runtime-browser` rather than keep
+  // it: this list and that array are the same fact stated twice, so it is checked against the
+  // target's own channels by the provenance tests instead of by carrying evidence here.
+  "RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED",
 ];
 
 /**
@@ -122,6 +133,7 @@ const DERIVED_EXPORTS: readonly DerivedExportRule[] = [
   },
   { name: "CELL_PROPS_BASE_KEYS", source: "CELL_PROPS_KEY_ORDER", path: ["baseKeys"] },
   { name: "CELL_FORGUNCY_PROP_KEYS", source: "CELL_FORGUNCY_FACADE", path: ["keys"] },
+  { name: "CELL_RUNTIME_BINDING_HOST_NAMES", source: "CELL_RUNTIME_BINDING_CONTRACT", path: ["hostNames"] },
   { name: "CELL_SERVER_COMMAND_RESULT_KEYS", source: "CELL_SERVER_COMMANDS_CONTRACT", path: ["resultKeys"] },
   {
     name: "FRONTEND_LIBRARY_REFERENCE_EXAMPLE",
@@ -213,6 +225,24 @@ function auditExportedFacts(module: Record<string, unknown>): {
       continue;
     }
 
+    // A map whose *entries* are the facts. `RUNTIME_CONTRACT_TARGET_FIELD_SOURCES` is one, and
+    // it was the first export that is a keyed record rather than a fact or a list of them: the
+    // traversal fell through to `evidenceProblem` on the map itself, which has no `evidence`
+    // property, and reported "has no evidence array" — a false positive that would have been
+    // silenced with a `NON_FACT_EXPORTS` entry.
+    //
+    // That exemption would have been wrong twice over. The entries *do* carry evidence (it is
+    // the whole point of the table), and the entry being checked is the innermost thing that
+    // could claim something without a source. Teaching the traversal the shape keeps the check
+    // running on it, so a future row that drops its `evidence` fails like any other fact.
+    if (isEvidenceBearingMap(value)) {
+      for (const [key, entry] of Object.entries(value)) {
+        const why = evidenceProblem(entry);
+        if (why) problems.push(`${name}.${key} ${why}`);
+      }
+      continue;
+    }
+
     const why = evidenceProblem(value);
     if (why) problems.push(`${name} ${why}`);
   }
@@ -220,10 +250,26 @@ function auditExportedFacts(module: Record<string, unknown>): {
   return { problems, inspected };
 }
 
+/**
+ * A plain object whose every value is a fact record, and which therefore is a container of
+ * facts rather than a fact itself.
+ *
+ * Deliberately narrow: every own value must satisfy {@link evidenceProblem}, so a map with one
+ * bare string in it is not this shape and falls through to the ordinary check. An empty object
+ * does not qualify either — it is reported as `is not a fact record` rather than passing
+ * vacuously, which is the failure mode an "empty map" exemption would introduce.
+ */
+function isEvidenceBearingMap(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
+  if (entries.length === 0) return false;
+  return entries.every(([, entry]) => evidenceProblem(entry) === undefined);
+}
+
 describe("runtime contract target", () => {
   it("pins the exact product build the contract was established against", () => {
-    expect(RUNTIME_CONTRACT_TARGET.productVersion).toBe("12.0.100.0");
-    expect(RUNTIME_CONTRACT_TARGET.productBuild).toContain("12.0.100.0+");
+    expect(RUNTIME_CONTRACT_TARGET.productVersion).toBe("12.0.101.0");
+    expect(RUNTIME_CONTRACT_TARGET.productBuild).toContain("12.0.101.0+");
     expect(RUNTIME_CONTRACT_TARGET.hostReactVersion).toBe("19.2.7");
     expect(RUNTIME_CONTRACT_TARGET.hostReactDomVersion).toBe(RUNTIME_CONTRACT_TARGET.hostReactVersion);
     expect(RUNTIME_CONTRACT_TARGET.browserTranspilerVersion).toBe("7.29.4");
@@ -238,9 +284,77 @@ describe("runtime contract target", () => {
 
   it("renders a header a report or PR body can carry", () => {
     const header = describeRuntimeContractTarget();
-    expect(header).toContain("12.0.100.0");
+    expect(header).toContain("12.0.101.0");
     expect(header).toContain("19.2.7");
     expect(header).toContain("7.29.4");
+  });
+
+  // #116's review: a re-base that moves the target while leaving fields recorded on the old
+  // build hands `local-dev.ts` numbers it never checked, and a comment does not stop a consumer
+  // reading them as re-verified. The provenance table is the machine-readable half of the fix, so
+  // these checks are about it staying *total* and *consistent* with the target.
+  describe("field-level provenance", () => {
+    it("gives every product-stating field a source", () => {
+      const productFields = Object.keys(RUNTIME_CONTRACT_TARGET).filter(
+        key => key !== "decision" && key !== "evidence",
+      ) as readonly RuntimeContractTargetField[];
+
+      expect(Object.keys(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES).sort()).toEqual([...productFields].sort());
+      // Not vacuous: the check would pass on an empty table if the two lists were both empty.
+      expect(productFields.length).toBeGreaterThan(4);
+    });
+
+    it("marks a field carried forward exactly when it was not measured on this build", () => {
+      for (const [field, source] of Object.entries(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES)) {
+        const current = RUNTIME_CONTRACT_TARGET.productVersion;
+        // The flag and the observed build cannot disagree — a field cannot claim to be current
+        // while naming an older one, or claim to be historical while naming the current build.
+        expect(source.carriedForward, field).toBe(source.observedOn === current ? undefined : true);
+      }
+    });
+
+    it("keeps every field's evidence inside the target's own channels", () => {
+      for (const [field, source] of Object.entries(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES)) {
+        for (const channel of source.evidence) {
+          expect(RUNTIME_CONTRACT_TARGET.evidence, field).toContain(channel);
+        }
+      }
+    });
+
+    // The specific overclaim the review named: `generated-runtime-browser` stayed in the
+    // target's `evidence` across the re-base although no browser observation was made on the new
+    // build, and the version fields are exactly the ones a consumer reads as "what the page runs".
+    it("does not claim a browser observation this build did not make", () => {
+      expect(RUNTIME_CONTRACT_TARGET.evidence).not.toContain("generated-runtime-browser");
+
+      for (const field of RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED) {
+        const source = RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field];
+        expect(source, field).toBeDefined();
+        expect(source.evidence, field).not.toContain("generated-runtime-browser");
+      }
+      // The two version fields a machine consumer reads must both be named, and the list must
+      // not be longer than the fields it is about.
+      expect([...RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED].sort()).toEqual([
+        "browserTranspilerVersion",
+        "hostReactDomVersion",
+        "hostReactVersion",
+      ]);
+    });
+
+    // The file's own rule is that a question the probe could not settle lives in
+    // `RUNTIME_CONTRACT_UNKNOWNS` rather than being guessed into the contract. The missing
+    // browser observation is such a question, so it has to be there and not only here.
+    it("carries the missing browser observation as an open question", () => {
+      const open = openRuntimeContractQuestions("#120");
+
+      expect(open.map(question => question.id)).toContain("host-versions-not-browser-observed-101");
+      // It must name the real blocker, and must not name a credential or a second factor: an
+      // earlier version of this record said "two-step verification" on the strength of a page
+      // the reviewer of #116 had simply left open, and that wrong sentence would otherwise have
+      // been pinned by this assertion.
+      expect(open[0]?.whyOpen).toMatch(/loginByRSA|public key/);
+      expect(open[0]?.whyOpen).not.toMatch(/two-step|2FA|credential/i);
+    });
   });
 });
 
@@ -519,7 +633,21 @@ describe("rejected source", () => {
   });
 
   it("documents the error envelope both validation passes surface through", () => {
-    expect(CELL_SOURCE_REJECTION_ENVELOPE.template).toContain("ReactCellType 代码验证失败");
+    // Both measured frames, newest first, each tied to the build it was observed on — because
+    // the frame moved between 12.0.100.0 and 12.0.101.0 (#120) and a reader has to be able to
+    // tell which one it is looking at.
+    const templates = CELL_SOURCE_REJECTION_ENVELOPE.templates;
+    expect(templates.map(t => t.versions[0])).toEqual(["12.0.101.0", "12.0.100.0"]);
+    for (const { template, versions } of templates) {
+      // The inner wording and the stage placeholder are the *unchanged* parts.
+      expect(template, versions.join()).toContain("代码验证失败 [<stage>]：<message>");
+    }
+    // The current frame names the call and the property; the older one names the object.
+    expect(templates[0].template).toContain("api.page.setCells");
+    expect(templates[0].template).toContain("ReactCellType.code");
+    expect(templates[1].template).toContain("Invalid AI-generated object 'ReactCellTypeCellType'");
+    // The two are genuinely different frames, so a consumer matching one does not match the other.
+    expect(templates[0].template).not.toBe(templates[1].template);
     expect(CELL_SOURCE_REJECTION_ENVELOPE.stageTags).toEqual(["preview", "babel"]);
   });
 
@@ -634,6 +762,82 @@ describe("names visible inside a cell", () => {
     for (const binding of CELL_USER_SCOPE_BINDINGS) {
       expect(cellUserScopeBinding(binding.name), binding.name).toBe(binding);
     }
+  });
+
+  // The generated runtime binding (#82) names two of these from code the compiler emits,
+  // so the contract's list is the authority for whether that generated source may name
+  // them at all. Asserted here rather than only in the compiler, because the compiler's
+  // check is a *use* of this list and a change here is what would invalidate it.
+  it("supplies every name the generated runtime binding references", () => {
+    expect(CELL_RUNTIME_BINDING_HOST_NAMES.length).toBeGreaterThan(0);
+    for (const name of CELL_RUNTIME_BINDING_HOST_NAMES) {
+      const binding = cellUserScopeBinding(name);
+      expect(binding, name).toBeDefined();
+      // `wrapper-local` and not `injected-parameter`: the binding is generated *inside*
+      // the arrow IIFE that declares them, so it sees them as locals. A name that was
+      // only a `new Function` parameter would be in scope too, but the distinction is
+      // what says the generated code is nested where the platform nests cell source.
+      expect(binding?.kind, name).toBe("wrapper-local");
+      expect(binding?.availableInCellSource, name).toBe("always");
+    }
+  });
+});
+
+describe("the generated runtime binding contract", () => {
+  it("addresses one package and names the members it calls", () => {
+    // The three fields a generated module and the façade's own barrel have to agree on.
+    // A rename on either side is silent otherwise: the binding would call a member that
+    // no longer exists, and the failure would appear at a Cell's first façade call as
+    // `TypeError: ... is not a function` rather than as anything naming the binding.
+    expect(CELL_RUNTIME_BINDING_CONTRACT.facadeSpecifier).toBe("@forguncy-react-workspace/runtime");
+    expect(CELL_RUNTIME_BINDING_CONTRACT.installMember).toBe("installRuntimeFacadeProvider");
+    expect(CELL_RUNTIME_BINDING_CONTRACT.createProviderMember).toBe("createHostRuntimeFacadeProvider");
+  });
+
+  it("fills the provider input under the port's own member names", () => {
+    // `RUNTIME_FACADE_PORT_CHANNEL_MEMBERS` is the port's authority for how a channel is
+    // spelled, and it lives in another package. The contract here cannot import it — that
+    // would make `core` depend on `runtime` — so the correspondence is asserted as a
+    // literal, which is the one place the two spellings are allowed to meet.
+    expect(CELL_RUNTIME_BINDING_CONTRACT.providerInput).toEqual({
+      cellProps: "cellProps",
+      useDataSource: "useDataSource",
+    });
+  });
+
+  it("states an install timing that precedes the first façade call", () => {
+    // The ordering is the whole point of #82: installing later leaves the first call
+    // unserved, and the failure it produces is the `provider-not-installed` error this
+    // contract exists to remove.
+    expect(CELL_RUNTIME_BINDING_CONTRACT.installTiming).toContain("evaluated");
+    expect(CELL_RUNTIME_BINDING_CONTRACT.installTiming).toContain("App");
+  });
+
+  it("records the re-render question as narrower than it was, and still open", () => {
+    // #83's execution settled half of this: the artifact now reads props per render
+    // through the artifact-scope variable, so it is correct under both branches. What
+    // remains — which branch the product takes, and whether teardown reaches the artifact
+    // — cannot be observed from this repository, which is why it is still open and now
+    // owned by the real-page validation (#84) rather than by #83.
+    const open = RUNTIME_CONTRACT_UNKNOWNS.find(unknown => unknown.id === "artifact-re-evaluated-per-render");
+    expect(open).toBeDefined();
+    expect(open?.ownedBy).toBe("#84");
+    expect(open?.whyOpen ?? "").toContain("Settled locally (#83)");
+  });
+
+  it("names a live-props binding that the two generated modules share", () => {
+    // #83's fix turns on a variable at the artifact's own scope: the binding module's body
+    // runs once, the entry wrapper runs per render, and the provider reads whatever the
+    // wrapper last assigned. The name has to be one thing both modules read from the
+    // contract — a literal in either would be a second spelling of it, which is exactly how
+    // two generated modules drift apart.
+    const variable = CELL_RUNTIME_BINDING_CONTRACT.livePropsVariable;
+    expect(variable.startsWith("__fgc")).toBe(true);
+    // It is not a host address: nothing in the platform's scope table provides it, and
+    // declaring it in `hostNames` would tell a template it may read a name only the
+    // compiler's own output declares.
+    expect(cellUserScopeBinding(variable)).toBeUndefined();
+    expect(CELL_RUNTIME_BINDING_HOST_NAMES).not.toContain(variable);
   });
 });
 

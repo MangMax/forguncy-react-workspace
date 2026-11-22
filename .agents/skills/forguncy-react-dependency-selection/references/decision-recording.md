@@ -33,14 +33,48 @@
   "cellTarget": null,                  // 默认 null，即适用于每个 target
   "imports": ["debounce"],             // 可选：Cell 会具名导入的绑定，让尺寸估算偏向"小"（非下界）。
                                        // 省略或 null = 整个命名空间（估算偏向"大"）。详见下节。
-  "artifactEvidence": {                // rejection.code 为 cell-code-budget-exceeded 时**必填**：
-    "codeCharacters": 200000,          // 编译器对该 Cell 报出的实际测量值，逐字誊自它自己的
-    "budgetCharacters": 100000         // cell-code-budget-exceeded 诊断。详见下面「硬上限判定」。
-  },
   "validatedAgainstRuntime": false,    // 置 true 需 cite runtime-observation 且 smoke 步骤通过
   "evidence": [{ "kind": "spec-issue", "reference": "…" }]
 }
 ```
+
+### 决策文件里**没有** `artifactEvidence`
+
+这是 Agent 输入与脚本产出之间最容易搞错的一处，所以单列一节。
+
+`artifactEvidence` 是**锁记录的字段**，不是决策文件的字段。`rejection.code` 为
+`cell-code-budget-exceeded` 时，决策文件只**声明这条拒绝是哪一条**（code 加上
+`cellTarget` 指向的 Cell）；两个字符数是 `audit` / `record` **真的编译该 Cell** 之后，
+从编译器自己的诊断里取出、由脚本写进锁的。
+
+**手填会被当场拒绝，而不是被忽略**：`decisionFromFile` 对
+`document.artifactEvidence !== undefined` 直接 fail（"a compile measurement is not the
+caller's to state"）。忽略一个文件特意写上的字段，会让调用者以为自己填的数字被采纳了。
+
+这条拒绝是 #77 round 5 的结论：revision 14 曾接受文件里的两个数字，于是调用者可以挑任意
+`codeCharacters > budgetCharacters` 给自己背书——两个自证的数字，与 revision 13 移除的合成
+probe finding 一样不可信。
+
+锁记录长这样（**由脚本写入**，供核对，不要手改）：
+
+```jsonc
+{
+  "packageName": "es-toolkit",
+  "cellTarget": "capped",
+  "strategy": "replace",
+  "rejection": { "kind": "technical", "code": "cell-code-budget-exceeded", … },
+  "artifactEvidence": {                // 脚本编译该 Cell 后写入，逐字取自编译器诊断
+    "compileFingerprint": "cell=\"…\";budget=8000",
+    "subjectDecision": { "strategy": "inline" },   // 被拒前该包在该 Cell 里的策略
+    "subjectRenderedCharacters": 10597,             // 该包自己贡献的字符数（bundler 记账）
+    "codeCharacters": 15074,                        // 编译器对该 Cell 报出的实际测量值
+    "budgetCharacters": 8000                        // 那次编译实际用的上限
+  }
+}
+```
+
+字段的含义与校验见下面「硬上限判定」。`status` 会重新编译并核对其中每一项，被改过的数字
+报 `artifact-verdict-changed` / `artifact-attribution-changed`。
 
 架构拒绝（能力归 Forguncy）**不要**手写 `rejection`：`rejection` 就是归属评估自己给的那条，手写会被 `record` 拒绝（code 必须一致）。同理，架构拒绝不记 `alternatives`——替代的是能力的所有者（宿主），不是包。
 
@@ -64,11 +98,15 @@
 
 因此 `cell-artifact-budget-exceeded` 的**唯一**权威是编译器：`auditCodeBudget` 对**合成后的 Cell 源码**应用 `codeBudgetCharacters`，那里入口是 Cell 自己的、解析图是真的。probe 报告里的尺寸数字是**估算**，供 Agent 参考；它不是拒绝依据。`PROBE_STEPS_OBSERVING_SIGNAL` 里这个信号没有任何观测步骤，所以一份把该 finding 归到任何 probe 步骤的报告会被 `validateProbeReport` 判为**无效**，而不只是"不推荐"。
 
-**但这个真实的编译器判定是可记录的**，走 `artifactEvidence`：决策文件写 `rejection.code = "cell-code-budget-exceeded"` 时**必须**带上它，两个数字逐字誊自编译器自己的诊断。
+**但这个真实的编译器判定是可记录的**，而且**测量由脚本自己做**：决策文件写
+`rejection.code = "cell-code-budget-exceeded"`（外加它作用于哪个 Cell），`audit` / `record`
+就真的编译那个 Cell，把结果写进锁记录的 `artifactEvidence`。文件**不提供**任何数字——见
+上面「决策文件里没有 `artifactEvidence`」。
 
 - `codeCharacters` 是编译器对该 Cell 报出的实际测量值，`budgetCharacters` 是那次编译实际用的上限。两者都要记，是因为这样结论才**可核对**：只有 `codeCharacters > budgetCharacters` 才支持这条拒绝，校验会当场核对，对不上就拒绝记录。
-- `budgetCharacters` **必须等于**该 Cell 在 `forguncy.config` 里声明的 `output.codeBudgetCharacters`（`--cell` / 决策文件的 `cellTarget` 指向的那个）。写一个项目里根本不存在的上限会被拒绝——否则记录就会"针对一个没人设过的天花板"声称超限，这正是 #77 要在每个边界消除的漂移。
-- 反过来，`artifactEvidence` 挂在任何其它 code 上也会被拒：那些 code 是 probe 能观测的，带上编译数字等于绕过 probe 路径。
+- `budgetCharacters` **必然等于**该 Cell 在 `forguncy.config` 里声明的 `output.codeBudgetCharacters`（`--cell` / 决策文件的 `cellTarget` 指向的那个），因为它就是从那次编译的 plan 里读出来的。Cell 没有声明上限时编译根本不产生这个诊断，拒绝会以「declares no output.codeBudgetCharacters」被拒——所以"针对一个没人设过的天花板声称超限"这种记录在结构上无法产生。
+- `compileFingerprint` / `subjectDecision` / `subjectRenderedCharacters` 一并记录，是 `status` 能重新编译并核对这条记录的依据（被改过的数字报 `artifact-verdict-changed` / `artifact-attribution-changed`）。
+- 反过来，其它 code 的记录**不会**带 `artifactEvidence`：那些 code 是 probe 能观测的，脚本只在 `isArtifactObservedRejectionCode` 为真时编译取数，所以带上编译数字的 probe 拒绝在结构上产生不了。
 - 这条记录的 evidence profile 是 `artifact-rejection`（**不是** `technical-rejection`）：它要求 probe **通过**——包本身没问题，超限的是合成出来的 Cell。这正是"好包 + 过大 Cell"这个预期状态之所以能落盘的原因。
 - revision 14 之前写的 `cell-code-budget-exceeded` 记录**仍然可读**，只是 stale（`artifact-evidence-missing`），需要从新的证据路径重新记录。不升 schema、不静默删除或改判——见 `lock-migration.ts` 的契约。
 
@@ -80,16 +118,61 @@
 - **conformance**：把决策放进候选锁，跑 `validateLockDecisionConformance`——`extension` 的 `libraryId` 必须来自已验证目录或真实 `listFrontendLibraries` 清单；`host` 的 `globalName` 必须是目标真的提供的全局。**只拦 error**，warning 是"关于 Cell 的事实"，不阻断。
 - **写入**：读锁 → 合并 → 过上述全部检查 → 才 `writeFgcLock`。**任一检查不通过就不落盘**。
 
+### `packageName` 可以是一个已公开的子路径（#90）
+
+`packageName` 平时写包名（`es-toolkit`），但 `packageName` 就是**编译器解析时用的那个 specifier**，
+所以 Cell 导入 `es-toolkit/compat` 这类已公开子路径时，记录就应当写成那个子路径：
+
+```jsonc
+{ "packageName": "es-toolkit/compat", "role": "cell-local-ui", "strategy": "inline" }
+```
+
+```bash
+node $S record --project <root> --decision compat.json
+```
+
+两条与包名不同、但都是**实测过**的规则：
+
+- probe 报告的身份是**包**（`environment.packageName: "es-toolkit"`，#17 的 identity 步骤解析的是
+  记录所属的 manifest），而决策写的是**子路径**。`auditSelectionDecision` 比较的是二者**所属的包**，
+  所以这种"一处包名、一处子路径"的配对是合法的；两个**不同的包**照旧被拒。
+- probe 的 `export-metadata` 步骤回答的是**这次构建导入的那个入口**有没有浏览器分支，
+  不是包根有没有。子路径上会多记一条 `exports.probed-entry` 事实（`"./compat"`），
+  因为包可能根本没有 `"."` 条目——只写包名无法区分"根探测"与"子路径探测"。
+
+**未公开的子路径不会被根决策扩大为可用**：`packageName` 写成 `pkg/private` 而 `pkg` 的 `exports`
+没有 `./private` 时，probe 的 `build` 步骤失败，`record` 拒绝，锁与 `fgc-evidence/` 都不变。
+这正是"用 bundler 而不是另写一套 exports 解析"的意义——#89 把"包是否安装"与"这个 specifier
+是否被公开"分给了两个步骤，后者只有 bundler 能答。
+
+
 `writeFgcLock` 的替换是**原子**的（同目录临时文件 → `rename` 覆盖目标）。这在本流程里是**契约，不是锦上添花**：上面的证据回滚把「写锁抛错」读作「锁没变」，若底层用普通 `writeFile`（以 `w` 打开会**先截断**），中途失败就会留下半份锁——于是回滚删掉本次证据、而 stderr 还说「Nothing was written」，最坏的三件事同时发生。原子替换后目标只可能是旧文档或新文档，绝不会是混合体。
 
 `--extension-catalog` 可覆盖默认目录，且接受 #12 的两种来源，二者**不可互换**：
 
+**默认目录是项目自己的映射集（#87）**：`<projectRoot>/forguncy.config.ts` 的 `extensions`
+块经 `normalizeExtensionMappings` 规范化后的结果——和编译器 `compileCell` 规划时读的**同一个出口**
+（`registry.extensionMappings`）。因此在配置里加一行项目映射，就能让自定义扩展在
+`record`、`vp dev`、`compile`、`sync` 各阶段被同一套行识别，无需改 `core` 的内置表；
+`policy --project <dir>` 的 `extensionCatalog.source` 会指出这些行来自哪个配置文件。
+项目根下没有配置时，默认是内置表经同一出口得到的投影，`source` 会写明
+`built-in defaults (no project config)`。配置里的 `extensions` 块本身有问题时是**拒绝**，
+不是退回内置表——退回会用一套项目没写过的行去做校验。
+
 | 输入 | shape | 怎么用 |
 |---|---|---|
 | 已验证 mapping 目录 | `packageName` / `libraryId` / `globalName` 行 | 直接作为目录用——它**声明了**每个 npm 包由哪个扩展提供 |
-| 原始 `listFrontendLibraries` 清单 | `id` / `name` / `globalName` / `exists` / `typeDefinitionAvailable` | 拿**本仓库声明的行**去比对该清单（`auditExtensionLibraryMetadata`）；`name` 是显示名，**绝不**当作 npm 包名 |
+| 原始 `listFrontendLibraries` 清单 | `id` / `name` / `globalName` / `exists` / `typeDefinitionAvailable` | 拿**项目声明的行**去比对该清单（`auditExtensionLibraryMetadata`）；`name` 是显示名，**绝不**当作 npm 包名 |
 
-清单**不能**用来建立"某个扩展提供某个包"这条关系——那条关系只记录在声明的表里。所以清单里出现一个本仓库未声明的包时，会报 `extension-mapping-not-declared`，告诉你该换输入，而不是让你去找一行来加。
+清单**不能**用来建立"某个扩展提供某个包"这条关系——那条关系只记录在声明的行（项目配置或
+`--extension-catalog` 的 mapping 目录）里。所以清单里出现一个项目未声明的包时，会报
+`extension-mapping-not-declared`，告诉你该换输入，而不是让你去找一行来加。
+
+目录声明与真实清单是两个**分开**的校验，失败要指向各自的修复者：缺 `exists`
+（bundle）、缺 `typeDefinitionAvailable`（types）是 `extension-package` 的问题，
+global 不一致是 `extension-metadata` 的问题——每条拒绝都带 `(fix owner: …)`，
+从 `core` 的规则表读出而不是在这里重写。映射行本身的问题（缺行、重复行）是
+`dependency-decision` / `extension-mapping` 的，只有在真正用到清单时才会被问。
 
 脚本会**自动**为决策补两条 `spec-issue` 链接：#16（决策所依据的 Spec），以及架构拒绝时的 #4（#8 规则 5 要求架构冲突可追溯到归属决策）。URL 从 `core` 读出，不硬编码。
 

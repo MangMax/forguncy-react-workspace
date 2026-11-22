@@ -389,7 +389,9 @@ export async function runDependencyProbe(options: RunDependencyProbeOptions): Pr
   const steps = new StepBook();
   steps.record(identityValidation(identity));
 
-  const exportMetadata = observeExportMetadata(identity);
+  // The same specifier the synthetic build imports, so this step answers the question the
+  // build then asks: does *this* entry have a browser target (#90).
+  const exportMetadata = observeExportMetadata(identity, { entry });
   steps.addFacts(exportMetadata.facts);
   steps.addRisks(exportMetadata.risks);
   steps.addRejections(exportMetadata.rejectionFindings);
