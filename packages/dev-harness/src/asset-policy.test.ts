@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,14 +152,40 @@ describe("#98: local dev serves the same CSS and asset the compiler inlines", ()
 describe("#98: local dev refuses what the compiler refuses", () => {
   it("refuses a CSS Module with the reason and the direction", async () => {
     const server = await serverFor("./cells/probe/src/module-entry.tsx");
+    // The sentence is the compiler's (#153), not a dev-server paraphrase of it: one refusal text
+    // is what makes a local overlay and a compile diagnostic teach the same rule.
     await expect(transform(server, join(cellRoot, "module.module.css"))).rejects.toThrow(
-      /explicitly rejects CSS Modules/,
+      /explicitly outside v1/,
     );
   });
 
   it("names `extension` and `replace` in the refusal so the next action is not a guess", async () => {
     const server = await serverFor("./cells/probe/src/module-entry.tsx");
     await expect(transform(server, join(cellRoot, "module.module.css"))).rejects.toThrow(/extension/);
+  });
+
+  it("refuses an ordinary query on a plain stylesheet through the running server", async () => {
+    // The drift #153 closes: `panel.css?foo` rendered locally and failed to compile, because dev
+    // only checked Vite's *transform* parameters and the compiler refuses every authored query.
+    // Asserted through `transformRequest` rather than the policy directly, because "accepted
+    // before" was a property of the server, not of the hook in isolation.
+    const server = await serverFor(undefined);
+    await expect(transform(server, `${join(cellRoot, "panel.css")}?foo`)).rejects.toThrow(
+      /carries the Vite query "\?foo"/,
+    );
+  });
+
+  it("refuses a directory named like a stylesheet with a clear sentence, not EISDIR", () => {
+    // The compiler's answer for the same input is asserted by the shared table
+    // (`cell-project/src/resource-policy-parity.test.ts`), which is the only package that may
+    // import both sides. Here the point is narrower and local: what a developer sees is the
+    // policy's sentence rather than the filesystem's stack.
+    const directory = mkdtempSync(join(tmpdir(), "fgc-dev-resource-dir-"));
+    mkdirSync(join(directory, "directory.css"));
+
+    const policy = createDevCellResourcePolicy();
+    expect(() => policy.load(join(directory, "directory.css"))).toThrow(/does not resolve to a regular file/);
+    expect(() => policy.load(join(directory, "directory.css"))).not.toThrow(/EISDIR/);
   });
 
   it("still serves a plain stylesheet in the same project", async () => {

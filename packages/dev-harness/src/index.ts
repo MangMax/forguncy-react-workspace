@@ -116,8 +116,9 @@ export type { DevHarnessOptions, DevHarnessVitePlugin } from "./vite-plugin.ts";
 export { defineForguncyViteConfig } from "./vite-config.ts";
 
 // The v1 CSS/static-asset policy (#98): the same closed support set the Cell compiler applies, so
-// a local render cannot pass an import the compiled artifact would refuse.
-export { createDevCellResourcePolicy } from "./cell-assets.ts";
+// a local render cannot pass an import the compiled artifact would refuse. The classification
+// itself is `core`'s (#153); `CellResourceRefusedError` is the channel it leaves through here.
+export { CellResourceRefusedError, createDevCellResourcePolicy } from "./cell-assets.ts";
 export type { DevCellResourcePolicy, DevResourceTransformResult } from "./cell-assets.ts";
 
 // The project's local-dev configuration, audited at server start (#23 plan step 5)

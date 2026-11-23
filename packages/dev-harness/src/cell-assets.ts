@@ -1,8 +1,9 @@
 /**
  * The dev-harness half of #98: local resource imports obey the compiler's v1 policy.
  *
- * Decision source: GitHub Issue #98 — "基础资源：让 CSS 与小型静态资源在本地和单文件 Cell 中一致工作"
- * (https://github.com/MangMax/forguncy-react-workspace/issues/98).
+ * Decision source: GitHub Issues
+ * - #98 — "基础资源：让 CSS 与小型静态资源在本地和单文件 Cell 中一致工作"
+ *   (https://github.com/MangMax/forguncy-react-workspace/issues/98).
  *
  * ## Why the dev server has to refuse anything the compiler refuses
  *
@@ -26,25 +27,31 @@
  * rather than a second plugin: Vite ignores `plugins` returned from a `config()` hook, and a
  * helper that only worked through `defineForguncyViteConfig` would leave a bare `devHarness(...)`
  * project with the permissive defaults.
+ *
+ * ## Why the classification is not written here (#153)
+ *
+ * The answer to "may a Cell import this file" is `core`'s `classifyCellResource`, and this module
+ * is an adapter over it: the same call the compiler's resource resolution makes, with the same
+ * message, so a local refusal and a compile diagnostic are one explanation. What is local is the
+ * *channel* — a thrown error, because Vite turns a plugin's throw into the overlay that names the
+ * file and the line — and the two filesystem answers the classification asks for.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import {
   CELL_ASSET_INLINE_LIMIT_BYTES,
-  cellStaticAssetMediaType,
+  classifyCellResource,
+  effectiveCellResourceQuery,
   formatCellAssetDataUri,
+  formatCellCssRefusalDetail,
   isCellCssFile,
   isCellCssModuleFile,
-  isCellStylePreprocessorFile,
-  isRejectedCellBinaryAsset,
-  isSupportedCellStaticAsset,
-  queryHasRejectedResourceParameter,
   rewriteCellCssReferences,
   splitCellSpecifierQuery,
-  effectiveCellResourceQuery,
 } from "@forguncy-react-workspace/core";
+import type { CellResourceFileProbe, CellResourceRefusal } from "@forguncy-react-workspace/core";
 
 /** The subset of the Vite transform result this policy returns. */
 export interface DevResourceTransformResult {
@@ -68,6 +75,47 @@ export interface DevCellResourcePolicy {
   readonly assetsInlineLimit: number;
 }
 
+/**
+ * A refusal thrown into Vite's pipeline, carrying the classification's reason code.
+ *
+ * The message is the classification's `detail` verbatim — the compiler's diagnostic carries the
+ * same string — and the code travels as data so a test can assert the reason rather than match
+ * prose. `[forguncy-cell-assets]` remains as the prefix, because the overlay's first line is what
+ * tells a developer which plugin refused.
+ */
+export class CellResourceRefusedError extends Error {
+  readonly refusal: CellResourceRefusal;
+
+  constructor(refusal: CellResourceRefusal) {
+    super(refusal.detail);
+    this.name = "CellResourceRefusedError";
+    this.refusal = refusal;
+  }
+}
+
+/** The harness's filesystem answers to the shared classification's two questions. */
+const CELL_RESOURCE_FILE_PROBE: CellResourceFileProbe = {
+  isRegularFile: filePath => {
+    try {
+      return statSync(filePath).isFile();
+    } catch {
+      return false;
+    }
+  },
+  byteLength: filePath => {
+    try {
+      return statSync(filePath).size;
+    } catch {
+      return undefined;
+    }
+  },
+};
+
+/** One refusal, naming the file, the reason and the direction — the same sentence the compiler uses. */
+function refused(refusal: CellResourceRefusal): CellResourceRefusedError {
+  return new CellResourceRefusedError(refusal);
+}
+
 /** Builds the policy. Stateless: a dev server may transform the same file many times (HMR). */
 export function createDevCellResourcePolicy(): DevCellResourcePolicy {
   return {
@@ -80,69 +128,32 @@ export function createDevCellResourcePolicy(): DevCellResourcePolicy {
       const { path: filePath, query } = splitCellSpecifierQuery(id);
       const authoredQuery = effectiveCellResourceQuery(query);
 
-      if (authoredQuery !== undefined && queryHasRejectedResourceParameter(authoredQuery)) {
-        throw refused(
-          id,
-          `uses the Vite query "?${authoredQuery}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker because the compiled Cell does not implement those transforms and has nowhere to load a Worker or runtime asset from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
-        );
-      }
+      // One call, the same one the compiler's resource resolution makes. The classification
+      // answers `not-a-resource` for an ordinary module, refuses a Vite transform parameter on
+      // *any* file (which is why `worker.js?worker` is refused without a resource extension), and
+      // carries the query and the file's size into the decision so the two paths cannot disagree.
+      const classification = classifyCellResource({
+        subject: id,
+        filePath,
+        ...(authoredQuery === undefined ? {} : { query: authoredQuery }),
+        inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
+        probe: CELL_RESOURCE_FILE_PROBE,
+      });
 
-      if (isCellCssModuleFile(filePath)) {
-        throw refused(
-          id,
-          "is a CSS Module. v1 explicitly rejects CSS Modules: scoped class names would need a compiler-owned implementation matching Vite's, and v1 refuses rather than giving the same import two answers. Use plain CSS with a Cell-owned root-class prefix, or move the scoped stylesheet to a Forguncy frontend extension (extension).",
-        );
-      }
-
-      if (isCellStylePreprocessorFile(filePath)) {
-        throw refused(
-          id,
-          "is a stylesheet preprocessor source. v1 accepts plain CSS only; compile it ahead of time, or move it to a Forguncy frontend extension (extension).",
-        );
+      if (classification.kind === "refuse") {
+        throw refused(classification.refusal);
       }
 
       // Plain CSS is Vite's to load and transform; this policy only rewrites its references.
-      if (isCellCssFile(filePath)) {
+      if (classification.kind !== "asset") {
         return null;
       }
 
-      if (isRejectedCellBinaryAsset(filePath)) {
-        throw refused(
-          id,
-          "is a binary asset outside v1 (Worker/WASM and sibling binaries are not supported). Move it to a Forguncy frontend extension (extension), or replace it with a small image/font v1 inlines (replace).",
-        );
-      }
-
-      if (!isSupportedCellStaticAsset(filePath)) {
-        return null;
-      }
-
-      if (authoredQuery !== undefined) {
-        throw refused(
-          id,
-          `carries the query "?${authoredQuery}". v1 refuses every resource query on a static asset; remove it.`,
-        );
-      }
-      if (!existsSync(filePath)) {
-        throw refused(id, "does not exist. A Cell artifact can only inline a file the compiler can read.");
-      }
-
-      const mediaType = cellStaticAssetMediaType(filePath);
-      if (mediaType === undefined) {
-        throw refused(id, "has no media type v1 can inline.");
-      }
       const bytes = readFileSync(filePath);
-      if (bytes.length > CELL_ASSET_INLINE_LIMIT_BYTES) {
-        throw refused(
-          id,
-          `is ${bytes.length} bytes; the v1 inline limit is ${CELL_ASSET_INLINE_LIMIT_BYTES}. A sibling file cannot be deployed beside a Cell artifact, so inline a smaller asset or move this one to a Forguncy frontend extension (extension) — or replace it (replace).`,
-        );
-      }
-
       // The default export, not a URL: dev and the artifact must hand the component the same
       // value, and "same value" here means a `data:` URI rather than a server path that happens to
       // render today.
-      return `export default ${JSON.stringify(formatCellAssetDataUri(mediaType, bytes))};\n`;
+      return `export default ${JSON.stringify(formatCellAssetDataUri(classification.mediaType, bytes))};\n`;
     },
 
     async transform(code, id) {
@@ -157,26 +168,23 @@ export function createDevCellResourcePolicy(): DevCellResourcePolicy {
         inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
         loadAsset: url => {
           const candidate = path.resolve(path.dirname(filePath), url);
-          return existsSync(candidate) ? { fileName: candidate, bytes: readFileSync(candidate) } : undefined;
+          return CELL_RESOURCE_FILE_PROBE.isRegularFile(candidate)
+            ? { fileName: candidate, bytes: readFileSync(candidate) }
+            : undefined;
         },
       });
 
       if (!outcome.ok) {
-        const detail = outcome.violations
-          .map(violation => violation.detail)
-          .join(" ");
-        throw refused(
-          id,
-          `${detail} The v1 support set is closed: plain CSS, url(...) images/fonts at or below ${CELL_ASSET_INLINE_LIMIT_BYTES} bytes, and small static asset imports. Anything else belongs in a Forguncy frontend extension (extension) or must be replaced (replace).`,
-        );
+        // The violation text and the composition around it are both `core`'s, so the compiler's
+        // stylesheet diagnostic and this overlay say the same thing (#153).
+        throw refused({
+          code: "css-reference",
+          subject: id,
+          detail: formatCellCssRefusalDetail(filePath, outcome.violations),
+        });
       }
 
       return { code: outcome.css, map: null };
     },
   };
-}
-
-/** One refusal message, naming the file, the reason and the direction. */
-function refused(id: string, detail: string): Error {
-  return new Error(`[forguncy-cell-assets] "${id}" ${detail}`);
 }
