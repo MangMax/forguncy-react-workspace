@@ -83,25 +83,6 @@ export { assembleCellArtifact, CELL_ARTIFACT_BANNER };
  * or already known to the platform. It is also the reason `mcp-sync` can take the
  * artifact without a translation step — there is nothing to translate.
  */
-/**
- * The artifact a compile produced, with whatever per-package attribution the bundler reported.
- *
- * One constructor for both outcomes, so the compiled and rejected paths cannot hand back documents
- * that differ in anything but the diagnostics.
- */
-function artifactOf(
-  code: string,
-  frontendLibraries: readonly FrontendLibraryReference[],
-  module: BundledCellModule,
-): CompileCellResult {
-  return {
-    code,
-    frontendLibraries,
-    ...(module.inlinedPackageSizes === undefined ? {} : { inlinedPackageSizes: module.inlinedPackageSizes }),
-    ...(module.resources === undefined ? {} : { inlinedResources: module.resources }),
-  };
-}
-
 export interface CompileCellResult {
   /** The single logical Cell artifact: one script, no runtime chunk loading. */
   readonly code: string;
