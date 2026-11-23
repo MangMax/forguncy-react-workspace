@@ -20,10 +20,15 @@
     "two keys meant loading every execution fact and open question into a flat Cell artifact.",
     "The tuples are still defined once; `runtime-contract.ts` imports them and re-exports the",
     "same bindings, so this subpath is a smaller *graph*, not a second definition.",
-    "`cell-props.test.ts` asserts it reaches nothing and that the values are the record's own."
+    "`cell-props.test.ts` asserts it reaches nothing and that the values are the record's own.",
+    "",
+    "`./internal` is the full projection of this package's modules (#159): the surface the root",
+    "entry used to export, kept for this package's own tests. No other package may import it, and",
+    "`package-boundaries.test.ts` asserts that rule for every package."
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./internal": "./src/internal.ts",
     "./browser": "./src/browser.ts",
     "./cell-props": "./src/cell-props.ts"
   },

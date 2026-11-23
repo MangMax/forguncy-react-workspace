@@ -9,7 +9,7 @@ import type {
   FgcLockDocument,
   ForguncyTargetIdentity,
   LockedDependencyDecision,
-} from "./index.ts";
+} from "./internal.ts";
 import {
   assertFgcLockDocument,
   canonicalizeFgcLock,
@@ -47,7 +47,7 @@ import {
   serializeFgcLock,
   SUPPORTED_FGC_LOCK_SCHEMA_VERSIONS,
   validateFgcLockDocument,
-} from "./index.ts";
+} from "./internal.ts";
 
 const sourceDirectory = dirname(fileURLToPath(import.meta.url));
 

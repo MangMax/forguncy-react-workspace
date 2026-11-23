@@ -9,16 +9,16 @@
  * - #99/#102 — the consumer entrypoint and its black-box regression, which is what makes the
  *   classified path executable rather than a claim.
  *
- * ## What this pins, and what it deliberately does not change
+ * ## What this pins
  *
- * The roots of `core`, `runtime`, `mcp-sync` and the other packages stay exactly as wide as they
- * were: #105 requires 100% backward compatibility, so nothing here removes an export or marks one
- * deprecated. What the issue asks for is a *separation* — a stable consumer tier that a new Agent
- * can read without wading through the contract tables — and a separation nothing checks decays
- * back into a comment. So this file fixes the consumer side in place:
+ * #105 asked for a *separation* — a stable consumer tier that a new Agent can read without wading
+ * through the contract tables — and a separation nothing checks decays back into a comment. #159
+ * has since narrowed every package's root to what the workspace consumes, so this tier is now a
+ * subset of surfaces that `packages/dev-harness/src/package-boundaries.test.ts` pins directly.
+ * This file fixes the consumer side in place:
  *
  * 1. every `@forguncy-react-workspace/*` import in `examples/consumer-project` resolves to a bare
- *    package entry (no internal subpath) and uses a symbol on the declared tier;
+ *    package entry (no `./internal` subpath) and uses a symbol on the declared tier;
  * 2. `cell-project`'s own value surface is the declared list, so the "minimal entrypoint" cannot
  *    quietly grow a helper a consumer would then be expected to assemble.
  *

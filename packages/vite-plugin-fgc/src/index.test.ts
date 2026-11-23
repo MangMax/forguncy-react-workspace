@@ -16,7 +16,7 @@ import type {
 } from "@forguncy-react-workspace/core";
 import { describe, expect, it } from "vitest";
 
-import { FORGUNCY_PLUGIN_NAME, cellVirtualModuleId, forguncy, virtualModuleCellId } from "./index.ts";
+import { FORGUNCY_PLUGIN_NAME, cellVirtualModuleId, forguncy, virtualModuleCellId } from "./internal.ts";
 
 const fixturesRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "core", "tests", "fixtures");
 const validMultiRoot = join(fixturesRoot, "valid-multi");

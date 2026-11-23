@@ -46,25 +46,15 @@
  * façade. Removing the edge is the fix that makes both halves work, and it is why
  * this is a separate module graph rather than a change in load order.
  *
- * ## Why `export *`, and what keeps it honest
+ * ## Why the two entries cannot disagree
  *
- * Re-exporting every browser-safe module wholesale rather than mirroring
- * `index.ts`'s several hundred named exports by hand is deliberate: a hand-copied
- * second list is precisely the "second copy of a rule" this repository keeps
- * finding and deleting, and it would drift silently the first time a name was added
- * to one and not the other.
- *
- * So the projection is **checked**, not trusted. `browser.test.ts` derives both
- * surfaces at run time and asserts the relation is exact in both directions:
- *
- * - every value and type `index.ts` re-exports from a browser-safe module is
- *   reachable here (a new export cannot be forgotten);
- * - nothing is reachable here that `index.ts` does not re-export (this entry is a
- *   projection of one surface, not a second one that can grow its own API);
- * - no module in this entry's transitive graph imports a `node:` builtin, which is
- *   the property the whole file exists for and the one a future edit is most
- *   likely to break — a single new `import { existsSync }` in a safe module would
- *   otherwise silently re-break both halves.
+ * `index.ts` (the node entry) is `export *` of this module plus the node-only modules, so
+ * browser/node parity holds by construction: there is no second list of browser-safe names
+ * to forget. `browser.test.ts` still checks what a construction cannot give for free —
+ * nothing here is outside the root entry's names, and no module in this entry's transitive
+ * graph imports a `node:` builtin, which is the property the whole file exists for and the
+ * one a future edit is most likely to break: a single new `import { existsSync }` in a safe
+ * module would otherwise silently re-break both halves.
  *
  * ## What it is not
  *
@@ -75,31 +65,266 @@
  * a graph, not a different answer.
  */
 
-// Every browser-safe module the barrel re-exports. The four it does not project are named by
-// `browser.test.ts`, which asserts their `node:` contact rather than this comment: `cell-registry`
-// and `config-loader` read the project off disk, `resolve-config` resolves alias targets with
-// `node:path`, and `cell-compile-fingerprint` hashes with `node:crypto`.
-export * from "./ownership.ts";
-export * from "./rejection.ts";
-export * from "./platform-conflicts.ts";
-export * from "./strategy.ts";
-export * from "./governance.ts";
-export * from "./specifier.ts";
-export * from "./diagnostics.ts";
-export * from "./provenance.ts";
-export * from "./runtime-contract.ts";
-export * from "./host-bridge.ts";
-export * from "./extension-externals.ts";
-export * from "./extension-mappings-config.ts";
-export * from "./lock.ts";
-export * from "./lock-freshness.ts";
-export * from "./selection-signals.ts";
-export * from "./probe-protocol.ts";
-export * from "./selection-policy.ts";
-export * from "./forguncy-config.ts";
-export * from "./portability.ts";
-export * from "./code-units.ts";
-export * from "./guards.ts";
-export * from "./canonical.ts";
-export * from "./cell-code-budget.ts";
-export * from "./cell-assets.ts";
+// The browser-safe surface of `.`: every name the root entry keeps from a browser-safe module.
+// The four modules this projection does not carry are named by `browser.test.ts`, which asserts
+// their `node:` contact rather than this comment: `cell-registry` and `config-loader` read the
+// project off disk, `resolve-config` resolves alias targets with `node:path`, and
+// `cell-compile-fingerprint` hashes with `node:crypto`.
+export { APPLICATION_OWNERSHIP_INVARIANT, concernsOwnedBy, isApplicationOwned } from "./ownership.ts";
+export type { OwnershipConcernId } from "./ownership.ts";
+export { isArtifactObservedRejectionCode } from "./rejection.ts";
+export {
+  APPLICATION_OWNED_ROLES,
+  PLATFORM_CONFLICT_RULES,
+  assessDependencyRole,
+  isPlatformConflict,
+} from "./platform-conflicts.ts";
+export type { DependencyRole, PlatformConflictAssessment } from "./platform-conflicts.ts";
+export { packageNameOfSpecifier } from "./specifier.ts";
+export { createDiagnosticFields, defineDiagnosticVocabulary } from "./diagnostics.ts";
+export { defineDecisionProvenance } from "./provenance.ts";
+export {
+  DEPENDENCY_STRATEGIES,
+  DEPENDENCY_STRATEGY_SEMANTICS,
+  checksForLevel,
+  validateDependencyDecisionShape,
+} from "./strategy.ts";
+export type {
+  ArtifactBudgetEvidence,
+  DependencyCheckLevel,
+  DependencyDecision,
+  DependencyStrategy,
+  ExtensionDependencyDecision,
+} from "./strategy.ts";
+export {
+  EXTENSION_EXTERNALS_DECISION,
+  GOVERNING_ARCHITECTURE_DECISIONS,
+  HOST_BRIDGE_DECISION,
+  OWNERSHIP_AND_DEPENDENCY_DECISION,
+  RUNTIME_CONTRACT_DECISION,
+  citesDecision,
+  citesEveryArchitectureDecision,
+} from "./governance.ts";
+export type { ArchitectureDecisionSource } from "./governance.ts";
+export {
+  CELL_DATA_SOURCE_CONTRACT,
+  CELL_ENTRY_SHAPES,
+  CELL_FORGUNCY_FACADE,
+  CELL_FORGUNCY_PROP_KEYS,
+  CELL_PRESET_LIBRARIES,
+  CELL_PROPS_BASE_KEYS,
+  CELL_PROPS_KEY_ORDER,
+  CELL_RUNTIME_BINDING_CONTRACT,
+  CELL_RUNTIME_BINDING_HOST_NAMES,
+  CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR,
+  CELL_SERVER_COMMANDS_CONTRACT,
+  CELL_SOURCE_VALIDATION_MECHANISM,
+  CELL_USER_SCOPE_BINDINGS,
+  FRONTEND_LIBRARY_REFERENCE_CONTRACT,
+  FRONTEND_LIBRARY_REFERENCE_EXAMPLE,
+  RUNTIME_CONTRACT_TARGET,
+  RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
+  RUNTIME_CONTRACT_TARGET_FIELD_SOURCES,
+  RUNTIME_EVIDENCE_CHANNELS,
+  cellSourceValidationVisitsAstKey,
+  cellUserScopeBinding,
+  emitCellEntryShapes,
+  findCellEntryShape,
+  findCellHostRuntimeFact,
+  findCellSourceRejection,
+  openRuntimeContractQuestions,
+} from "./runtime-contract.ts";
+export type {
+  CellEntryKind,
+  CellPresetLibrary,
+  CellSourceRejectionId,
+  CellUserScopeBinding,
+  FrontendLibraryReference,
+  RuntimeContractTarget,
+  RuntimeEvidenceChannel,
+} from "./runtime-contract.ts";
+export {
+  HOST_BRIDGE_DEFERRED_MODULES,
+  HOST_BRIDGE_DIAGNOSTIC_RULES,
+  HOST_BRIDGE_MAPPINGS,
+  HostBridgeContractError,
+  JSX_RUNTIME_ADAPTER_EXPORTS,
+  assertHostBridgeContract,
+  findHostBridgeModuleMapping,
+  hostBridgeAdapterMappings,
+  hostBridgeBindingFor,
+  hostBridgeGlobalIsAlwaysAvailable,
+  hostBridgeGlobalMappings,
+  hostBridgeInterceptedModuleIds,
+  hostBridgeModuleIds,
+  hostBridgeShapeFor,
+  packageNameOfModuleId,
+} from "./host-bridge.ts";
+export type {
+  HostBridgeAdapterMapping,
+  HostBridgeDeferredModule,
+  HostBridgeDiagnosticCode,
+  HostBridgeDiagnosticRule,
+  HostBridgeFixOwner,
+  HostBridgeGlobalMapping,
+  HostBridgeMapping,
+  HostBridgeMappingKind,
+  HostBridgeModuleShape,
+} from "./host-bridge.ts";
+export {
+  EXTENSION_EXTERNAL_DIAGNOSTIC_CODES,
+  EXTENSION_EXTERNAL_MAPPINGS,
+  EXTENSION_GLOBAL_READ_TIMING,
+  EXTENSION_LIBRARY_REFERENCE_FIELD_NAME,
+  ExtensionExternalContractError,
+  assertExtensionExternalContract,
+  auditExtensionLibraryMetadata,
+  createExtensionExternalDiagnostic,
+  extensionExternalDiagnosticRule,
+  extensionInterceptedModuleIds,
+  extensionMappingForPackage,
+  extensionModuleIds,
+  findExtensionExternalMapping,
+  formatExtensionExternalDiagnostics,
+} from "./extension-externals.ts";
+export type {
+  ExtensionExternalDiagnostic,
+  ExtensionExternalDiagnosticCode,
+  ExtensionExternalMapping,
+  ExtensionLibraryListing,
+} from "./extension-externals.ts";
+export { normalizeExtensionMappings } from "./extension-mappings-config.ts";
+export type { NormalizedExtensionMappings } from "./extension-mappings-config.ts";
+export { compareCodeUnits } from "./code-units.ts";
+export { isPlainRecord } from "./guards.ts";
+export { createCanonicalizer } from "./canonical.ts";
+export {
+  DECISION_EVIDENCE_KINDS,
+  FGC_LOCK_FILE_NAME,
+  FGC_LOCK_SCHEMA_VERSION,
+  FgcLockValidationError,
+  LOCK_EVIDENCE_POLICY,
+  assertFgcLockDocument,
+  assertFgcLockDocumentShape,
+  canonicalizeFgcLock,
+  canonicalizeImports,
+  compareEvidenceLinks,
+  compareLockDecisions,
+  createEmptyFgcLock,
+  dependencyDecisionOf,
+  findMachineSpecificPaths,
+  forguncyTargetIdentity,
+  isRepositoryRelativeReference,
+  lockEvidenceProfileForDecision,
+  lockEvidenceProfileOf,
+  matchesForguncyTargetIdentity,
+  parseFgcLockDocument,
+  serializeFgcLock,
+  validateFgcLockDocument,
+} from "./lock.ts";
+export type {
+  DecisionEvidenceLink,
+  ExtensionEvidence,
+  FgcLockDocument,
+  ForguncyTargetIdentity,
+  InstallGraphIdentity,
+  LockProbeEvidence,
+  LockedDependencyDecision,
+  ProbeStatus,
+  RejectedCandidateEvidence,
+  ToolchainIdentity,
+} from "./lock.ts";
+export {
+  assessLockDecision,
+  findLockDecision,
+  lockDecisionBlockers,
+  lockRecordIdentity,
+  resolveLockDecision,
+} from "./lock-freshness.ts";
+export type {
+  ArtifactCompileSnapshot,
+  LockDecisionQuery,
+  LockEnvironment,
+  LockRealRuntimeValidation,
+  LockStalenessReason,
+} from "./lock-freshness.ts";
+export {
+  REPLACEMENT_SIGNAL_REJECTIONS,
+  SELECTION_SIGNALS,
+  SELECTION_SIGNAL_FAMILY_SEMANTICS,
+  replacementRejectionFor,
+} from "./selection-signals.ts";
+export type { SelectionSignalId } from "./selection-signals.ts";
+export {
+  PROBE_ASSESSMENT_STATUSES,
+  PROBE_DEPLOYMENT_REQUIRED_STEPS,
+  PROBE_REPORT_SCHEMA_VERSION,
+  PROBE_STEP_IDS,
+  assertProbeReport,
+  assessProbeReport,
+  canonicalizeProbeReport,
+  findForbiddenProbeKeys,
+  parseProbeReport,
+  probeStepObservesSignal,
+  probeStepOrder,
+  probeStepsObserving,
+  serializeProbeReport,
+  validateProbeReport,
+} from "./probe-protocol.ts";
+export type {
+  ProbeAssessment,
+  ProbeEnvironment,
+  ProbeFact,
+  ProbeRejectionFinding,
+  ProbeReport,
+  ProbeRisk,
+  ProbeStepId,
+  ProbeValidationEntry,
+} from "./probe-protocol.ts";
+export {
+  ARCHITECTURAL_REJECTION_PROBE_STATUS,
+  CONDITIONAL_SELECTION_STAGES,
+  NO_PACKAGE_ADAPTER_REGISTRY_INVARIANT,
+  REPAIR_RECIPE_CONDITIONS,
+  SELECTION_ACCEPTANCE_CRITERIA,
+  SELECTION_BRANCHES,
+  SELECTION_GOVERNING_SPEC_REFERENCE_LINE,
+  SELECTION_STAGES,
+  SPEC_PROVING_CASES,
+  auditSelectionDecision,
+  branchForOwnership,
+  evaluateRepairRecipe,
+  isOwnershipGateFirst,
+  lockProbeStatusForAssessment,
+  stagesSkippedOnEarlyExit,
+} from "./selection-policy.ts";
+export { TARGET_LOCATOR_FINALIZATION, defineForguncyConfig, isConfigRecord } from "./forguncy-config.ts";
+export type { ForguncyConfig } from "./forguncy-config.ts";
+export {
+  CELL_CODE_BUDGET_DECISION,
+  CELL_CODE_BUDGET_MEASUREMENT,
+  assertCellCodeBudget,
+  classifyCellCodeSize,
+} from "./cell-code-budget.ts";
+export {
+  CELL_ASSET_INLINE_LIMIT_BYTES,
+  cellResourceQueryRefusal,
+  cellUnsupportedAssetRefusal,
+  classifyCellResource,
+  effectiveCellResourceQuery,
+  formatCellAssetDataUri,
+  formatCellCssRefusalDetail,
+  formatCellResourceSupportMatrix,
+  isCellCssFile,
+  isCellCssModuleFile,
+  isCellResourcePath,
+  queryHasRejectedResourceParameter,
+  rewriteCellCssReferences,
+  splitCellSpecifierQuery,
+} from "./cell-assets.ts";
+export type {
+  CellCssViolation,
+  CellResourceFileProbe,
+  CellResourceRefusal,
+  CellResourceRefusalCode,
+} from "./cell-assets.ts";

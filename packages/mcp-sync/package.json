@@ -8,6 +8,7 @@
     "@forguncy-react-workspace/core": "workspace:*"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal": "./src/internal.ts"
   }
 }

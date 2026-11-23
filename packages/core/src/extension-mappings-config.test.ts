@@ -29,8 +29,8 @@ import {
   assertExtensionExternalMappingsAreUnambiguous,
   EXTENSION_EXTERNAL_MAPPINGS,
   findExtensionExternalMapping,
-} from "./index.ts";
-import type { ExtensionExternalMapping } from "./index.ts";
+} from "./internal.ts";
+import type { ExtensionExternalMapping } from "./internal.ts";
 import {
   DEFAULT_BUILTIN_MAPPINGS,
   extensionMappingOrigin,

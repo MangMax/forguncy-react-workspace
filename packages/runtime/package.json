@@ -36,6 +36,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./internal": "./src/internal.ts",
     "./cell": "./src/cell.ts"
   },
   "sideEffects": false

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseFgcLockDocument } from "./index.ts";
+import { parseFgcLockDocument } from "./internal.ts";
 import type {
   ArtifactBudgetEvidence,
   ArtifactCompileSnapshot,
@@ -8,7 +8,7 @@ import type {
   LockEnvironment,
   LockedDependencyDecision,
   ToolchainIdentity,
-} from "./index.ts";
+} from "./internal.ts";
 import {
   assessLockDecision,
   findLockDecision,
@@ -19,7 +19,7 @@ import {
   requiresRuntimeValidation,
   resolveLockDecision,
   RUNTIME_CONTRACT_TARGET,
-} from "./index.ts";
+} from "./internal.ts";
 
 const SPEC_4 = "https://github.com/Mang-X/forguncy-react-workspace/issues/4";
 const SPEC_8 = "https://github.com/Mang-X/forguncy-react-workspace/issues/8";
