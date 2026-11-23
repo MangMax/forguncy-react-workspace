@@ -252,9 +252,11 @@ function stageExtensionProject(): string {
     "utf8",
   );
 
-  // `readToolchainIdentity` resolves the project's own `vite-plus`; the version the repository's
-  // toolchain is pinned to is what the record will compare against.
-  installPackage(root, "vite-plus", "0.3.2", "export {};\n");
+  // `readToolchainIdentity` resolves the project's own `vite-plus`, so the stub has to be the
+  // version the repository installs: the `record` this fixture runs and the `status` that follows
+  // both read the toolchain from *this* project, and a stub at another version would make the two
+  // disagree about the axis for a reason that is about the fixture rather than about the case.
+  installPackage(root, "vite-plus", "1.7.0", "export {};\n");
 
   writeFileSync(join(root, "forguncy.config.ts"), standaloneExtensionConfig(true), "utf8");
 

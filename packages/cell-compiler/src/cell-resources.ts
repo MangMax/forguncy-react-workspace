@@ -8,7 +8,7 @@
  *
  * ## What this module adds to the bundler, and why it is not a bundler
  *
- * Rolldown 1.2.9 can emit CSS and assets, but "emit" is precisely what a Cell cannot accept: a
+ * Rolldown 1.3.3 can emit CSS and assets, but "emit" is precisely what a Cell cannot accept: a
  * ReactCellType cell is one script, and `auditEmittedAssets` refuses every sibling file. Vite's
  * answer to the same problem is `?inline` plus a stylesheet plugin, and neither is reachable from
  * this package: the compiler may not become a second resolver (#6), and a Vite plugin instance is

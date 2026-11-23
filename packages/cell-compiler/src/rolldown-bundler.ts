@@ -586,7 +586,7 @@ async function resolveResourceSpecifier(
  * The module text for a resource id, or `undefined` when the id is not one this pass inlined.
  *
  * `moduleType: "js"` is not decoration. Rolldown infers a module's type from its *file extension*
- * before the load hook runs, and 1.2.9 removed CSS bundling outright — so a `.css` module whose
+ * before the load hook runs, and 1.3.x removed CSS bundling outright — so a `.css` module whose
  * `load` returns JavaScript is still handed to the CSS pipeline and fails with `[UNSUPPORTED_FEATURE]
  * Bundling CSS is no longer supported`. The generated module is JavaScript, so it says so.
  */

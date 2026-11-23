@@ -138,16 +138,24 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
   // reported `install-graph-changed` on CI for a graph that was perfectly valid for its own
   // commit.
   //
-  // So the install-graph and Node-patch axes are supplied from the record rather than re-derived
-  // live (`examples/extension-query/fgc.lock.json` is a committed record probed on `24.21.0`,
-  // while CI's `node-version: "24"` floats across patch releases such as `24.22.3`). `vitePlus`
-  // and `rolldown` are still read live from the project, keeping this an assertion about *this*
-  // toolchain, while Node-patch drift and install-graph drift each have their own direct coverage
+  // The same reasoning applies to the tools that ran, and for the same reason (#150). The
+  // committed record was probed with `vite-plus 0.3.2` / `rolldown 1.2.9` on Node `24.21.0`;
+  // this repository now installs `vite-plus 1.7.0` / `rolldown 1.3.3`, and CI's
+  // `node-version: "24"` floats across patch releases such as `24.22.3`. Reading any of them
+  // live here would re-label a historical measurement as one *this* toolchain made — the same
+  // defect #120 rejected for the target, in a second vocabulary. So every probed component
+  // (`vitePlus`, `rolldown`, `node` and `installGraph`) is supplied from the record, keeping
+  // this an assertion about the historical run.
+  //
+  // The drift itself is not assumed away: the test below asserts that the *installed* toolchain
+  // reports `toolchain-changed` against this record, and the axes have their own direct coverage
   // in `install-identity.test.ts` and `lock-freshness.test.ts`.
   const identity = await readToolchainIdentity(exampleRoot);
   const recorded = lock.decisions[0]?.probedWith;
   const installGraph = recorded?.installGraph ?? identity.installGraph;
   const node = recorded?.node ?? identity.node;
+  const vitePlus = recorded?.vitePlus ?? identity.vitePlus;
+  const rolldown = recorded?.rolldown ?? identity.rolldown;
 
   return {
     resolvedVersions: versions,
@@ -160,7 +168,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
     // its content-addressed evidence. The drift itself is asserted, one test below, rather than
     // assumed away.
     target: targetOfRecordedRun(lock),
-    toolchain: { ...identity, node, installGraph },
+    toolchain: { vitePlus, rolldown, node, installGraph },
     probeFingerprints,
     extensionVersions: { "tanstack-query": EXPECTED_VERSION },
     extensionIdentities: { "tanstack-query": EXPECTED_IDENTITY },
@@ -487,6 +495,54 @@ describe("extension tanstack-query PoC (#13)", () => {
     // The recorded runtime claim is still what it was — the target change withholds it, it does
     // not erase it — which is the distinction the gates below are about.
     expect(assessment.realRuntimeValidation).toBe("validated");
+  });
+
+  // #150: the record was probed with `vite-plus 0.3.2` / `rolldown 1.2.9`, and this repository
+  // now installs `1.7.0` / `1.3.3`. The record is not rewritten to name the new tools; the drift
+  // is asserted, and the gate is shown to withhold on it exactly as it does for the target.
+  it("withholds the recorded decision against the installed toolchain, because the probe ran on older tools", async () => {
+    const lock = await conformedLock();
+    const record = lock.decisions.find(candidate => candidate.packageName === PACKAGE_NAME);
+
+    // The record names the tools that actually ran — spelled out, so a re-recording of this lock
+    // fails here with the values that moved rather than passing on a loose inequality.
+    expect(record?.probedWith?.vitePlus).toBe("0.3.2");
+    expect(record?.probedWith?.rolldown).toBe("1.2.9");
+
+    // And the installation has moved on from them.
+    const installed = await readToolchainIdentity(exampleRoot);
+    expect(installed.vitePlus).not.toBe(record?.probedWith?.vitePlus);
+    expect(installed.rolldown).not.toBe(record?.probedWith?.rolldown);
+
+    // Hold the target, Node patch and install graph at the record's values (they have their own
+    // coverage above and in `install-identity.test.ts`), so the only axis that moves here is the
+    // tool that ran the probe.
+    const environment = await environmentFor({
+      target: targetOfRecordedRun(lock),
+      toolchain: {
+        ...installed,
+        node: record?.probedWith?.node ?? installed.node,
+        installGraph: record?.probedWith?.installGraph ?? installed.installGraph,
+      },
+    });
+    const assessment = assessLockDecision(record as never, environment);
+
+    expect(assessment.freshness).toBe("stale");
+    expect(assessment.stalenessReasons).toContain("toolchain-changed");
+    // A toolchain move withholds the evidence; it does not withdraw the recorded runtime claim.
+    expect(assessment.realRuntimeValidation).toBe("validated");
+
+    // And the deployment gate fails closed on it, so a record measured by the old tools can never
+    // reach an artifact under the new ones.
+    const { dependencies, withheld } = await deploymentGate(environment);
+    expect(dependencies).toEqual([]);
+    expect(withheld).toContainEqual({
+      packageName: PACKAGE_NAME,
+      strategy: "extension",
+      reason: "not-verified",
+      stalenessReasons: expect.arrayContaining(["toolchain-changed"]),
+      realRuntimeValidation: "validated",
+    });
   });
 
   it("withholds a target-less copy of the decision from the deployment gate", async () => {
