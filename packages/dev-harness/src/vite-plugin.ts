@@ -55,25 +55,17 @@ import react from "@vitejs/plugin-react-swc";
 // `forguncy()` (#28) and reads the registry that plugin produced. `createCellRegistry` and
 // `isCellRegistry` were imported here in an earlier draft that normalized the config in this
 // file, which would have been a second answer to a question the Cell seam already answers.
-import { ForguncyConfigError, RUNTIME_CONTRACT_TARGET } from "@forguncy-react-workspace/core";
+import { ForguncyConfigError } from "@forguncy-react-workspace/core";
 import type { CellRegistry, ForguncyConfig, RegisteredCell } from "@forguncy-react-workspace/core";
 import type { LocalDevExtensionChoice } from "@forguncy-react-workspace/runtime";
-import {
-  createLocalDevDiagnostic,
-  localDevVersionFieldIsBrowserObserved,
-} from "@forguncy-react-workspace/runtime";
-import {
-  extensionCatalogOfNormalized,
-  resolveInstalledVersions,
-} from "@forguncy-react-workspace/dependency-resolver/local";
+import { localDevVersionFieldIsBrowserObserved } from "@forguncy-react-workspace/runtime";
 import { cellVirtualModuleId, forguncy } from "@forguncy-react-workspace/vite-plugin-fgc";
 
 import {
-  projectAliasShadowKeys,
+  auditProjectAliases,
   projectAliasTarget,
   readAliasEntries,
   unclaimedHostAliases,
-  undeclaredAliasPatterns,
 } from "./alias-audit.ts";
 import type { AliasEntry } from "./alias-audit.ts";
 import { createDevCellResourcePolicy } from "./cell-assets.ts";
@@ -82,7 +74,6 @@ import {
   extensionSubstitutionModuleId,
   extensionSubstitutionModuleOf,
   extensionSubstitutionModuleSource,
-  extensionSubstitutions,
   substitutionForModuleId,
 } from "./extension-substitutions.ts";
 import type { ExtensionSubstitution } from "./extension-substitutions.ts";
@@ -94,19 +85,7 @@ import {
   unavailableHostModuleSource,
 } from "./host-modules.ts";
 import type { HostPackageVersionMismatch } from "./host-modules.ts";
-import {
-  auditHarnessConfiguration,
-  blockingLocalDevFindings,
-  BlockingLocalDevFindingError,
-  formatHarnessAudit,
-  readProjectDependencyDecisions,
-  unmatchedExtensionChoicePackages,
-} from "./local-dev-audit.ts";
-import {
-  formatLocalDecisionProjection,
-  installedToolchain,
-  projectLocalDecisions,
-} from "./local-decision-projection.ts";
+import { auditServerStart } from "./server-audit.ts";
 
 /** The DOM element the mount script renders into. */
 export const HARNESS_MOUNT_ELEMENT_ID = "forguncy-cell-root";
@@ -540,7 +519,7 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
    * comparison is meaningful — see the hook for why this package does the reading rather than
    * `runtime`.
    */
-  let userAliasKeys: string[] | undefined;
+  let userAliasKeys: readonly string[] | undefined;
 
   /**
    * Project keys a `RegExp` alias shadows, paired with the pattern that does it.
@@ -550,7 +529,7 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
    * pattern is judged by the result of running it — so the verdict travels as data rather than as
    * something the audit re-derives.
    */
-  let userAliasPatterns: { key: string; pattern: string }[] | undefined;
+  let userAliasPatterns: readonly { key: string; pattern: string }[] | undefined;
 
   /**
    * The patterns the *project itself* declared, captured in `config()` before anything is merged.
@@ -622,68 +601,16 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
       // Captured in a local because the narrowing above (`registry === undefined` returns) does not
       // survive into the callback, and a non-null assertion here would be the same lie the guard
       // above exists to prevent.
-      const projectAlias = registry.resolve.alias;
-      const declaredEntriesForSubtraction = declaredAliasEntries ?? [];
-      // The shadow audit compares *keys and patterns*, which are the `find` half of these entries;
-      // the `replacement` half is what the subtraction below needs and is kept there.
-      const declared = declaredEntriesForSubtraction.map(entry => entry.find);
-      userAliasKeys = [];
-      userAliasPatterns = [];
-      for (const pattern of declared) {
-        if (typeof pattern !== "string" && !(pattern instanceof RegExp)) {
-          continue;
-        }
-        if (typeof pattern === "string") {
-          userAliasKeys.push(pattern);
-          continue;
-        }
-        userAliasPatterns.push(...projectAliasShadowKeys(pattern, projectAlias));
-      }
-
-      // Anything in the **final** alias set that this harness did not declare is a contribution
-      // from somewhere the snapshot cannot see, and Vite's resolver will use it before the
-      // harness's own `resolveId`.
       //
-      // The snapshot in `config()` is necessary but not sufficient, and the reason is ordering:
-      // this plugin declares `enforce: "pre"`, Vite's `config` hooks run sequentially, and an
-      // ordinary or `post` user plugin still merges into the config *after* the snapshot was
-      // taken. Measured before this check, with no RegExp involved — a plugin whose `config()`
-      // returns `{ resolve: { alias: { "@app/shared/thing": "/local-copy" } } }` made Vite resolve
-      // `@app/shared/thing` to `/local-copy/thing` while production used `./shared/thing`, and the
-      // audit saw nothing to refuse.
-      //
-      // The subtraction is by **identity of contribution**, not by text: everything the project
-      // declared, everything this harness's own host aliases are (which is `hostModuleAliases()`
-      // — the same source `config()` emits, so it is known rather than guessed), and Vite's
-      // injected `@vite/` entries. What is left is a later plugin's, and it is refused rather than
-      // ignored because a plugin that silently changes local resolution is precisely the
-      // unsupported-Vite-plugin behaviour #97 asks to be reported.
-      const latePluginAliases = undeclaredAliasPatterns(config.resolve?.alias, declaredEntriesForSubtraction);
-      if (latePluginAliases.length > 0) {
-        // Refused whatever they overlap, not only a project alias. The overlap case is the
-        // correctness problem, but an alias this audit cannot account for is a plugin changing
-        // local resolution by a route the artifact never sees — and #97 asks for unsupported Vite
-        // plugin behaviour to be *reported* rather than silently accepted. Declaring the alias in
-        // `vite.config.ts` is the supported way to have one, and that declaration is in the snapshot.
-        const report = [
-          `The local dev harness refused to start: ${latePluginAliases.length} alias(es) reached \`resolve.alias\` from a Vite plugin, which this harness cannot account for.`,
-          ...latePluginAliases.map(
-            entry =>
-              `  ${entry}: a plugin added this after the harness read the project's own aliases, so it can change what a Cell resolves locally while the Cell build keeps using \`forguncy.config.ts\`. Declare it in \`vite.config.ts\` if the project means it, or remove the plugin.`,
-          ),
-        ].join("\n");
-
-        throw new BlockingLocalDevFindingError(
-          latePluginAliases.map(entry =>
-            createLocalDevDiagnostic(
-              "local-dev-project-alias-shadowed",
-              entry,
-              `A Vite plugin added the alias ${JSON.stringify(entry)} to \`resolve.alias\` after this harness read the project's own aliases, and neither Vite nor this harness contributed it.`,
-            ),
-          ),
-          report,
-        );
-      }
+      // The audit that judges these — the shadow keys and the subtraction — lives in
+      // `alias-audit.ts`; this hook is where the two inputs are read.
+      const aliasAudit = auditProjectAliases({
+        declaredAliasEntries: declaredAliasEntries ?? [],
+        projectAlias: registry.resolve.alias,
+        resolveAlias: config.resolve?.alias,
+      });
+      userAliasKeys = aliasAudit.userAliasKeys;
+      userAliasPatterns = aliasAudit.userAliasPatterns;
 
       if (options.cellId !== undefined) {
         mounted = registry.require(options.cellId);
@@ -708,12 +635,6 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
     },
 
     async configureServer() {
-      // #23's plan step 5, executed. `runtime` owns every rule here — which branches an
-      // `extension` choice may take, what makes one incomplete, and which findings block local
-      // development — so this hook reads the project's two declarations, hands them to the audit,
-      // and splits the answer by the contract's own `blocksLocalDevelopment` flag. Nothing below
-      // decides what a problem is.
-      //
       // `registry === undefined` means `configResolved` never ran, which only happens outside a
       // Vite server, and the audit has no lock path to read without it. Returning is the honest
       // answer there: a hook that invented a default would audit a path it was never told about.
@@ -721,137 +642,17 @@ export function devHarness(options: DevHarnessOptions): DevHarnessVitePlugin {
         return;
       }
 
-      // The lock, projected onto the Cell this server mounts, and the projection is not optional.
-      //
-      // A lock decision is keyed by `(packageName, cellTarget)`, because #4 defines a strategy per
-      // *pair* — the same package may be `inline` in one Cell and `extension` in another. The audit
-      // has no `cellTarget` parameter, so handing it the whole lock lets another Cell's record decide
-      // this one: a mounted Cell with an `inline` override would still be substituted or refused
-      // because of a target-independent `extension` record, while the compiler inlines. Review found
-      // it, and it is the same dev/compiler drift as the stale-choice defect, reached from the other
-      // side — that one applied a decision the lock no longer had, this one applies a decision the
-      // mounted Cell does not have.
-      //
-      // `mounted` is assigned in `configResolved`, which Vite runs before this hook — measured, not
-      // assumed, and `local-dev-audit-server.test.ts` exercises the ordering by mounting a Cell.
-      const lock = await readProjectDependencyDecisions(registry.runtime.dependencyLockPathAbsolute);
-
-      // And the lock is then put through the *validity* projection the compiler applies before it
-      // will compile a dependency — the second half of the same defect. `compileCell` refuses an
-      // artifact whose decision the compiler withheld (`unresolved-dependency-decision`), so a
-      // harness that acted on such a record could render a Cell locally while the identical source
-      // refuses to compile: a green local render for an artifact that cannot exist.
-      //
-      // `projectLocalDecisions` runs the compiler's own conformance audit and local projection, and
-      // splits the result by axis. Axes a local process can judge decide; the two it cannot
-      // (`extension-*`, which only a page's `listFrontendLibraries` answer supplies, and
-      // `probe-fingerprint-*`, whose composer reaches a bundler) are reported as a boundary instead
-      // of silently withholding. Withholding on those would drop every `extension` record, the
-      // harness would see no `extension` strategy, and a Cell importing one would resolve silently
-      // through npm — the first defect this work closed, restored. The module's docstring has the
-      // measurement.
-      //
-      // The three axes this process *can* judge are supplied from what it actually knows, and the
-      // first version of this call got that wrong in a way worth recording: it passed `target: null`
-      // and `toolchain: null` as placeholders, which the projection correctly read as "unknown" —
-      // manufacturing `forguncy-target-changed` and `toolchain-unknown` on records that were
-      // perfectly valid, and so withholding decisions the compiler accepts. `null` in a freshness
-      // axis means *unknown*, never *don't check*, which is the same asymmetry
-      // `local-dev-audit.ts` records for `decisions` versus `referencedSpecifiers`.
-      const projection = projectLocalDecisions({
-        lock,
+      // #23's plan step 5 runs in `server-audit.ts`: one call reads the project's declarations,
+      // projects the lock the way the compiler does, and throws on a finding that blocks local
+      // development. The substitutions it answers with are the ones `resolveId` claims from.
+      const audit = await auditServerStart({
+        registry,
         cellTarget: mounted?.id ?? null,
-        resolvedVersions: (await resolveInstalledVersions(
-          registry.root,
-          lock.decisions.map(record => record.packageName),
-        )).versions,
-        // `RUNTIME_CONTRACT_TARGET` is the measured contract, which is what a record's own `target`
-        // was written against — and comparing them is exactly what the freshness rule is for, so a
-        // record recorded against a different build is reported rather than assumed fine. The
-        // project's `runtime.forguncyVersion` is checked against it rather than substituted for it:
-        // it names a version, not a build, so it cannot answer a comparison that asks for the build.
-        target: RUNTIME_CONTRACT_TARGET,
-        // The project's install graph, with `vitePlus` read through this package's own resolution
-        // because that is the tool actually driving the loop (#94). `registry.root` is the graph
-        // the Cells resolve in, which is the graph a record describes — and the one #94 exists
-        // for, since it can move while every version a record names stays put.
-        toolchain: await installedToolchain(registry.root),
-        // The project's own mapping set, from the registry — not `core`'s built-in table (#87).
-        //
-        // `registry.extensionMappings` is the one normalization exit #85 built and #86 threaded into
-        // the compiler, so this is the *same* set `compileCell` plans from. Auditing against
-        // `core`'s table instead made a custom project extension a blocking conformance error here
-        // while the compiler compiled it, which is exactly the "the dev server refuses what the
-        // bundler accepts" split #87 exists to remove. Projected through the shared
-        // `extensionCatalogOfNormalized`, so `moduleIds` widen exactly as they do for the compiler.
-        extensionCatalog: extensionCatalogOfNormalized(registry.extensionMappings),
+        extensionChoices: options.extensionChoices,
+        userAliasKeys,
+        userAliasPatterns,
       });
-
-      const audit = auditHarnessConfiguration({
-        decisions: projection.decisions,
-        extensionChoices: options.extensionChoices ?? [],
-        ...(userAliasKeys === undefined ? {} : { userAliasKeys }),
-        ...(userAliasPatterns === undefined ? {} : { userAliasPatterns }),
-        projectAlias: registry.resolve.alias,
-      });
-
-      // Built *here*, from the audit's own answer about which choices matched, and the ordering is
-      // load-bearing rather than tidy. The first version built these in `configResolved` from
-      // `options.extensionChoices` alone, before any decision was read — so a stale choice (a
-      // package the lock has since moved from `extension` to `inline`) was still applied:
-      // `resolveId` served the substitute while the compiler followed the lock and bundled the real
-      // package. Review found it, and it is the dev/compiler drift this whole layer exists to
-      // prevent, arriving through the layer itself.
-      //
-      // Throwing here rather than at `resolveId` is deliberate for the same reason as before: a
-      // choice naming a package the extension table does not intercept is a configuration error the
-      // reader can fix, and reporting it at startup puts it beside the other startup findings
-      // instead of inside whichever module import happened to be first.
-      substitutions = extensionSubstitutions(
-        options.extensionChoices ?? [],
-        registry.root,
-        unmatchedExtensionChoicePackages(audit),
-        // The project's own rows, once normalized (#87): a choice for a custom extension is only
-        // meaningful against the table the compiler resolves it through. See
-        // `extension-substitutions.ts` for the refusal this replaced.
-        registry.extensionMappings.mappings,
-      );
-
-      const lockFindings = formatLocalDecisionProjection(projection);
-      const lockRefuses = projection.conformanceErrors.length > 0;
-
-      const auditReport = formatHarnessAudit(audit);
-      const report =
-        lockFindings.length === 0
-          ? auditReport
-          : `${auditReport}\n\nLock decisions, projected the way the compiler projects them:\n${lockFindings}`;
-      const blocking = blockingLocalDevFindings(audit);
-
-      if (blocking.length > 0 || lockRefuses) {
-        // Refusal carries the report, and *only* the refusal does.
-        //
-        // The first version wrote the report to stderr here as well, on the reasoning that a
-        // blocking run should still show the full picture. That printed everything twice —
-        // measured against a real `vp dev`: the report appeared once from the write below and
-        // again inside this message, which Vite prints itself when a hook rejects. Two identical
-        // copies of a six-line report, one after the other, in the one output a developer is
-        // already unhappy to be reading.
-        //
-        // So the two paths are now exclusive and each prints once. The report is the message
-        // because the alternative — "1 local dev diagnostic", with the finding somewhere else —
-        // sends the reader to a second command for the remediation and the fix owner they need
-        // now. It carries the distinction as well, so a blocked start is not the one path that
-        // drops the local-versus-real caveat.
-        throw new BlockingLocalDevFindingError(
-          blocking,
-          `The local dev harness refused to start: ${blocking.length} finding(s) that this project's configuration has to resolve first.\n${report}`,
-        );
-      }
-
-      // The non-blocking path, and the common one. To stderr for the reason the version and Fast
-      // Refresh warnings go there: this is output *about* the loop, and a page that carried it
-      // would read as the Cell's own.
-      process.stderr.write(`${report}\n`);
+      substitutions = audit.substitutions;
     },
 
     config(userConfig) {

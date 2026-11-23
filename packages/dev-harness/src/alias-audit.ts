@@ -6,7 +6,10 @@
  * them — the host-alias filter and the subtraction that finds an alias no one declared.
  */
 
+import { createLocalDevDiagnostic } from "@forguncy-react-workspace/runtime";
+
 import { hostModuleAliases } from "./host-modules.ts";
+import { BlockingLocalDevFindingError } from "./local-dev-audit.ts";
 
 /**
  * The host aliases a project has *not* already claimed for itself.
@@ -721,4 +724,93 @@ export function projectAliasTarget(
   }
 
   return undefined;
+}
+
+export interface ProjectAliasAuditInput {
+  /** The project's own entries, captured in `config()` before anything was merged into them. */
+  readonly declaredAliasEntries: readonly AliasEntry[];
+  /** The registry's normalized alias set — the final map the harness resolves against. */
+  readonly projectAlias: Readonly<Record<string, string>>;
+  /** The user's `config.resolve.alias`, as Vite handed it to the plugin. */
+  readonly resolveAlias: unknown;
+}
+
+export interface ProjectAliasAudit {
+  /** String keys the project declared, compared by reproducing Vite's prefix rule. */
+  readonly userAliasKeys: readonly string[];
+  /** Project entries a `RegExp` alias shadows, each with the pattern that does it. */
+  readonly userAliasPatterns: readonly { readonly key: string; readonly pattern: string }[];
+}
+
+/**
+ * The project-alias audit run: what the project declared, and anything no one declared.
+ *
+ * Moved verbatim out of `vite-plugin.ts`'s `configResolved` (#160), where it was the block the
+ * issue names. The hook keeps the reading of the config — this function only judges what it is
+ * handed.
+ */
+export function auditProjectAliases(input: ProjectAliasAuditInput): ProjectAliasAudit {
+  const declaredEntriesForSubtraction = input.declaredAliasEntries;
+  // The shadow audit compares *keys and patterns*, which are the `find` half of these entries;
+  // the `replacement` half is what the subtraction below needs and is kept there.
+  const declared = declaredEntriesForSubtraction.map(entry => entry.find);
+  const userAliasKeys: string[] = [];
+  const userAliasPatterns: { key: string; pattern: string }[] = [];
+  for (const pattern of declared) {
+    if (typeof pattern !== "string" && !(pattern instanceof RegExp)) {
+      continue;
+    }
+    if (typeof pattern === "string") {
+      userAliasKeys.push(pattern);
+      continue;
+    }
+    userAliasPatterns.push(...projectAliasShadowKeys(pattern, input.projectAlias));
+  }
+
+  // Anything in the **final** alias set that this harness did not declare is a contribution
+  // from somewhere the snapshot cannot see, and Vite's resolver will use it before the
+  // harness's own `resolveId`.
+  //
+  // The snapshot in `config()` is necessary but not sufficient, and the reason is ordering:
+  // this plugin declares `enforce: "pre"`, Vite's `config` hooks run sequentially, and an
+  // ordinary or `post` user plugin still merges into the config *after* the snapshot was
+  // taken. Measured before this check, with no RegExp involved — a plugin whose `config()`
+  // returns `{ resolve: { alias: { "@app/shared/thing": "/local-copy" } } }` made Vite resolve
+  // `@app/shared/thing` to `/local-copy/thing` while production used `./shared/thing`, and the
+  // audit saw nothing to refuse.
+  //
+  // The subtraction is by **identity of contribution**, not by text: everything the project
+  // declared, everything this harness's own host aliases are (which is `hostModuleAliases()`
+  // — the same source `config()` emits, so it is known rather than guessed), and Vite's
+  // injected `@vite/` entries. What is left is a later plugin's, and it is refused rather than
+  // ignored because a plugin that silently changes local resolution is precisely the
+  // unsupported-Vite-plugin behaviour #97 asks to be reported.
+  const latePluginAliases = undeclaredAliasPatterns(input.resolveAlias, declaredEntriesForSubtraction);
+  if (latePluginAliases.length > 0) {
+    // Refused whatever they overlap, not only a project alias. The overlap case is the
+    // correctness problem, but an alias this audit cannot account for is a plugin changing
+    // local resolution by a route the artifact never sees — and #97 asks for unsupported Vite
+    // plugin behaviour to be *reported* rather than silently accepted. Declaring the alias in
+    // `vite.config.ts` is the supported way to have one, and that declaration is in the snapshot.
+    const report = [
+      `The local dev harness refused to start: ${latePluginAliases.length} alias(es) reached \`resolve.alias\` from a Vite plugin, which this harness cannot account for.`,
+      ...latePluginAliases.map(
+        entry =>
+          `  ${entry}: a plugin added this after the harness read the project's own aliases, so it can change what a Cell resolves locally while the Cell build keeps using \`forguncy.config.ts\`. Declare it in \`vite.config.ts\` if the project means it, or remove the plugin.`,
+      ),
+    ].join("\n");
+
+    throw new BlockingLocalDevFindingError(
+      latePluginAliases.map(entry =>
+        createLocalDevDiagnostic(
+          "local-dev-project-alias-shadowed",
+          entry,
+          `A Vite plugin added the alias ${JSON.stringify(entry)} to \`resolve.alias\` after this harness read the project's own aliases, and neither Vite nor this harness contributed it.`,
+        ),
+      ),
+      report,
+    );
+  }
+
+  return { userAliasKeys, userAliasPatterns };
 }
