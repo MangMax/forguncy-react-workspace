@@ -22,7 +22,10 @@
  * re-evaluates under a different format would silently change the answer while
  * the fingerprint stayed the same. That pin is part of
  * {@link BUILD_CONFIGURATION_FINGERPRINT}, so changing it invalidates cached
- * evidence the same way any other declared input does.
+ * evidence the same way any other declared input does. Since #158 none of these
+ * values are written here: they are `core`'s `CELL_BUNDLER_BUILD_OPTIONS`, which
+ * the compiler's bundler reads and the fingerprint projects, so the probe, the
+ * compiler and the fingerprint cannot disagree about them.
  *
  * A failure is never a bare `false`. Escaped errors reduce to portable
  * `message (file:line:column)` lines through `describeBuildFailureLines`
@@ -40,7 +43,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { ProbeFact, ProbeValidationEntry } from "@forguncy-react-workspace/core";
-import { compareCodeUnits } from "@forguncy-react-workspace/core";
+import { cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits } from "@forguncy-react-workspace/core";
 import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
 
 import { describeBuildFailureLines, portableText, safePathSegment } from "./scan-utils.ts";
@@ -181,24 +184,17 @@ export async function runCandidateBuild(options: CandidateBuildOptions): Promise
   let build: Awaited<ReturnType<typeof rolldown>> | undefined;
   let output: (OutputChunk | OutputAsset)[];
   try {
+    // The build options are the shared Cell-build definition (#158), not a copy: the compiler
+    // reads the same one, so a change here cannot leave the probe and the compiler disagreeing
+    // while the fingerprint they share stays put.
     build = await rolldown({
       input: entryPath,
-      // Resolution-time pin: the probe's entire question is "does this resolve
-      // for a browser", and leaving `platform` to Rolldown's format-derived
-      // default would re-evaluate under a different format while the fingerprint
-      // stayed the same.
-      platform: "browser",
+      ...cellBundlerInputOptions(),
       onLog: (_level, log) => {
         logs.push({ code: log.code ?? "", id: log.id ?? "", message: log.message });
       },
-      transform: { jsx: "react-jsx" },
-      experimental: { attachDebugInfo: "none" },
     });
-    ({ output } = await build.generate({
-      format: "iife",
-      name: "FgcProbeCandidate",
-      codeSplitting: false,
-    }));
+    ({ output } = await build.generate(cellBundlerOutputOptions("FgcProbeCandidate")));
   } catch (error) {
     const diagnostics = describeBuildFailureLines(error, options.projectRoot);
     return {

@@ -26,7 +26,10 @@
  *    `react/jsx-runtime`, which the host-bridge plan then intercepts, so no
  *    React implementation is bundled; `experimental.attachDebugInfo: "none"`
  *    keeps `//#region` comments — which embed module ids and would make output
- *    machine-dependent — out of the code.
+ *    machine-dependent — out of the code. Since #158 those values are not written
+ *    here: `core`'s `CELL_BUNDLER_BUILD_OPTIONS` is the one definition, read by both
+ *    of this bundler's passes and by the probe build, and `platform: "browser"` is
+ *    stated explicitly rather than left to Rolldown's format-derived default.
  * 3. **Plans wire the resolver, and the report feeds #6's audits.** Bare
  *    specifiers are consulted against `planHostBridge` first (the page's own
  *    modules win) and `planExtensionExternals` second; an interception is loaded
@@ -60,7 +63,7 @@ import type {
   ExtensionExternalDiagnostic,
   NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT, compareCodeUnits } from "@forguncy-react-workspace/core";
+import { CELL_RUNTIME_BINDING_CONTRACT, cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits } from "@forguncy-react-workspace/core";
 import {
   rolldown,
   type OutputAsset,
@@ -655,8 +658,7 @@ async function resolveEntrySpecifiersWithRolldown(
   try {
     await scan({
       input: resolvedEntry,
-      transform: { jsx: "react-jsx" },
-      experimental: { attachDebugInfo: "none" },
+      ...cellBundlerInputOptions(),
       ...rolldownAliasOptions(alias),
       plugins: [
         {
@@ -1184,8 +1186,7 @@ async function bundleWithRolldown(
         // shape); the report and the audits speak for everything else.
         logs.push({ code: log.code ?? "", id: log.id ?? "", message: log.message });
       },
-      transform: { jsx: "react-jsx" },
-      experimental: { attachDebugInfo: "none" },
+      ...cellBundlerInputOptions(),
       ...rolldownAliasOptions(alias),
       plugins: [
         {
@@ -1207,11 +1208,7 @@ async function bundleWithRolldown(
         },
       ],
     });
-    ({ output } = await build.generate({
-      format: "iife",
-      name: request.componentBinding,
-      codeSplitting: false,
-    }));
+    ({ output } = await build.generate(cellBundlerOutputOptions(request.componentBinding)));
   } catch (error) {
     if (resources.refusals.length > 0) throw new CellResourcePolicyError(resources.refusals);
     // The resource refusal keeps its code — see `resolveResourceSpecifier`.
