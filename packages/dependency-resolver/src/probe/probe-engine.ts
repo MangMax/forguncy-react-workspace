@@ -209,11 +209,6 @@ export interface RunDependencyProbeOptions {
 export const PROBE_CACHE_OUTCOMES = ["hit", "miss", "disabled"] as const;
 export type ProbeCacheOutcome = (typeof PROBE_CACHE_OUTCOMES)[number];
 
-// The invalidation vocabulary and the comparison behind it (#161) live beside the cache decision
-// they explain; re-exported here so this module keeps the surface it had.
-export { PROBE_CACHE_MISS_REASONS } from "./cache-invalidation.ts";
-export type { ProbeCacheMissReason } from "./cache-invalidation.ts";
-
 /**
  * What the cache decided for this run, and — on a miss — which input had moved.
  *

@@ -198,6 +198,7 @@ export type { NormalizedExtensionMappings } from "./extension-mappings-config.ts
 export { compareCodeUnits } from "./code-units.ts";
 export { isPlainRecord } from "./guards.ts";
 export { createCanonicalizer } from "./canonical.ts";
+export { describeReportedError, describeValue, hasReportedErrors, stripAnsi } from "./build-failure.ts";
 export {
   DECISION_EVIDENCE_KINDS,
   FGC_LOCK_FILE_NAME,

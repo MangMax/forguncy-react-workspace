@@ -55,7 +55,7 @@
  * {@link translateExtensionFinding}.
  */
 
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 
 import type {
@@ -63,7 +63,7 @@ import type {
   ExtensionExternalDiagnostic,
   NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT, cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits } from "@forguncy-react-workspace/core";
+import { CELL_RUNTIME_BINDING_CONTRACT, cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits, describeReportedError, hasReportedErrors, stripAnsi } from "@forguncy-react-workspace/core";
 import {
   rolldown,
   type OutputAsset,
@@ -96,6 +96,7 @@ import {
   CELL_ASSET_INLINE_LIMIT_BYTES,
   CellResourcePolicyError,
   isCellResourceFile,
+  isRegularFile,
   resolveCellResource,
 } from "./cell-resources.ts";
 import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
@@ -758,78 +759,6 @@ function isBareSpecifier(source: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Removes colour and cursor codes.
- *
- * Rolldown frames every message with ANSI styling; #6's diagnostics land in CI
- * logs that get diffed, and an escape sequence inside a message makes two
- * identical failures compare unequal. Stripped at the point of escape so no
- * downstream consumer has to know that bundlers paint their text.
- */
-function stripAnsi(text: string): string {
-  // SGR parameters and the cursor-letter they terminate; every sequence
-  // observed from rolldown's frames is of this shape.
-  // eslint-disable-next-line no-control-regex -- matching the escape byte is the entire point of this pattern.
-  return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-}
-
-function firstLine(text: string): string {
-  const newline = text.indexOf("\n");
-  return newline === -1 ? text : text.slice(0, newline);
-}
-
-interface ReportedBuildError {
-  readonly message?: unknown;
-  readonly id?: unknown;
-  readonly loc?: Readonly<{ file?: unknown; line?: unknown; column?: unknown }> | null;
-}
-
-function hasReportedErrors(value: unknown): value is { readonly errors: readonly unknown[] } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "errors" in value &&
-    Array.isArray((value as { readonly errors?: unknown }).errors)
-  );
-}
-
-/**
- * One reported error as one line: message first, location pulled out of the
- * structured `loc` rather than scraped from the painted frame.
- *
- * The frame itself — the source excerpt with its box-drawing characters — is
- * dropped on purpose. `compileCell` embeds this text in a diagnostic's `detail`;
- * the message and `file:line:column` are what a reader needs to act on, and the
- * excerpt would carry the entry's absolute path into a log artifact.
- */
-/**
- * A reported field as diagnostic text: a string as itself, an absent value as nothing, and
- * anything else in its JSON form. `String()` would print `[object Object]` for the last case,
- * which tells the reader neither what the bundler said nor which value it said it about.
- */
-function describeValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined || value === null) return "";
-  return JSON.stringify(value) ?? "";
-}
-
-function describeReportedError(value: unknown): string {
-  if (typeof value !== "object" || value === null) return stripAnsi(String(value));
-  const error = value as ReportedBuildError;
-  const message =
-    typeof error.message === "string"
-      ? firstLine(stripAnsi(error.message))
-      : stripAnsi(describeValue(error.message));
-  const loc = error.loc ?? undefined;
-  const file = typeof loc?.file === "string" ? loc.file : typeof error.id === "string" ? error.id : undefined;
-  const line = typeof loc?.line === "number" ? loc.line : undefined;
-  const column = typeof loc?.column === "number" ? loc.column : undefined;
-  if (file === undefined) return message;
-  if (line === undefined) return `${message} (${file})`;
-  if (column === undefined) return `${message} (${file}:${line})`;
-  return `${message} (${file}:${line}:${column})`;
-}
-
-/**
  * Turns an escaped bundler failure into one clean message.
  *
  * `compileCell`'s catch builds the `bundler-failure` diagnostic from whatever
@@ -839,7 +768,7 @@ function describeReportedError(value: unknown): string {
  */
 function describeBuildFailure(error: unknown): string {
   if (hasReportedErrors(error) && error.errors.length > 0) {
-    return error.errors.map(describeReportedError).join("\n");
+    return error.errors.map(entry => describeReportedError(entry, { message: stripAnsi })).join("\n");
   }
   if (error instanceof Error) return stripAnsi(error.message);
   return stripAnsi(String(error));
@@ -1083,14 +1012,6 @@ function byCodeThenSubject(
 // ---------------------------------------------------------------------------
 // The build
 // ---------------------------------------------------------------------------
-
-function isRegularFile(file: string): boolean {
-  try {
-    return statSync(file).isFile();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Refuses an entry that offers no component for the shim to bind.
