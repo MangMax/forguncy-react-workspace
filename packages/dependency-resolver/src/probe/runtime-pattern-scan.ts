@@ -33,7 +33,7 @@
  * broken, and the Agent weighs them against alternatives.
  *
  * **The scan is bounded by browser-entry reachability**, for the same reason
- * `node-builtin-scan` is (see `module-source.ts` for the full account). The first
+ * `node-builtin-scan` is (see `module-source-analysis.ts` for the full account). The first
  * real-package probe showed why: `three` published optional loaders under
  * `examples/jsm/` (`DRACOLoader`, `KTX2Loader`, a bundled `fflate`, a lottie canvas)
  * that each construct a Worker, and none of them is reachable from
@@ -50,7 +50,7 @@ import { compareCodeUnits } from "@forguncy-react-workspace/core";
 
 import { applyBrowserField, resolveBrowserEntryPaths, selfReferenceResolver } from "./browser-entry.ts";
 import type { ResolvedPackageIdentity } from "./identity.ts";
-import { collectReachableSourceFiles } from "./module-source.ts";
+import { collectReachableSourceFiles } from "./module-source-reachability.ts";
 
 
 /**

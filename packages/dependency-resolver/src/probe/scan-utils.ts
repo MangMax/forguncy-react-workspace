@@ -161,7 +161,7 @@ export function describeBuildFailureLines(error: unknown, projectRoot: string): 
  * not "every file a browser build reaches", and the difference is where `three`'s
  * optional draco loaders and `@embedpdf/pdfium`'s Node builds live.
  *
- * `module-source.ts`'s `collectReachableSourceFiles` replaces it: same determinism
+ * `module-source-reachability.ts`'s `collectReachableSourceFiles` replaces it: same determinism
  * guarantees, bounded by the manifest's browser entries. This note stays so that a
  * future reader who needs a directory walk finds the reason it was withdrawn rather
  * than re-adding it — a whole-tree walk is exactly the shape a scanner reaches for

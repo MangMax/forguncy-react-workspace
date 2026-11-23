@@ -80,7 +80,7 @@ function stableScalar(value: string): string {
  *
  * - `1` — initial. Whole-directory, raw-text scanning.
  * - `2` — scanners are bounded by browser-entry reachability and read comment-masked
- *   source (`module-source.ts`); `artifact-scan` matches masked chunk code. Changes
+ *   source (`module-source-analysis.ts`); `artifact-scan` matches masked chunk code. Changes
  *   findings for packages shipping a Node build beside a browser one (`three`,
  *   `@embedpdf/pdfium`) and for packages naming a builtin only in a comment
  *   (`es-toolkit`).
