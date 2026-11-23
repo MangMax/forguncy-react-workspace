@@ -666,7 +666,7 @@ async function injectedDepsDigest(
   }
 
   const digests: string[] = [];
-  for (const source of Object.keys(declared).sort()) {
+  for (const source of Object.keys(declared).sort(compareCodeUnits)) {
     const copies = declared[source];
     if (!Array.isArray(copies)) {
       return null;

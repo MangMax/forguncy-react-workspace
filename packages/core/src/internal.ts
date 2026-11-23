@@ -407,6 +407,7 @@ export { containsMachineSpecificPath, isSecretLikeKey, machineSpecificPathProble
 // the code-unit comparator every ordered output uses, the plain-record guard every parser shares,
 // and the canonicaliser factory the lock and the probe report are both built from.
 export { compareCodeUnits } from "./code-units.ts";
+export { describeReportedError, describeValue, hasReportedErrors, stripAnsi } from "./build-failure.ts";
 export { isPlainRecord } from "./guards.ts";
 export { createCanonicalizer } from "./canonical.ts";
 

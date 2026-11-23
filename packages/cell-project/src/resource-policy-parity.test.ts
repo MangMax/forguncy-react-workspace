@@ -66,7 +66,7 @@ const RESOURCE_CASES: readonly ResourceCase[] = [
   { id: "x.wasm", verdict: "refuse", code: "rejected-binary-asset" },
   { id: "x.png", verdict: "accept", kind: "asset" },
   { id: "x.png?v=1", verdict: "refuse", code: "resource-query" },
-  { id: "directory.css", verdict: "refuse", code: "missing-resource-file" },
+  { id: "directory.css", verdict: "refuse", code: "not-a-regular-file" },
   { id: "missing.css", verdict: "refuse", code: "missing-resource-file" },
   // Vite's own bookkeeping is not an authored query, so both paths ignore it. It is in the table
   // because "dev is stricter now" must not mean "dev refuses the marks Vite itself appends" —

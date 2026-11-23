@@ -496,7 +496,7 @@ export function auditWorkspaceSource(input: WorkspaceSourceAuditInput): Workspac
 
   diagnostics.push(...auditDecisions(index, decisions));
   diagnostics.push(...auditFrontendLibraries(index, input.frontendLibraries));
-  diagnostics.push(...auditExternalImports(index, input.externalImports));
+  diagnostics.push(...auditWorkspaceImportsLeftExternal(index, input.externalImports));
 
   const usage: WorkspaceUsageState = input.entryModuleIds === undefined ? "unstated" : "stated";
   const closure =
@@ -602,7 +602,7 @@ function auditFrontendLibraries(
  * under two codes; the manifest changes nothing about that case, because a path was
  * never ambiguous.
  */
-function auditExternalImports(
+function auditWorkspaceImportsLeftExternal(
   index: WorkspaceGraphIndex,
   externalImports: readonly string[] | undefined,
 ): readonly WorkspaceSourceDiagnostic[] {

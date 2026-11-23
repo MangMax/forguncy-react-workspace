@@ -324,18 +324,22 @@ describe("an @import is found wherever it is written", () => {
 
 describe("one classification for dev and compiler (#153)", () => {
   /** A probe over a fixed set of regular files, so the classification is exercised without a disk. */
-  const probe = (files: Readonly<Record<string, number>>) => ({
+  const probe = (files: Readonly<Record<string, number>>, directories: readonly string[] = []) => ({
     isRegularFile: (filePath: string) => filePath in files,
+    exists: (filePath: string) => filePath in files || directories.includes(filePath),
     byteLength: (filePath: string) => files[filePath],
   });
 
-  const classify = (filePath: string, options: { query?: string; files?: Record<string, number> } = {}) =>
+  const classify = (
+    filePath: string,
+    options: { query?: string; files?: Record<string, number>; directories?: readonly string[] } = {},
+  ) =>
     classifyCellResource({
       subject: filePath,
       filePath,
       ...(options.query === undefined ? {} : { query: options.query }),
       inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
-      probe: probe(options.files ?? { [filePath]: 8 }),
+      probe: probe(options.files ?? { [filePath]: 8 }, options.directories),
     });
 
   it("accepts a plain stylesheet and a small supported asset", () => {
@@ -371,14 +375,20 @@ describe("one classification for dev and compiler (#153)", () => {
     expect(refusal.refusal.detail).toContain("?worker");
   });
 
-  it("refuses a directory or a missing file by the regular-file answer, not by the extension", () => {
-    for (const filePath of ["/p/directory.css", "/p/missing.css"]) {
-      const refusal = classify(filePath, { files: {} });
-      expect(refusal.kind).toBe("refuse");
-      if (refusal.kind !== "refuse") return;
-      expect(refusal.refusal.code).toBe("missing-resource-file");
-      expect(refusal.refusal.detail).toContain("does not resolve to a regular file");
-    }
+  it("refuses a directory and a missing file by the regular-file answer, with different codes", () => {
+    // The path exists but is not a file, so `missing-resource-file` would misdescribe it: what a
+    // caller has to fix differs, even though the sentence a reader sees does not.
+    const directory = classify("/p/directory.css", { files: {}, directories: ["/p/directory.css"] });
+    expect(directory.kind).toBe("refuse");
+    if (directory.kind !== "refuse") return;
+    expect(directory.refusal.code).toBe("not-a-regular-file");
+    expect(directory.refusal.detail).toContain("does not resolve to a regular file");
+
+    const missing = classify("/p/missing.css", { files: {} });
+    expect(missing.kind).toBe("refuse");
+    if (missing.kind !== "refuse") return;
+    expect(missing.refusal.code).toBe("missing-resource-file");
+    expect(missing.refusal.detail).toContain("does not resolve to a regular file");
   });
 
   it("refuses an oversized asset by the size the probe reported", () => {

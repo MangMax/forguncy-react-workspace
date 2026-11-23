@@ -37,7 +37,7 @@
  * file and the line — and the two filesystem answers the classification asks for.
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -102,6 +102,7 @@ const CELL_RESOURCE_FILE_PROBE: CellResourceFileProbe = {
       return false;
     }
   },
+  exists: existsSync,
   byteLength: filePath => {
     try {
       return statSync(filePath).size;

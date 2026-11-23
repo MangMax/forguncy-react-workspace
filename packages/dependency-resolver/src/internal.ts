@@ -140,7 +140,6 @@ export type {
 // ---------------------------------------------------------------------------
 
 export {
-  PROBE_CACHE_MISS_REASONS,
   PROBE_CACHE_OUTCOMES,
   probeLockEnvironment,
   probeRunLockEvidence,
@@ -150,7 +149,6 @@ export {
 export type {
   DependencyProbeResult,
   ProbeCacheDecision,
-  ProbeCacheMissReason,
   ProbeCacheOutcome,
   ProbeLockEnvironmentOptions,
   PreSmokeReport,
@@ -159,6 +157,10 @@ export type {
   ResolvedPackageIdentity,
   RunDependencyProbeOptions,
 } from "./probe/probe-engine.ts";
+// The invalidation vocabulary lives beside the cache decision it explains (#161); exported from
+// its own module so callers do not reach it through the engine's pass-through.
+export { PROBE_CACHE_MISS_REASONS } from "./probe/cache-invalidation.ts";
+export type { ProbeCacheMissReason } from "./probe/cache-invalidation.ts";
 
 // `PROBE_ANALYSIS_REVISION` is exported beside the composer because `local.ts` projects the whole
 // of `probe/fingerprint.ts` (#157), and a name reachable there but not here would make the
@@ -224,4 +226,4 @@ export {
   resolvePackageIdentity,
 } from "./probe/identity.ts";
 
-export { describeBuildFailureLines, portableText, stripAnsi } from "./probe/scan-utils.ts";
+export { describeBuildFailureLines, portableText } from "./probe/scan-utils.ts";

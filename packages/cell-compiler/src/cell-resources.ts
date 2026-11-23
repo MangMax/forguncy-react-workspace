@@ -43,7 +43,7 @@
  * the Cell is not allowed to install.
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -368,6 +368,7 @@ export async function resolveCellResource(input: CellResourceReader): Promise<Ce
 /** The compiler's filesystem answers to the shared classification's two questions. */
 const CELL_RESOURCE_FILE_PROBE: CellResourceFileProbe = {
   isRegularFile,
+  exists: existsSync,
   byteLength: filePath => {
     try {
       return statSync(filePath).size;
@@ -466,7 +467,8 @@ function cssViolationDetail(fileName: string, importerNote: string, violations: 
   return formatCellCssRefusalDetail(fileName, violations, importerNote);
 }
 
-function isRegularFile(file: string): boolean {
+/** Whether the path names a regular file; the entry preflight and the resource probe both ask it. */
+export function isRegularFile(file: string): boolean {
   try {
     return statSync(file).isFile();
   } catch {
