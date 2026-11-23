@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import * as barrel from "@forguncy-react-workspace/dependency-resolver";
+import * as barrel from "./internal.ts";
 import * as local from "@forguncy-react-workspace/dependency-resolver/local";
 
 /**
@@ -36,7 +36,7 @@ import * as local from "@forguncy-react-workspace/dependency-resolver/local";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const resolverRoot = resolve(here, "..", "..", "dependency-resolver");
+const resolverRoot = resolve(here, "..");
 
 /** The local specifiers a file imports, so the graph can be walked without resolving npm names. */
 function relativeImportsOf(path: string): readonly string[] {
@@ -63,7 +63,7 @@ describe("`dependency-resolver/local` is a projection of the barrel, not a secon
     // same way as a comparison — so the assertion is about this entry's closure rather than about
     // what the bundler happens to include.
     const reachedFromLocal = closureOf(join(resolverRoot, "src", "local.ts"));
-    const reachedFromBarrel = closureOf(join(resolverRoot, "src", "index.ts"));
+    const reachedFromBarrel = closureOf(join(resolverRoot, "src", "internal.ts"));
 
     // A path that imports `rolldown`: what the projection must not reach, and what the barrel does.
     const rolldownImporter = [...reachedFromBarrel].find(path => /from\s+"rolldown"/.test(readFileSync(path, "utf8")));

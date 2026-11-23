@@ -2,16 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { CellEntryKind, DependencyDecision } from "@forguncy-react-workspace/core";
 
-import {
-  CELL_ARTIFACT_BANNER,
-  compileCell,
-  dependencyDecisionsFor,
-  findDependencyDecision,
-  formatCompileCellOutcome,
-  packageNameOfSpecifier,
-  serializeCompileCellResult,
-  verifyCellArtifact,
-} from "./artifact.ts";
+import { CELL_ARTIFACT_BANNER, compileCell, formatCompileCellOutcome, serializeCompileCellResult, verifyCellArtifact } from "./artifact.ts";
+// From the module that defines them (#157): the artifact boundary no longer forwards them.
+import { dependencyDecisionsFor, findDependencyDecision, packageNameOfSpecifier } from "./specifier.ts";
 import type {
   BundledCellModule,
   CellBundlerPort,

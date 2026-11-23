@@ -33,15 +33,15 @@
  * guesses in favour of the newer claim.
  */
 
-import type { LockedDependencyDecision, LockEvidenceProfile, LockEvidencePolicy } from "./lock.ts";
+import type { LockedDependencyDecision, LockEvidenceProfile, LockEvidencePolicy } from "./lock-types.ts";
 import {
   forguncyTargetIdentity,
   LOCK_EVIDENCE_POLICY,
   lockEvidenceProfileOf,
   matchesForguncyTargetIdentity,
   requiresRuntimeValidation,
-} from "./lock.ts";
-import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock.ts";
+} from "./lock-types.ts";
+import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock-types.ts";
 import { isArtifactObservedRejectionCode } from "./rejection.ts";
 import { isSubjectCompileDecision } from "./strategy.ts";
 import type { RuntimeContractTarget } from "./runtime-contract.ts";
@@ -498,8 +498,8 @@ function assessExtensionFreshness(
  *
  * 1. **Is there evidence at all?** A record written before revision 14 cites the code with none.
  *    Reporting that here rather than refusing it at parse time is deliberate: an existing lock has
- *    to stay **readable and stale** (`lock-migration.ts`), and a migration must not silently
- *    delete or re-decide what it cannot interpret.
+ *    to stay **readable and stale**, and a read must not silently delete or re-decide what it
+ *    cannot interpret.
  * 2. **Is it still the same compile?** The recorded `compileFingerprint` covers the composed
  *    artifact's bytes, the dependency decision set and the cap. If the entry (or anything it
  *    imports) changed, or a dependency decision moved, this workspace would now compose a

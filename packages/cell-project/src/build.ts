@@ -35,6 +35,7 @@ import type {
   CellProjectWorkspace,
 } from "@forguncy-react-workspace/cell-compiler";
 import type { CellEntryKind, DependencyDecision } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import { fingerprintArtifact } from "@forguncy-react-workspace/mcp-sync";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -194,10 +195,14 @@ function manifestResources(cell: BuiltCell): readonly ManifestResource[] {
     // Sorted, because the compiler's ledger is a discovery order: the CSS `url(...)` asset and the
     // directly imported one are found by whichever module resolved first, and two builds of one
     // unchanged project must produce the same manifest (#97's determinism, applied to the report).
+    //
+    // Code units, not `localeCompare` (#155): a locale-sensitive order puts `a` before `B` and `Ä`
+    // among the `a`s, so the same project would write two manifests on two machines — the one thing
+    // a manifest exists to rule out.
     .sort((left, right) =>
       left.kind === right.kind
-        ? left.fileName.localeCompare(right.fileName)
-        : left.kind.localeCompare(right.kind),
+        ? compareCodeUnits(left.fileName, right.fileName)
+        : compareCodeUnits(left.kind, right.kind),
     );
 }
 
@@ -244,21 +249,21 @@ function lockViewOf(project: LoadedCellProject, cellId: string): Pick<
   "decisions" | "withheld" | "unobservable" | "conformanceErrors" | "deploymentWithheld"
 > {
   const lock = cellLockOf(project, cellId);
+  // The Cell's decision list already carries one entry per package — the bridge's rows for what
+  // nothing decided, then the lock's — because `loadCellProject` unions them that way (#157). So
+  // this only has to label each entry, and the post-hoc dedupe that used to follow was an O(n²)
+  // restatement of a property the union has by construction.
+  //
+  // A recorded decision that agrees with the bridge is still the lock's: the lock is what a reader
+  // has to keep current, and labelling it "host-bridge" would hide that obligation. The bridge's
+  // own rows are the ones `hostDefaultsOf` supplied, and it skips every package the lock decides.
+  const bridged = new Set(project.hostDefaults.map(entry => entry.packageName));
   return {
-    decisions: [
-      ...project.hostDefaults.map(entry => ({
-        packageName: entry.packageName,
-        strategy: "host" as const,
-        source: "host-bridge" as const,
-      })),
-      ...lock.decisions.map(decision => ({
-        packageName: decision.packageName,
-        strategy: decision.strategy,
-        // A recorded decision that agrees with the bridge is still the lock's: the lock is what a
-        // reader has to keep current, and labelling it "host-bridge" would hide that obligation.
-        source: "lock" as const,
-      })),
-    ].filter((entry, index, all) => all.findIndex(candidate => candidate.packageName === entry.packageName) === index),
+    decisions: lock.decisions.map(decision => ({
+      packageName: decision.packageName,
+      strategy: decision.strategy,
+      source: bridged.has(decision.packageName) ? ("host-bridge" as const) : ("lock" as const),
+    })),
     withheld: lock.projection.withheld.map(entry => ({
       packageName: entry.packageName,
       strategy: entry.strategy,

@@ -77,7 +77,8 @@
  * never executes, and a statically imported table is an edge into every artifact that imports
  * this module's barrel. What remains here is the declaration (`RUNTIME_FACADE_SURFACE`) and every
  * check comparing it with the accessors, which is the toolchain side of the same contract; the
- * runtime half is re-exported below, so the package's root entry is unchanged.
+ * runtime half is imported for those checks and re-exported from its own module, so the package's
+ * root entry is unchanged.
  */
 
 
@@ -93,18 +94,11 @@ import type { RuntimeFacadeCapabilityId, RuntimeFacadeHostBinding } from "./capa
 import { RUNTIME_FACADE_PORT_HOOK_NAME } from "./port.ts";
 
 // The runtime half of the surface — the accessor, the two address tuples it validates against,
-// and the provider a compiled Cell installs — lives in `cell-runtime.ts` (#124). Re-exported
-// here so the root entry's surface is unchanged and so a reader of `facade.ts` still finds the
-// whole façade in one place. The audit below is what stayed: it reads the capability registry,
-// which a Cell never does.
-export {
-  runtimeFacade,
-  runtimeFacadeSurface,
-  RUNTIME_FACADE_CELL_PROP_ADDRESSES,
-  RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES,
-  RUNTIME_FACADE_SURFACE_MEMBER_IDS,
-} from "./cell-runtime.ts";
-export type { ExposedCellPropKey, ExposedForguncyMember, RuntimeFacade, RuntimeFacadeSurfaceMemberId } from "./cell-runtime.ts";
+// and the provider a compiled Cell installs — lives in `cell-runtime.ts` (#124). It is imported
+// above because the audit here compares it with the registry, and it is *not* re-exported through
+// this module (#157): the root entry takes each of those names from `cell-runtime.ts` directly, so
+// there is one hop from a defining module to the barrel rather than two. The audit below is what
+// stayed here, and it reads the capability registry, which a Cell never does.
 
 /**
  * How far a surface member's signature is allowed to go.

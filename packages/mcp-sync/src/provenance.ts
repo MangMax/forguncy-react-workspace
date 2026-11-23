@@ -39,10 +39,8 @@
  */
 
 import {
-  citationPatternsFor,
-  decisionReference,
+  defineDecisionProvenance,
   EXTENSION_EXTERNALS_DECISION,
-  formatGoverningSpecReferenceLine,
   GOVERNING_ARCHITECTURE_DECISIONS,
 } from "@forguncy-react-workspace/core";
 import type { ArchitectureDecisionSource } from "@forguncy-react-workspace/core";
@@ -55,13 +53,6 @@ export const MCP_SYNC_DECISION: ArchitectureDecisionSource = {
   title: "Spec: one-way MCP sync from generated artifacts to Forguncy ReactCellType",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/19",
 };
-
-/** Short form, e.g. `#19`. */
-export const MCP_SYNC_DECISION_REFERENCE = decisionReference(MCP_SYNC_DECISION);
-
-/** Repo-qualified short form, for a reference that travels outside this repository. */
-export const MCP_SYNC_DECISION_QUALIFIED_REFERENCE =
-  `${MCP_SYNC_DECISION.repository}${MCP_SYNC_DECISION_REFERENCE}`;
 
 /**
  * Every Spec a change to this package has to cite, in the order the decisions were
@@ -80,6 +71,18 @@ export const MCP_SYNC_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[]
 ];
 
 /**
+ * The record's derived constants, from the record and the governing list rather than
+ * restated per constant (#156).
+ */
+const MCP_SYNC_PROVENANCE = defineDecisionProvenance(MCP_SYNC_DECISION, MCP_SYNC_GOVERNING_DECISIONS);
+
+/** Short form, e.g. `#19`. */
+export const MCP_SYNC_DECISION_REFERENCE = MCP_SYNC_PROVENANCE.reference;
+
+/** Repo-qualified short form, for a reference that travels outside this repository. */
+export const MCP_SYNC_DECISION_QUALIFIED_REFERENCE = MCP_SYNC_PROVENANCE.qualifiedReference;
+
+/**
  * The line a PR body, plan or report describing this package's contract carries.
  *
  * Built with `core`'s formatter so the wording cannot drift from the other Spec
@@ -87,9 +90,7 @@ export const MCP_SYNC_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[]
  * established wording; #6, #12 and #19 are included because a deployment change is
  * bound by them as much as by #4 and #5.
  */
-export const MCP_SYNC_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(
-  MCP_SYNC_GOVERNING_DECISIONS,
-);
+export const MCP_SYNC_GOVERNING_SPEC_REFERENCE_LINE = MCP_SYNC_PROVENANCE.governingSpecReferenceLine;
 
 /** Patterns a document must match to count as citing the one-way sync contract. */
-export const MCP_SYNC_CITATION_PATTERNS: readonly RegExp[] = citationPatternsFor(MCP_SYNC_DECISION);
+export const MCP_SYNC_CITATION_PATTERNS = MCP_SYNC_PROVENANCE.citationPatterns;

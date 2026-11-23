@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { auditWorkspaceSource, classifyWorkspaceModule, traceWorkspaceSourceClosure, workspacePackageFor } from "./workspace-source.ts";
+import { auditWorkspaceSource, classifyWorkspaceModule, traceWorkspaceSourceClosure, workspacePackageFor } from "./workspace-source-audit.ts";
 import { loadPnpmWorkspaceGraph, PNPM_WORKSPACE_FILE } from "./workspace-graph.ts";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");

@@ -315,6 +315,308 @@ export function queryHasRejectedResourceParameter(query: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// One classification, two consumers (#153)
+// ---------------------------------------------------------------------------
+
+/**
+ * A stable reason code for a refused Cell resource import.
+ *
+ * Decision source: GitHub Issue #153 —
+ * "refactor(core): one Cell resource classification for dev and compiler"
+ * (https://github.com/MangMax/forguncy-react-workspace/issues/153), which requires the compiler
+ * and `vp dev` to give one answer per resource import and a stable code beside the message.
+ *
+ * The codes are the *reason*, not the message: two paths that refuse for the same reason report
+ * the same code even when the sentence around it is the compiler's diagnostic vocabulary.
+ */
+export type CellResourceRefusalCode =
+  | "resource-query"
+  | "css-module"
+  | "css-preprocessor"
+  | "rejected-binary-asset"
+  | "unsupported-asset"
+  | "oversized-asset"
+  | "missing-resource-file"
+  | "not-a-regular-file"
+  | "css-reference";
+
+/**
+ * A refused resource import, in the terms both consumers report.
+ *
+ * `detail` is the one explanation: the compiler carries it as its diagnostic's detail and the dev
+ * harness throws it as the error's message, so a Cell author reads one rule rather than two.
+ */
+export interface CellResourceRefusal {
+  readonly code: CellResourceRefusalCode;
+  /** The specifier as authored, or the id the bundler resolved; used verbatim in `detail`. */
+  readonly subject: string;
+  /** The module the import was written in, when it is not the entry's own stylesheet. */
+  readonly importer?: string;
+  /** A sentence naming the reason and the required direction. */
+  readonly detail: string;
+}
+
+/**
+ * The filesystem questions a classification asks, injected rather than imported.
+ *
+ * `core` is part of the browser projection, so `node:fs` cannot be reached from here; and a
+ * classification that read the disk could not be exercised case by case without writing files.
+ * Both consumers pass a probe over their own filesystem access, which is the only part of the
+ * decision that differs between them.
+ */
+export interface CellResourceFileProbe {
+  readonly isRegularFile: (filePath: string) => boolean;
+  /**
+   * Whether anything at all exists at the path.
+   *
+   * Asked only after `isRegularFile` answered `false`, to tell a path of the wrong kind (a
+   * directory) from a path that names nothing: both refuse, and for the same reader-facing reason,
+   * but they are different problems and the reason code says which one a caller has.
+   */
+  readonly exists: (filePath: string) => boolean;
+  /** The file's size in bytes, or `undefined` when it cannot be read. */
+  readonly byteLength: (filePath: string) => number | undefined;
+}
+
+export interface CellResourceClassificationInput {
+  /** The id as the consumer received it, query included; used verbatim in refusal text. */
+  readonly subject: string;
+  /** The resolved path, with the query removed. */
+  readonly filePath: string;
+  /** The authored query, with Vite's own bookkeeping marks already stripped. */
+  readonly query?: string;
+  readonly importer?: string;
+  readonly inlineLimitBytes: number;
+  readonly probe: CellResourceFileProbe;
+}
+
+/**
+ * What one resource import is: a stylesheet to inline, a static asset to inline, a refusal, or
+ * not this policy's business at all.
+ *
+ * `asset` carries the bytes' length because the inline limit is part of the classification, not a
+ * later check — the compiler and the dev server must agree on "too large" for the same reason they
+ * must agree on "supported".
+ */
+export type CellResourceClassification =
+  | { readonly kind: "not-a-resource" }
+  | { readonly kind: "css"; readonly filePath: string }
+  | {
+      readonly kind: "asset";
+      readonly filePath: string;
+      readonly mediaType: string;
+      readonly bytes: number;
+    }
+  | { readonly kind: "refuse"; readonly refusal: CellResourceRefusal };
+
+/**
+ * The refusal for a specifier carrying a Vite query, or `undefined` when it carries none.
+ *
+ * Split out because the compiler's bundler port has to answer this *before* resolving a specifier
+ * (a `worker.js?worker` names no resource extension, and the refusal is about the query rather
+ * than the file), so it cannot wait for the resolved path a full classification needs. It is the
+ * same text the classification uses, from the same function, so the early check cannot drift from
+ * the later one.
+ *
+ * Two sentences, chosen by the query: a Vite transform parameter is named one by one, while any
+ * other authored query is refused for being a query at all. Both are v1 refusals; the distinction
+ * is what the author can act on.
+ */
+export function cellResourceQueryRefusal(
+  subject: string,
+  query: string | undefined,
+  importer?: string,
+): CellResourceRefusal | undefined {
+  if (query === undefined) {
+    return undefined;
+  }
+  const importerNote = importer === undefined ? "" : ` (imported from "${importer}")`;
+  const refusal = (detail: string): CellResourceRefusal => ({
+    code: "resource-query",
+    subject,
+    ...(importer === undefined ? {} : { importer }),
+    detail,
+  });
+
+  if (queryHasRejectedResourceParameter(query)) {
+    return refusal(
+      `"${subject}"${importerNote} uses the Vite query "?${query}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker — each selects a transform the single-file compiler does not implement, and a Worker or runtime asset has nowhere to be loaded from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
+    );
+  }
+
+  return refusal(
+    `"${subject}"${importerNote} carries the Vite query "?${query}". v1 refuses every resource query — ?raw, ?url, ?inline and ?worker select transforms the single-file compiler does not implement. Remove the query, or handle the asset through a Forguncy frontend extension (extension).`,
+  );
+}
+
+/**
+ * Whether a path names something this policy has an opinion about.
+ *
+ * The compiler's bundler port asks this *before* resolving a specifier, so that an ordinary
+ * `./data.json` pays for no extra resolution. It is deliberately the same predicate the
+ * classification uses, including the explicitly-rejected binaries: admitting one here is what lets
+ * the refusal name *why* it is outside v1 instead of the bundler reporting its own unresolved
+ * import.
+ */
+export function isCellResourcePath(filePath: string): boolean {
+  return (
+    isCellCssFile(filePath) ||
+    isSupportedCellStaticAsset(filePath) ||
+    isCellCssModuleFile(filePath) ||
+    isCellStylePreprocessorFile(filePath) ||
+    // An explicitly-rejected binary is admitted here so the refusal names *why* it is outside v1
+    // rather than the bundler reporting its own unresolved-import error. Admitting it to the
+    // decision is not admitting it to the support set: `resolveCellResource` refuses it.
+    isRejectedCellBinaryAsset(filePath)
+  );
+}
+
+/**
+ * Classifies one resource import for both consumers (#153).
+ *
+ * The compiler's behaviour is the reference, and this function is where it now lives: any
+ * authored query on a resource is refused; CSS Modules, preprocessors and explicitly-rejected
+ * binaries are refused; the target must be a regular file. The order of the checks is part of the
+ * answer — a `.module.css?foo` is refused for its query, because the query is what the author has
+ * to remove first — and it is asserted by the shared case table rather than left to reading.
+ *
+ * `not-a-resource` is the ordinary case for everything else: a `.tsx` import, a JSON file, an
+ * unknown extension. Those are the bundler's or Vite's business, and neither path refuses them
+ * here.
+ */
+export function classifyCellResource(input: CellResourceClassificationInput): CellResourceClassification {
+  const queryRefusal = cellResourceQueryRefusal(input.subject, input.query, input.importer);
+  if (queryRefusal !== undefined && input.query !== undefined && queryHasRejectedResourceParameter(input.query)) {
+    // A Vite transform parameter is refused for *any* file, resource extension or not.
+    return { kind: "refuse", refusal: queryRefusal };
+  }
+
+  const { filePath } = input;
+  if (!isCellResourcePath(filePath)) {
+    return { kind: "not-a-resource" };
+  }
+
+  if (queryRefusal !== undefined) {
+    return { kind: "refuse", refusal: queryRefusal };
+  }
+
+  const importerNote = input.importer === undefined ? "" : ` (imported from "${input.importer}")`;
+  const refusal = (code: CellResourceRefusalCode, detail: string): CellResourceClassification => ({
+    kind: "refuse",
+    refusal: {
+      code,
+      subject: input.subject,
+      ...(input.importer === undefined ? {} : { importer: input.importer }),
+      detail,
+    },
+  });
+
+  if (isCellCssModuleFile(filePath)) {
+    return refusal(
+      "css-module",
+      `CSS Modules ("${input.subject}"${importerNote}) are explicitly outside v1: scoped class names would need a compiler-owned CSS-module implementation matching Vite's, and v1 refuses rather than shipping two different answers. Use plain CSS with a Cell-owned root-class prefix, or move the scoped stylesheet to a Forguncy frontend extension (extension).`,
+    );
+  }
+
+  if (isCellStylePreprocessorFile(filePath)) {
+    return refusal(
+      "css-preprocessor",
+      `"${input.subject}"${importerNote} is a stylesheet preprocessor source. v1 accepts plain CSS only; compile it ahead of time, or move it to a Forguncy frontend extension (extension).`,
+    );
+  }
+
+  if (!input.probe.isRegularFile(filePath)) {
+    // A directory answers `false` to the regular-file question while the path exists, which is a
+    // different problem from a path that names nothing. The sentence is the same — what a reader
+    // has to fix ("does this path name a readable file?") does not change — and only the code,
+    // which a caller acts on, distinguishes them.
+    return refusal(
+      input.probe.exists(filePath) ? "not-a-regular-file" : "missing-resource-file",
+      `"${input.subject}"${importerNote} does not resolve to a regular file at "${filePath}". A Cell artifact can only inline a file it can read at compile time; check the path, or move the asset to a Forguncy frontend extension (extension).`,
+    );
+  }
+
+  if (isCellCssFile(filePath)) {
+    return { kind: "css", filePath };
+  }
+
+  const mediaType = cellStaticAssetMediaType(filePath);
+  if (mediaType === undefined) {
+    return { kind: "refuse", refusal: cellUnsupportedAssetRefusal(input.subject, filePath, input.importer) };
+  }
+
+  const bytes = input.probe.byteLength(filePath);
+  if (bytes === undefined) {
+    return refusal(
+      "missing-resource-file",
+      `"${input.subject}"${importerNote} does not resolve to a regular file at "${filePath}". A Cell artifact can only inline a file it can read at compile time; check the path, or move the asset to a Forguncy frontend extension (extension).`,
+    );
+  }
+
+  if (bytes > input.inlineLimitBytes) {
+    return refusal(
+      "oversized-asset",
+      `"${input.subject}"${importerNote} is ${bytes} bytes; the v1 inline limit is ${input.inlineLimitBytes}. A sibling file cannot be deployed beside a Cell artifact, and base64 inflation plus the character budget makes a larger inline asset a deployment problem. Move it to a Forguncy frontend extension (extension) or replace it with a smaller browser-first asset (replace).`,
+    );
+  }
+
+  return { kind: "asset", filePath, mediaType, bytes };
+}
+
+/**
+ * The refusal for a file whose extension is not in the v1 inlinable set.
+ *
+ * Its own function because the dev harness asks the same question on a different route: Vite has
+ * already decided the id is a resource before the policy sees it, and a file outside the support
+ * set has to produce this sentence rather than Vite's own opaque load error.
+ */
+export function cellUnsupportedAssetRefusal(
+  subject: string,
+  filePath: string,
+  importer?: string,
+): CellResourceRefusal {
+  const importerNote = importer === undefined ? "" : ` (imported from "${importer}")`;
+  const extension = cellAssetExtensionOf(filePath);
+  const binary = isRejectedCellBinaryAsset(filePath);
+  return {
+    code: binary ? "rejected-binary-asset" : "unsupported-asset",
+    subject,
+    ...(importer === undefined ? {} : { importer }),
+    detail: `"${subject}"${importerNote} is ${binary ? "a binary asset outside v1 (Worker/WASM and sibling binaries are not supported)" : `a "${extension || "extensionless"}" file outside the v1 inlinable set`}. Move it to a Forguncy frontend extension (extension), or replace it with a small image/font v1 inlines (replace).`,
+  };
+}
+
+/**
+ * The direction sentence every stylesheet refusal ends with.
+ *
+ * Shared so the compiler's diagnostic and the dev server's overlay say the same thing after
+ * naming the same violation — the violation's own text already comes from
+ * {@link rewriteCellCssReferences}, and only this closing sentence was written twice.
+ */
+export const CELL_CSS_SUPPORT_DIRECTION =
+  `The v1 support set is closed: plain CSS, url(...) images/fonts at or below ${CELL_ASSET_INLINE_LIMIT_BYTES} bytes, and small static asset imports. Anything else belongs in a Forguncy frontend extension (extension) or must be replaced (replace).`;
+
+/**
+ * The one sentence a refused stylesheet produces, from its violations (#153).
+ *
+ * Both consumers refuse the same stylesheet for the same reasons — the violations come from
+ * {@link rewriteCellCssReferences}, which is shared — and the composition around them used to be
+ * written twice: the compiler counted the remaining violations, the dev server joined them all.
+ * One function is what makes the compile diagnostic and the local overlay the same text.
+ */
+export function formatCellCssRefusalDetail(
+  fileName: string,
+  violations: readonly CellCssViolation[],
+  importerNote = "",
+): string {
+  const first = violations[0];
+  const rest = violations.length > 1 ? ` (and ${violations.length - 1} more in the same stylesheet)` : "";
+  return first === undefined
+    ? `"${fileName}"${importerNote} cannot be inlined. ${CELL_CSS_SUPPORT_DIRECTION}`
+    : `${first.detail}${rest} ${CELL_CSS_SUPPORT_DIRECTION}`;
+}
+
+// ---------------------------------------------------------------------------
 // Static asset encoding
 // ---------------------------------------------------------------------------
 

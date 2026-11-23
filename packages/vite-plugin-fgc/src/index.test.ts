@@ -16,7 +16,7 @@ import type {
 } from "@forguncy-react-workspace/core";
 import { describe, expect, it } from "vitest";
 
-import { FORGUNCY_PLUGIN_NAME, cellVirtualModuleId, forguncy, virtualModuleCellId } from "./index.ts";
+import { FORGUNCY_PLUGIN_NAME, cellVirtualModuleId, forguncy, virtualModuleCellId } from "./internal.ts";
 
 const fixturesRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "core", "tests", "fixtures");
 const validMultiRoot = join(fixturesRoot, "valid-multi");
@@ -70,7 +70,7 @@ describe("Vite+ plugin registry wiring", () => {
     const plugin = forguncy();
 
     expect(plugin.name).toBe(FORGUNCY_PLUGIN_NAME);
-    expect(plugin.configResolved).toBeTypeOf("function");
+    expect(typeof plugin.configResolved).toBe("function");
     expect(plugin.api.registry()).toBeUndefined();
   });
 

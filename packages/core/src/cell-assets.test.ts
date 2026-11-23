@@ -17,6 +17,7 @@ import {
   CELL_SUPPORTED_STATIC_ASSET_EXTENSIONS,
   cellAssetExtensionOf,
   cellStaticAssetMediaType,
+  classifyCellResource,
   encodeBase64,
   findCellCssUnsupportedConstructs,
   findCellCssUrlReferences,
@@ -318,5 +319,98 @@ describe("an @import is found wherever it is written", () => {
 
   it("does not read an @important-looking name as the at-rule", () => {
     expect(findCellCssUnsupportedConstructs("a { color: red !important; }")).toEqual([]);
+  });
+});
+
+describe("one classification for dev and compiler (#153)", () => {
+  /** A probe over a fixed set of regular files, so the classification is exercised without a disk. */
+  const probe = (files: Readonly<Record<string, number>>, directories: readonly string[] = []) => ({
+    isRegularFile: (filePath: string) => filePath in files,
+    exists: (filePath: string) => filePath in files || directories.includes(filePath),
+    byteLength: (filePath: string) => files[filePath],
+  });
+
+  const classify = (
+    filePath: string,
+    options: { query?: string; files?: Record<string, number>; directories?: readonly string[] } = {},
+  ) =>
+    classifyCellResource({
+      subject: filePath,
+      filePath,
+      ...(options.query === undefined ? {} : { query: options.query }),
+      inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
+      probe: probe(options.files ?? { [filePath]: 8 }, options.directories),
+    });
+
+  it("accepts a plain stylesheet and a small supported asset", () => {
+    expect(classify("/p/x.css")).toEqual({ kind: "css", filePath: "/p/x.css" });
+    expect(classify("/p/x.png")).toEqual({
+      kind: "asset",
+      filePath: "/p/x.png",
+      mediaType: "image/png",
+      bytes: 8,
+    });
+  });
+
+  it("answers `not-a-resource` for what neither path owns", () => {
+    expect(classify("/p/App.tsx")).toEqual({ kind: "not-a-resource" });
+    expect(classify("/p/data.json")).toEqual({ kind: "not-a-resource" });
+  });
+
+  it("refuses any authored query on a resource, not only the Vite transform parameters", () => {
+    const refusal = classify("/p/x.css", { query: "foo" });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("resource-query");
+    expect(refusal.refusal.detail).toContain('"?foo"');
+  });
+
+  it("refuses a Vite transform parameter on a file that is not a resource at all", () => {
+    // `worker.js?worker` names no resource extension and is still refused, which is why this check
+    // runs before the `not-a-resource` answer.
+    const refusal = classify("/p/worker.js", { query: "worker" });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("resource-query");
+    expect(refusal.refusal.detail).toContain("?worker");
+  });
+
+  it("refuses a directory and a missing file by the regular-file answer, with different codes", () => {
+    // The path exists but is not a file, so `missing-resource-file` would misdescribe it: what a
+    // caller has to fix differs, even though the sentence a reader sees does not.
+    const directory = classify("/p/directory.css", { files: {}, directories: ["/p/directory.css"] });
+    expect(directory.kind).toBe("refuse");
+    if (directory.kind !== "refuse") return;
+    expect(directory.refusal.code).toBe("not-a-regular-file");
+    expect(directory.refusal.detail).toContain("does not resolve to a regular file");
+
+    const missing = classify("/p/missing.css", { files: {} });
+    expect(missing.kind).toBe("refuse");
+    if (missing.kind !== "refuse") return;
+    expect(missing.refusal.code).toBe("missing-resource-file");
+    expect(missing.refusal.detail).toContain("does not resolve to a regular file");
+  });
+
+  it("refuses an oversized asset by the size the probe reported", () => {
+    const refusal = classify("/p/big.png", { files: { "/p/big.png": CELL_ASSET_INLINE_LIMIT_BYTES + 1 } });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("oversized-asset");
+    expect(refusal.refusal.detail).toContain(`${CELL_ASSET_INLINE_LIMIT_BYTES + 1} bytes`);
+    expect(refusal.refusal.detail).toContain(`limit is ${CELL_ASSET_INLINE_LIMIT_BYTES}`);
+  });
+
+  it("names the importer in the same sentence the compiler's diagnostic carries", () => {
+    const refusal = classifyCellResource({
+      subject: "/p/x.module.css",
+      filePath: "/p/x.module.css",
+      importer: "/p/App.tsx",
+      inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
+      probe: probe({ "/p/x.module.css": 8 }),
+    });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.importer).toBe("/p/App.tsx");
+    expect(refusal.refusal.detail).toContain('(imported from "/p/App.tsx")');
   });
 });

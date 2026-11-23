@@ -33,9 +33,12 @@
 #
 # Note what this does *not* do: it does not normalize bytes that already reached a
 # blob (`git add --renormalize` is a separate, one-time act), and it deliberately
-# does not mark anything `-text`. `probe-engine.ts` carries two U+0000 code points
-# in a string literal, which makes Git treat it as binary; that is correct and is
-# left alone — a text attribute would make Git mangle the literal it exists to hold.
+# does not mark anything `-text`. Nothing in the tree needs an exception any more:
+# `probe-engine.ts` used to carry two literal U+0000 code points in a string literal,
+# which made Git treat it as binary, and #157 replaced them with `\0` escapes that
+# produce the same runtime strings, so the file is text like every other one.
+# `ci-contract.test.ts` pins both halves of that — no attribute rule names the file,
+# and it holds no literal NUL.
 #
 # `governance.ts` is the one text file whose blob is still CRLF, and it is left that
 # way on purpose rather than overlooked. Renormalizing it rewrites every line hash,

@@ -537,9 +537,9 @@ describe("provenance", () => {
     // Asserted by reading the barrel's source rather than by importing, because a
     // type has no runtime representation to check: `import type` is erased, so
     // nothing at runtime can fail when the export is dropped. That is exactly why
-    // this needs a test — removing it from `index.ts` breaks consumers and every
-    // runtime assertion still passes.
-    const barrel = readFileSync(join(here, "index.ts"), "utf8");
+    // this needs a test — removing it from `internal.ts` breaks the tests that name the
+    // shape and every runtime assertion still passes.
+    const barrel = readFileSync(join(here, "internal.ts"), "utf8");
     const budgetTypeExports = /export type \{([^}]*)\} from "\.\/cell-code-budget\.ts"/.exec(barrel)?.[1];
     expect(budgetTypeExports, "no type export clause for cell-code-budget").toBeDefined();
 

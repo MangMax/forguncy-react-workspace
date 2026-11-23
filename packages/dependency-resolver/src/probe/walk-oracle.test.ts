@@ -63,7 +63,8 @@ import { describe, expect, it } from "vitest";
 import { applyBrowserField, resolveBrowserEntryPaths, selfReferenceResolver } from "./browser-entry.ts";
 import { runCandidateBuild } from "./build.ts";
 import { runDependencyProbe } from "./probe-engine.ts";
-import { collectReachableSourceFiles, sourceWithoutCommentsLenient } from "./module-source.ts";
+import { sourceWithoutCommentsLenient } from "./module-source-analysis.ts";
+import { collectReachableSourceFiles } from "./module-source-reachability.ts";
 
 /**
  * A synthetic package, reduced to the shape a review round found the walk disagreeing about.

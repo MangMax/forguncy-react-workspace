@@ -37,6 +37,7 @@
 import {
   HOST_BRIDGE_MAPPINGS,
   RUNTIME_CONTRACT_TARGET,
+  findLockDecision,
   forguncyTargetIdentity,
   loadForguncyConfig,
   packageNameOfModuleId,
@@ -51,20 +52,16 @@ import type {
 } from "@forguncy-react-workspace/core";
 import {
   compilationDependencies,
+  composeProbeFingerprint,
   extensionCatalogOfNormalized,
   readFgcLock,
   readToolchainIdentity,
+  recordedPackageNames,
   resolveInstalledVersions,
 } from "@forguncy-react-workspace/dependency-resolver/local";
 import type { WithheldCompilationDependency } from "@forguncy-react-workspace/dependency-resolver/local";
 import { projectLocalDecisions } from "@forguncy-react-workspace/dev-harness/local-decisions";
 import type { LocalDecisionProjection } from "@forguncy-react-workspace/dev-harness/local-decisions";
-// The composer is the barrel's, deliberately: a deployment projection compares a record's
-// fingerprint against the build inputs this checkout would measure, and that string is defined by
-// `probe/fingerprint.ts` — the one place that owns how it is composed. Importing it here is what
-// pulls `rolldown` into this package's graph, which is honest: `cell-project` already depends on
-// `cell-compiler`, whose build runs it.
-import { composeProbeFingerprint } from "@forguncy-react-workspace/dependency-resolver";
 
 /**
  * The record a Cell's import resolves through, and what a local process concluded about it.
@@ -124,6 +121,12 @@ export interface LoadCellProjectOptions {
  * cap when the record is scoped to a Cell. A record produced with different inputs composes a
  * different string, and the projection reports that as stale — which is the right answer: this
  * process cannot show the record describes the build it would produce.
+ *
+ * Composed through `dependency-resolver/local` (#157): the string is `probe/fingerprint.ts`'s, the
+ * one place that owns how it is composed, and the declared build inputs it folds in now live in a
+ * leaf module (`probe/build-configuration.ts`) rather than beside the bundler. Reading it from the
+ * barrel would evaluate every module the barrel re-exports, including `probe/build.ts`'s
+ * `rolldown` import — a bundler loaded to compose a string.
  */
 function currentProbeFingerprint(registry: CellRegistry, record: LockedDependencyDecision): string {
   const budgetCharacters =
@@ -146,19 +149,13 @@ function currentProbeFingerprint(registry: CellRegistry, record: LockedDependenc
  */
 function deploymentEnvironment(project: Omit<LoadedCellProject, "cells">, cellId: string): LockEnvironment {
   const probeFingerprints: Record<string, string> = {};
-  for (const packageName of new Set(project.lock.decisions.map(record => record.packageName))) {
-    // The registry's own precedence: an exact Cell record wins over the `null` fallback, which is
-    // the same order `findLockDecision` applies — recomputed here only because this needs the
-    // *record* and that helper is free to return null for a package the Cell does not cover.
-    const candidates = project.lock.decisions
-      .filter(candidate => candidate.packageName === packageName)
-      .map(candidate => ({
-        candidate,
-        rank: candidate.cellTarget === cellId ? 0 : candidate.cellTarget === null ? 1 : 2,
-      }))
-      .sort((left, right) => left.rank - right.rank);
-    const chosen = candidates[0]?.candidate;
-    if (chosen !== undefined) {
+  // The lock's own lookup, not a second copy of its precedence (#157): an exact Cell record wins
+  // over the `null` fallback, and that order is `findLockDecision`'s. A record for *another* Cell
+  // is not a candidate at all, which is what makes this agree with `resolveLockDecision` — the
+  // function the projection then compares against.
+  for (const packageName of recordedPackageNames(project.lock)) {
+    const chosen = findLockDecision(project.lock, { packageName, cellTarget: cellId });
+    if (chosen !== null) {
       probeFingerprints[packageName] = currentProbeFingerprint(project.registry, chosen);
     }
   }
@@ -254,8 +251,10 @@ export async function loadCellProject(options: LoadCellProjectOptions): Promise<
   });
 
   const lock = await readFgcLock(registry.root);
-  const packageNames = [...new Set(lock.decisions.map(record => record.packageName))].sort();
-  const { versions } = await resolveInstalledVersions(registry.root, packageNames);
+  // The lock's own answer to "which packages does this need versions for", rather than a
+  // re-derived set (#157): a second spelling of the dedupe-and-sort could differ in order, and the
+  // version map it feeds is compared by exact key.
+  const { versions } = await resolveInstalledVersions(registry.root, recordedPackageNames(lock));
   // The toolchain that will compile, read the way the probe read it: `readToolchainIdentity`
   // resolves the project's installed `vite-plus` through the shared locator (#94), so a consumer
   // project's own toolchain is what a record is compared against rather than the tool package's.

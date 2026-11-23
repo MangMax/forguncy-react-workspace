@@ -10,7 +10,7 @@ import {
   DEPENDENCY_LOCK_DECISION,
   DEPENDENCY_SELECTION_DECISION,
 } from "./governance.ts";
-import { LOCK_EVIDENCE_POLICY, lockEvidenceProfileForDecision } from "./lock.ts";
+import { LOCK_EVIDENCE_POLICY, lockEvidenceProfileForDecision } from "./lock-types.ts";
 import { assessDependencyRole, isPlatformConflict } from "./platform-conflicts.ts";
 import type { ProbeEnvironment, ProbeRejectionFinding, ProbeReport, ProbeValidationEntry } from "./probe-protocol.ts";
 import { assessProbeReport, PROBE_REPORT_SCHEMA_VERSION, PROBE_STEP_IDS } from "./probe-protocol.ts";

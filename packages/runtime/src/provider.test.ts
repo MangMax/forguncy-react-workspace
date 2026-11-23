@@ -4,7 +4,7 @@ import { CELL_FORGUNCY_PROP_KEYS, CELL_PROPS_BASE_KEYS } from "@forguncy-react-w
 
 import type { DataSourceBinding, RuntimeFacadeProvider } from "./contract.ts";
 import { RUNTIME_FACADE_PORT_CHANNEL_MEMBERS } from "./contract.ts";
-import { runtimeFacade } from "./facade.ts";
+import { runtimeFacade } from "./cell-runtime.ts";
 import { createHostRuntimeFacadeProvider, RUNTIME_FACADE_HOST_BINDING_CHANNELS } from "./host-provider.ts";
 import { createMockRuntimeFacadeProvider } from "./mock-provider.ts";
 import {

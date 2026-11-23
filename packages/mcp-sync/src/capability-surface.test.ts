@@ -104,8 +104,10 @@ describe("what the evidence establishes", () => {
    * evidence, and the adapter picks by `typeof` rather than by version.
    */
   it("quotes the observed designer calls verbatim", () => {
-    const established = SYNC_CAPABILITIES.filter(capability => capability.confirmation === "established").map(
-      capability => capability.method,
+    const established = SYNC_CAPABILITIES.filter(capability => capability.confirmation === "established").flatMap(
+      // An established capability must name its call, so an absent method drops out of the list
+      // and fails the comparison below rather than sorting as the string "undefined".
+      capability => (capability.method === undefined ? [] : [capability.method]),
     );
     expect(established.sort()).toEqual([
       "api.app.checkProjectErrors",

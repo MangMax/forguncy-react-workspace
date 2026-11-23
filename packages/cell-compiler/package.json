@@ -61,6 +61,7 @@
     "react-dom": "19.2.7"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal": "./src/internal.ts"
   }
 }

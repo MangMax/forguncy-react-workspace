@@ -45,6 +45,7 @@
  */
 
 import type { DependencyDecision } from "@forguncy-react-workspace/core";
+import { packageNameOfSpecifier } from "@forguncy-react-workspace/core";
 
 /**
  * The package a bare or scoped specifier resolves to, so decisions can be matched by package.
@@ -52,13 +53,11 @@ import type { DependencyDecision } from "@forguncy-react-workspace/core";
  * A path is returned unchanged, which is what makes it safe to call on a specifier
  * that has not been classified yet: there is no package to fold out of `./Button`,
  * and inventing one would let a decision match a file.
+ *
+ * The rule is `core`'s (#156), re-exported here so this package's public surface and
+ * every existing caller are unchanged. It is one implementation, not a second copy.
  */
-export function packageNameOfSpecifier(specifier: string): string {
-  if (specifier.startsWith(".") || specifier.startsWith("/")) return specifier;
-  const segments = specifier.split("/");
-  if (specifier.startsWith("@")) return segments.slice(0, 2).join("/");
-  return segments[0] ?? specifier;
-}
+export { packageNameOfSpecifier };
 
 /**
  * True when a specifier names a file rather than a module id.

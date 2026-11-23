@@ -15,32 +15,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  compareStrings,
   describeBuildFailureLines,
   portableText,
   safePathSegment,
-  stripAnsi,
 } from "./scan-utils.ts";
-
-describe("compareStrings", () => {
-  it("sorts by code units, not locale", () => {
-    // localeCompare would order these differently across machines.
-    expect(["b", "A", "a", "B"].sort(compareStrings)).toEqual(["A", "B", "a", "b"]);
-  });
-});
-
-describe("stripAnsi", () => {
-  it("removes colour sequences built from code points", () => {
-    const esc = String.fromCharCode(0x1b);
-    const painted = `${esc}[31merror${esc}[0m`;
-
-    expect(stripAnsi(painted)).toBe("error");
-  });
-
-  it("removes a bracket form even when the escape byte was lost", () => {
-    expect(stripAnsi("[31merror[0m")).toBe("error");
-  });
-});
 
 describe("portableText", () => {
   it("strips the project root and normalizes separators", () => {
@@ -84,6 +62,16 @@ describe("describeBuildFailureLines", () => {
     const lines = describeBuildFailureLines(undefined, "/virtual/project");
 
     expect(lines).toEqual(["The bundler failed without a readable message."]);
+  });
+
+  it("reports a thrown value that JSON cannot serialize instead of failing to format it", () => {
+    // The defect the shared helper had: `JSON.stringify` throws on these, so formatting a strange
+    // thrown value would replace the bundler's failure with a second one about the formatter.
+    const circular: Record<string, unknown> = { code: "LOOP" };
+    circular.self = circular;
+
+    expect(describeBuildFailureLines(1n, "/virtual/project")).toEqual(["1"]);
+    expect(describeBuildFailureLines(circular, "/virtual/project")).toEqual(["[object Object]"]);
   });
 });
 

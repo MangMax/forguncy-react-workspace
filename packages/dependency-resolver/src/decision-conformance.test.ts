@@ -1,29 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { hostBridgeGlobalMappings, HOST_BRIDGE_MAPPINGS, normalizeExtensionMappings } from "@forguncy-react-workspace/core";
+// The decision model comes from `core` (#157): this package's barrel no longer forwards it.
+import {
+  hostBridgeGlobalMappings,
+  HOST_BRIDGE_MAPPINGS,
+  normalizeExtensionMappings,
+} from "@forguncy-react-workspace/core";
+import {
+  FGC_LOCK_SCHEMA_VERSION,
+  forguncyTargetIdentity,
+  validateFgcLockDocument,
+} from "@forguncy-react-workspace/core";
+import type {
+  FgcLockDocument,
+  ForguncyTargetIdentity,
+  LockedDependencyDecision,
+} from "@forguncy-react-workspace/core";
 
 import type {
   ConformanceDiagnostic,
   ConformanceProblemCode,
   ExtensionCatalog,
-  FgcLockDocument,
-  ForguncyTargetIdentity,
   HostBridgeManifest,
-  LockedDependencyDecision,
-} from "./index.ts";
+} from "./internal.ts";
 import {
   auditLockDecisionConformance,
   conformanceErrors,
   DEFAULT_HOST_BRIDGE_MANIFEST,
   extensionCatalogForMappings,
   extensionCatalogOfNormalized,
-  FGC_LOCK_SCHEMA_VERSION,
-  forguncyTargetIdentity,
   JSX_RUNTIME_MODULE_IDS,
   PRESET_PROVIDED_HOST_GLOBALS,
-  validateFgcLockDocument,
   validateLockDecisionConformance,
-} from "./index.ts";
+} from "./internal.ts";
 
 const FINGERPRINT = "probe=inline-bundle;entry=src/cells/orders-table/App.tsx";
 

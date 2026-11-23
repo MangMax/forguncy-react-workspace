@@ -10,7 +10,7 @@ import type { CompileCellResult } from "@forguncy-react-workspace/cell-compiler"
 
 import { syncDiagnosticCodes } from "./diagnostics.ts";
 import { fingerprintArtifact, readSyncMarker, stampSyncMarker } from "./fingerprint.ts";
-import * as mcpSync from "./index.ts";
+import * as mcpSync from "./internal.ts";
 import {
   CELL_SYNC_HOLD_REASONS,
   formatCellSyncPlan,
@@ -368,7 +368,7 @@ describe("what an executor may send", () => {
     const dispatch = planSetCellsDispatch(plan);
     expect(dispatch.kind).toBe("issue");
     if (dispatch.kind !== "issue") return;
-    port.setCells(dispatch.request);
+    void port.setCells(dispatch.request);
 
     // Read at runtime so a passing compile is not the whole story: if `Assignable` were ever
     // widened to `boolean`, both assertions below would still have to hold.

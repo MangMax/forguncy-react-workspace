@@ -7,22 +7,22 @@ import { describe, expect, it } from "vitest";
 import {
   HOST_BRIDGE_DEFERRED_MODULES,
   HOST_BRIDGE_MAPPINGS,
+  hostBridgeInterceptedModuleIds,
   type DependencyDecision,
   type HostBridgeGlobalMapping,
   type HostBridgeMapping,
 } from "@forguncy-react-workspace/core";
 
-// Imported from the package root rather than from `./host-bridge.ts`, and only here:
-// the constructor's fourth parameter is a *public* surface, so the compatibility
-// regression below has to go through the export that makes it public. An import from the
-// module would pass even if the re-export were dropped.
-import { createHostBridgeDiagnostic as createHostBridgeDiagnosticFromRoot } from "@forguncy-react-workspace/cell-compiler";
+// Imported through the package's own `./internal` projection rather than from `./host-bridge.ts`,
+// and only here: the constructor's fourth parameter is a *public* surface, so the compatibility
+// regression below has to go through an entry that re-exports it. An import from the module would
+// pass even if the re-export were dropped.
+import { createHostBridgeDiagnostic as createHostBridgeDiagnosticFromRoot } from "@forguncy-react-workspace/cell-compiler/internal";
 
 import {
   createHostBridgeDiagnostic,
   formatHostBridgeDiagnostic,
   formatHostBridgePlan,
-  interceptedHostBridgeModuleIds,
   planHostBridge,
   renderHostBridgeAdapterModule,
   renderHostBridgeGlobalModule,
@@ -619,7 +619,7 @@ describe("planning the bridge", () => {
   // caller may actually wire.
   it("projects the table into a per-module-id catalog", () => {
     const plan = planHostBridge();
-    expect(plan.catalog.map(entry => entry.moduleId)).toEqual(interceptedHostBridgeModuleIds());
+    expect(plan.catalog.map(entry => entry.moduleId)).toEqual(hostBridgeInterceptedModuleIds());
     expect(plan.diagnostics).toEqual([]);
     for (const entry of plan.catalog) {
       expect(entry.source.startsWith(HOST_BRIDGE_GENERATED_BANNER)).toBe(true);
@@ -753,7 +753,7 @@ describe("planning the bridge", () => {
 
   it("does not intercept the built-ins #9 defers", () => {
     for (const deferred of HOST_BRIDGE_DEFERRED_MODULES) {
-      expect(interceptedHostBridgeModuleIds()).not.toContain(deferred.specifier);
+      expect(hostBridgeInterceptedModuleIds()).not.toContain(deferred.specifier);
     }
   });
 });
@@ -810,7 +810,7 @@ describe("the plan activates only what the decisions select", () => {
 
   it("keeps the catalog available for a caller that wants the full capability list", () => {
     const plan = planHostBridge({ decisions: [inlineDecision("antd")] });
-    expect(plan.catalog.map(entry => entry.moduleId)).toEqual(interceptedHostBridgeModuleIds());
+    expect(plan.catalog.map(entry => entry.moduleId)).toEqual(hostBridgeInterceptedModuleIds());
   });
 
   // The compile boundary's own rule: a `react-dom` decision governs an import of
@@ -1094,7 +1094,7 @@ describe("the plan refuses to be wired from contradictory mapping information", 
     const shipped = planHostBridge({ decisions: [] });
     const contradictory = planHostBridge({ mappings: collidingTable(), decisions: [] });
 
-    expect(shipped.catalog.map(entry => entry.moduleId)).toEqual(interceptedHostBridgeModuleIds());
+    expect(shipped.catalog.map(entry => entry.moduleId)).toEqual(hostBridgeInterceptedModuleIds());
     for (const entry of shipped.catalog) {
       expect(contradictory.catalog.find(candidate => candidate.moduleId === entry.moduleId)?.source, entry.moduleId).toBe(
         entry.source,

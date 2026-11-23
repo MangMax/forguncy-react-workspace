@@ -7,17 +7,21 @@ import {
   assertRuntimeFacadeSurfaceIsExposed,
   auditRuntimeFacadeSurface,
   findRuntimeFacadeSurfaceMember,
-  RUNTIME_FACADE_CELL_PROP_ADDRESSES,
-  RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES,
   RUNTIME_FACADE_SURFACE,
   RUNTIME_FACADE_SURFACE_FINDING_IDS,
-  RUNTIME_FACADE_SURFACE_MEMBER_IDS,
-  runtimeFacade,
   runtimeFacadeExposedAddressNames,
   runtimeFacadeMemberCarriesBinding,
-  runtimeFacadeSurface,
 } from "./facade.ts";
-import type { RuntimeFacade, RuntimeFacadeSurfaceMember } from "./facade.ts";
+import type { RuntimeFacadeSurfaceMember } from "./facade.ts";
+// The runtime half, from the module that defines it (#157): `facade.ts` no longer forwards these.
+import {
+  RUNTIME_FACADE_CELL_PROP_ADDRESSES,
+  RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES,
+  RUNTIME_FACADE_SURFACE_MEMBER_IDS,
+  runtimeFacade,
+  runtimeFacadeSurface,
+} from "./cell-runtime.ts";
+import type { RuntimeFacade } from "./cell-runtime.ts";
 import type { DataSourceResult, RuntimeFacadeCellProps } from "./contract.ts";
 import { createHostRuntimeFacadeProvider } from "./host-provider.ts";
 import { createMockDataSource, createMockRuntimeFacadeProvider } from "./mock-provider.ts";

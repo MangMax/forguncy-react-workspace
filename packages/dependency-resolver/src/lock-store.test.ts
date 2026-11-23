@@ -27,7 +27,7 @@ import {
   removeLockDecision,
   upsertLockDecision,
   writeFgcLock,
-} from "./index.ts";
+} from "./internal.ts";
 
 /** The subset of `writeFile`'s overloads this file needs to name. */
 type WriteFileLike = (path: string, data: string, options?: string) => Promise<void>;

@@ -57,12 +57,12 @@
 import {
   assertHostBridgeContract,
   CELL_PRESET_LIBRARIES,
+  defineDiagnosticVocabulary,
   findHostBridgeModuleMapping,
   hostBridgeAdapterMappings,
   hostBridgeBindingFor,
   hostBridgeGlobalIsAlwaysAvailable,
   hostBridgeGlobalMappings,
-  hostBridgeInterceptedModuleIds,
   hostBridgeModuleIds,
   hostBridgeShapeFor,
   HOST_BRIDGE_DIAGNOSTIC_RULES,
@@ -74,6 +74,7 @@ import type {
   DependencyDecision,
   HostBridgeAdapterMapping,
   HostBridgeDiagnosticCode,
+  HostBridgeDiagnosticRule,
   HostBridgeFixOwner,
   HostBridgeGlobalMapping,
   HostBridgeMapping,
@@ -622,6 +623,42 @@ export interface CreateHostBridgeDiagnosticOptions {
 }
 
 /**
+ * The shared vocabulary, closed over `core`'s bridge rules and this module's shape.
+ *
+ * This variant differs from the artifact/workspace/sync ones in two ways the factory takes
+ * as parameters: the subject field is called `specifier`, and the line names the rule's
+ * label rather than restating its sentence. Its instance also carries the occurrence's
+ * overrides, which is why it is built here rather than through `createDiagnosticFields`.
+ */
+interface HostBridgeDiagnosticInstanceOptions extends CreateHostBridgeDiagnosticOptions {
+  /** The occurrence's offending value, which this shape carries as its own field. */
+  readonly detail: string;
+}
+
+const HOST_BRIDGE_VOCABULARY = defineDiagnosticVocabulary<
+  HostBridgeDiagnosticCode,
+  HostBridgeDiagnosticRule,
+  HostBridgeDiagnostic,
+  HostBridgeDiagnosticInstanceOptions
+>({
+  rules: HOST_BRIDGE_DIAGNOSTIC_RULES,
+  instance: input => ({
+    code: input.code,
+    specifier: input.subject,
+    detail: input.options.detail,
+    ...(input.options.member === undefined ? {} : { member: input.options.member }),
+    ...(input.options.fixOwner === undefined ? {} : { fixOwner: input.options.fixOwner }),
+    ...(input.options.fixableByMapping === undefined ? {} : { fixableByMapping: input.options.fixableByMapping }),
+  }),
+  subjectOf: diagnostic => diagnostic.specifier,
+  format: (diagnostic, rule) => {
+    const fixOwner = diagnostic.fixOwner ?? rule.fixOwner;
+    return `${diagnostic.specifier}: [${diagnostic.code}] ${rule.label} — ${diagnostic.detail} (fix owner: ${fixOwner})`;
+  },
+  emptyReport: "No bridge diagnostics.",
+});
+
+/**
  * Builds a finding, with an occurrence's overrides when it has any.
  *
  * The fourth parameter is a **union** rather than the options object it became in the
@@ -639,22 +676,15 @@ export function createHostBridgeDiagnostic(
   detail: string,
   memberOrOptions: string | CreateHostBridgeDiagnosticOptions = {},
 ): HostBridgeDiagnostic {
-  const options: CreateHostBridgeDiagnosticOptions =
-    typeof memberOrOptions === "string" ? { member: memberOrOptions } : memberOrOptions;
+  const options: HostBridgeDiagnosticInstanceOptions =
+    typeof memberOrOptions === "string" ? { member: memberOrOptions, detail } : { ...memberOrOptions, detail };
 
-  return {
-    code,
-    specifier,
-    detail,
-    ...(options.member === undefined ? {} : { member: options.member }),
-    ...(options.fixOwner === undefined ? {} : { fixOwner: options.fixOwner }),
-    ...(options.fixableByMapping === undefined ? {} : { fixableByMapping: options.fixableByMapping }),
-  };
+  return HOST_BRIDGE_VOCABULARY.create(code, specifier, options);
 }
 
 /** The rule behind a diagnostic, so a report can print guidance without the code. */
 export function hostBridgeDiagnosticRule(code: HostBridgeDiagnosticCode) {
-  return HOST_BRIDGE_DIAGNOSTIC_RULES[code];
+  return HOST_BRIDGE_VOCABULARY.rule(code);
 }
 
 /**
@@ -665,9 +695,7 @@ export function hostBridgeDiagnosticRule(code: HostBridgeDiagnosticCode) {
  * {@link HostBridgeDiagnostic.fixOwner}.
  */
 export function formatHostBridgeDiagnostic(diagnostic: HostBridgeDiagnostic): string {
-  const rule = HOST_BRIDGE_DIAGNOSTIC_RULES[diagnostic.code];
-  const fixOwner = diagnostic.fixOwner ?? rule.fixOwner;
-  return `${diagnostic.specifier}: [${diagnostic.code}] ${rule.label} — ${diagnostic.detail} (fix owner: ${fixOwner})`;
+  return HOST_BRIDGE_VOCABULARY.format(diagnostic);
 }
 
 export function formatHostBridgeDiagnostics(diagnostics: readonly HostBridgeDiagnostic[]): string {
@@ -1224,19 +1252,6 @@ export function formatHostBridgePlan(plan: HostBridgePlan): string {
       ? "No bridge diagnostics."
       : `${plan.diagnostics.length} bridge diagnostic(s):\n${formatHostBridgeDiagnostics(plan.diagnostics)}`,
   ].join("\n");
-}
-
-/**
- * Every module id the bridge intercepts.
- *
- * Takes the mapping list so a caller comparing a bundle against the bridge is
- * comparing against the same table it planned from, rather than against the
- * shipped default.
- */
-export function interceptedHostBridgeModuleIds(
-  mappings: readonly HostBridgeMapping[] = HOST_BRIDGE_MAPPINGS,
-): readonly string[] {
-  return hostBridgeInterceptedModuleIds(mappings);
 }
 
 /** The JSX runtime exports a generated adapter must define, re-exported for tests. */

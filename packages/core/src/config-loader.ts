@@ -53,7 +53,7 @@ import { FORGUNCY_CONFIG_FILE_CANDIDATES } from "./forguncy-config.ts";
  * reimplement TypeScript handling if the host already provides it, and no second
  * loader should ever be invented when one is available.
  */
-export type ForguncyConfigModuleLoader = (configFile: string) => Promise<unknown> | unknown;
+export type ForguncyConfigModuleLoader = (configFile: string) => unknown;
 
 /**
  * The default loader: the importing runtime's own ESM loader, stamped with the

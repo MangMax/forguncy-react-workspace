@@ -54,12 +54,13 @@ import type {
 } from "@forguncy-react-workspace/core";
 import {
   assessLockDecision,
+  compareCodeUnits,
   forguncyTargetIdentity,
   resolveLockDecision,
   RUNTIME_CONTRACT_TARGET,
 } from "@forguncy-react-workspace/core";
 
-import type { DependencyDecisionUpdate } from "./index.ts";
+import type { DependencyDecisionUpdate } from "./internal.ts";
 import {
   compilationDependencies,
   composeProbeFingerprint,
@@ -67,7 +68,7 @@ import {
   readFgcLock,
   recordDependencyDecision,
   recordDependencyDecisions,
-} from "./index.ts";
+} from "./internal.ts";
 
 const PACKAGE = "es-toolkit";
 const CHART_PACKAGE = "@tanstack/react-query";
@@ -268,8 +269,14 @@ describe("a cell-specific record and the null fallback", () => {
     const lock = await readFgcLock(root);
 
     // Two records for one package, one per key — the cell-specific write did not replace the
-    // fallback and did not become a second record for the same Cell.
-    expect(lock.decisions.map(record => record.cellTarget).sort()).toEqual([null, "alpha"].sort());
+    // fallback and did not become a second record for the same Cell. Ordered by the repository's
+    // code-unit comparator rather than a bare `.sort()`: `cellTarget` is `string | null`, so a
+    // default sort would compare its stringified form.
+    const byCellTarget = (left: string | null, right: string | null): number =>
+      compareCodeUnits(left ?? "", right ?? "");
+    expect(lock.decisions.map(record => record.cellTarget).sort(byCellTarget)).toEqual(
+      [null, "alpha"].sort(byCellTarget),
+    );
     expect(resolveLockDecision(lock, { packageName: PACKAGE, cellTarget: "alpha" }, environmentFor(PACKAGE, fingerprint)).record?.strategy).toBe(
       "inline",
     );

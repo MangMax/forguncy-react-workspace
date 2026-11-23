@@ -40,7 +40,7 @@ import type {
 
 import { cellLockOf } from "./project.ts";
 import type { ProjectBuild } from "./build.ts";
-import { ProjectPlanError } from "./plan.ts";
+import { requireCompiledCells } from "./compiled-cells.ts";
 
 /** One target's outcome, in the report's vocabulary. */
 export interface SyncedCellReport {
@@ -89,20 +89,20 @@ export interface SyncProjectOptions {
   readonly onFailedRun?: "stop" | "continue";
 }
 
-/** The compiled artifacts a sync writes, or a refusal naming the Cells that did not compile. */
+/**
+ * The compiled artifacts a sync writes, or a refusal naming the Cells that did not compile.
+ *
+ * The guard is `compiled-cells.ts`'s, shared with `plan` (#157); only the sentence is this verb's,
+ * because "nothing was read and nothing was written" is a claim about a sync and not about a plan.
+ */
 function compiledCells(build: ProjectBuild): readonly { readonly cellId: string; readonly artifact: SyncCellInput["artifact"] }[] {
-  const rejected = build.build.cells.filter(cell => cell.outcome.status === "rejected");
-  if (rejected.length > 0) {
-    throw new ProjectPlanError(
-      `Cannot sync: ${rejected.length} of ${build.build.cells.length} Cell(s) did not compile (${rejected
+  return requireCompiledCells(
+    build,
+    (rejected, total) =>
+      `Cannot sync: ${rejected.length} of ${total} Cell(s) did not compile (${rejected
         .map(cell => cell.cellId)
         .join(", ")}). Nothing was read and nothing was written. Run the build and read its report.`,
-    );
-  }
-  return build.build.cells.map(cell => ({
-    cellId: cell.cellId,
-    artifact: (cell.outcome as Extract<(typeof build.build.cells)[number]["outcome"], { status: "compiled" }>).artifact,
-  }));
+  );
 }
 
 const NO_DIAGNOSTICS: readonly { readonly code: string; readonly message: string; readonly fixOwner: string }[] = [];

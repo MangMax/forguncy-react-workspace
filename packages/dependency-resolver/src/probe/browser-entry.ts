@@ -45,7 +45,9 @@
  * silent.
  */
 
-import type { SelfReferenceResolver } from "./module-source.ts";
+import { isPlainRecord } from "@forguncy-react-workspace/core";
+
+import type { SelfReferenceResolver } from "./module-source-reachability.ts";
 
 /** Entry fields a browser resolver would consult, in precedence order when `exports` is absent. */
 export const FALLBACK_BROWSER_FIELDS = ["browser", "module", "main"] as const;
@@ -250,7 +252,7 @@ function collectExportTargets(
  * True when the target names a file a browser could execute.
  *
  * The query is stripped **before** the extension is tested, because these two checks
- * have to agree with each other and with `module-source.ts`: `normalizeTarget` strips
+ * have to agree with each other and with `module-source-reachability.ts`: `normalizeTarget` strips
  * `?x` from `"./a.node?x"`, so a `.node` test on the raw string would call it executable
  * and the two steps would disagree about the same manifest. That disagreement is not
  * cosmetic — it is the shape that let a package be reported browser-resolvable while the
@@ -559,7 +561,7 @@ export function resolveBrowserEntryPaths(manifest: Readonly<Record<string, unkno
  *   `no-node-builtins: true` and named no drop — a report that neither supported
  *   deployment nor justified a rejection.
  *
- * Built here rather than in `module-source.ts` so subpath resolution has one
+ * Built here rather than in `module-source-reachability.ts` so subpath resolution has one
  * implementation: a caller that needed these resolved would otherwise re-derive them,
  * and the two answers would drift exactly as `export-metadata` and
  * `resolveBrowserEntryPaths` were written not to.
@@ -569,7 +571,7 @@ export function selfReferenceResolver(manifest: Readonly<Record<string, unknown>
   const packageName = typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
 
   const imports = manifest["imports"];
-  const hasImportsMap = imports !== null && typeof imports === "object" && !Array.isArray(imports);
+  const hasImportsMap = isPlainRecord(imports);
 
   // A `browser` map redirects bare specifiers to files in this package, which is a third
   // independent reason the walk needs a resolver — and one an earlier version missed: gating on
@@ -577,7 +579,7 @@ export function selfReferenceResolver(manifest: Readonly<Record<string, unknown>
   // package never had its redirect followed. Measured: the build failed on the `node:fs` the
   // shim imports while the report filed no rejection.
   const browser = manifest["browser"];
-  const hasBrowserMap = browser !== null && typeof browser === "object" && !Array.isArray(browser);
+  const hasBrowserMap = isPlainRecord(browser);
 
   // Nothing to resolve: no `exports` to self-reference through, no `imports` map and no
   // `browser` map.

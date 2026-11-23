@@ -26,7 +26,10 @@
  *    `react/jsx-runtime`, which the host-bridge plan then intercepts, so no
  *    React implementation is bundled; `experimental.attachDebugInfo: "none"`
  *    keeps `//#region` comments — which embed module ids and would make output
- *    machine-dependent — out of the code.
+ *    machine-dependent — out of the code. Since #158 those values are not written
+ *    here: `core`'s `CELL_BUNDLER_BUILD_OPTIONS` is the one definition, read by both
+ *    of this bundler's passes and by the probe build, and `platform: "browser"` is
+ *    stated explicitly rather than left to Rolldown's format-derived default.
  * 3. **Plans wire the resolver, and the report feeds #6's audits.** Bare
  *    specifiers are consulted against `planHostBridge` first (the page's own
  *    modules win) and `planExtensionExternals` second; an interception is loaded
@@ -52,7 +55,7 @@
  * {@link translateExtensionFinding}.
  */
 
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 
 import type {
@@ -60,7 +63,7 @@ import type {
   ExtensionExternalDiagnostic,
   NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
+import { CELL_RUNTIME_BINDING_CONTRACT, cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits, describeReportedError, hasReportedErrors, stripAnsi } from "@forguncy-react-workspace/core";
 import {
   rolldown,
   type OutputAsset,
@@ -93,10 +96,11 @@ import {
   CELL_ASSET_INLINE_LIMIT_BYTES,
   CellResourcePolicyError,
   isCellResourceFile,
+  isRegularFile,
   resolveCellResource,
 } from "./cell-resources.ts";
 import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
-import { queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
+import { cellResourceQueryRefusal, queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -539,14 +543,11 @@ async function resolveResourceSpecifier(
   const { path: barePath, query } = splitCellSpecifierQuery(source);
   // A Vite resource query is refused for *any* file, not only a resource extension: `worker.js`
   // has an ordinary `.js` extension and is still a runtime asset the compiled Cell cannot serve.
-  if (query !== undefined && queryHasRejectedResourceParameter(query)) {
-    const refusal: CellResourceRefusal = {
-      subject: source,
-      ...(importer === undefined ? {} : { importer }),
-      detail: `"${source}"${importer === undefined ? "" : ` (imported from "${importer}")`} uses the Vite query "?${query}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker — each selects a transform the single-file compiler does not implement, and a Worker or runtime asset has nowhere to be loaded from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
-    };
-    state.refusals.push(refusal);
-    throwResourceRefusal([refusal]);
+  // The sentence is `core`'s (#153), so the same import refused locally reads identically here.
+  const queryRefusal = cellResourceQueryRefusal(source, query, importer);
+  if (queryRefusal !== undefined && query !== undefined && queryHasRejectedResourceParameter(query)) {
+    state.refusals.push(queryRefusal);
+    throwResourceRefusal([queryRefusal]);
   }
 
   // A `.svg` imported without a query is a resource; a `./data.json` is not, and must not pay for
@@ -658,8 +659,7 @@ async function resolveEntrySpecifiersWithRolldown(
   try {
     await scan({
       input: resolvedEntry,
-      transform: { jsx: "react-jsx" },
-      experimental: { attachDebugInfo: "none" },
+      ...cellBundlerInputOptions(),
       ...rolldownAliasOptions(alias),
       plugins: [
         {
@@ -759,67 +759,6 @@ function isBareSpecifier(source: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Removes colour and cursor codes.
- *
- * Rolldown frames every message with ANSI styling; #6's diagnostics land in CI
- * logs that get diffed, and an escape sequence inside a message makes two
- * identical failures compare unequal. Stripped at the point of escape so no
- * downstream consumer has to know that bundlers paint their text.
- */
-function stripAnsi(text: string): string {
-  // SGR parameters and the cursor-letter they terminate; every sequence
-  // observed from rolldown's frames is of this shape.
-  // eslint-disable-next-line no-control-regex -- matching the escape byte is the entire point of this pattern.
-  return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-}
-
-function firstLine(text: string): string {
-  const newline = text.indexOf("\n");
-  return newline === -1 ? text : text.slice(0, newline);
-}
-
-interface ReportedBuildError {
-  readonly message?: unknown;
-  readonly id?: unknown;
-  readonly loc?: Readonly<{ file?: unknown; line?: unknown; column?: unknown }> | null;
-}
-
-function hasReportedErrors(value: unknown): value is { readonly errors: readonly unknown[] } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "errors" in value &&
-    Array.isArray((value as { readonly errors?: unknown }).errors)
-  );
-}
-
-/**
- * One reported error as one line: message first, location pulled out of the
- * structured `loc` rather than scraped from the painted frame.
- *
- * The frame itself — the source excerpt with its box-drawing characters — is
- * dropped on purpose. `compileCell` embeds this text in a diagnostic's `detail`;
- * the message and `file:line:column` are what a reader needs to act on, and the
- * excerpt would carry the entry's absolute path into a log artifact.
- */
-function describeReportedError(value: unknown): string {
-  if (typeof value !== "object" || value === null) return stripAnsi(String(value));
-  const error = value as ReportedBuildError;
-  const message =
-    typeof error.message === "string"
-      ? firstLine(stripAnsi(error.message))
-      : stripAnsi(String(error.message ?? ""));
-  const loc = error.loc ?? undefined;
-  const file = typeof loc?.file === "string" ? loc.file : typeof error.id === "string" ? error.id : undefined;
-  const line = typeof loc?.line === "number" ? loc.line : undefined;
-  const column = typeof loc?.column === "number" ? loc.column : undefined;
-  if (file === undefined) return message;
-  if (line === undefined) return `${message} (${file})`;
-  if (column === undefined) return `${message} (${file}:${line})`;
-  return `${message} (${file}:${line}:${column})`;
-}
-
-/**
  * Turns an escaped bundler failure into one clean message.
  *
  * `compileCell`'s catch builds the `bundler-failure` diagnostic from whatever
@@ -829,7 +768,7 @@ function describeReportedError(value: unknown): string {
  */
 function describeBuildFailure(error: unknown): string {
   if (hasReportedErrors(error) && error.errors.length > 0) {
-    return error.errors.map(describeReportedError).join("\n");
+    return error.errors.map(entry => describeReportedError(entry, { message: stripAnsi })).join("\n");
   }
   if (error instanceof Error) return stripAnsi(error.message);
   return stripAnsi(String(error));
@@ -849,18 +788,20 @@ const NODE_MODULES_MARKER = "node_modules/";
  * (`…/.pnpm/react@19.2.7/node_modules/react/index.js`) and a hoisted layout
  * (`…/node_modules/react/index.js`) answer the same, and what keeps a virtual
  * interception id (`\0cell-host:react/jsx-runtime`) from answering at all.
+ *
+ * The folding itself is `core`'s one package-name rule (#156); this function only
+ * finds where in the path the package name starts. Splitting on the marker and then
+ * folding keeps a scoped package (`@scope/pkg/sub`) and a bare one (`react/sub`) on the
+ * same rule the rest of the repository uses, rather than on a second one written here.
  */
 function packageNameOfModuleId(moduleId: string): string | undefined {
   const normalized = moduleId.replace(/\\/g, "/");
   const at = normalized.lastIndexOf(NODE_MODULES_MARKER);
   if (at < 0) return undefined;
-  const segments = normalized.slice(at + NODE_MODULES_MARKER.length).split("/");
-  const [first, second] = segments;
+  const rest = normalized.slice(at + NODE_MODULES_MARKER.length).replace(/\/$/, "");
+  const [first] = rest.split("/");
   if (first === undefined || first.length === 0) return undefined;
-  if (first.startsWith("@")) {
-    return second === undefined || second.length === 0 ? first : `${first}/${second}`;
-  }
-  return first;
+  return packageNameOfSpecifier(rest);
 }
 
 function inlinedPackageNames(moduleIds: readonly string[]): string[] {
@@ -903,10 +844,8 @@ function inlinedPackageSizesOf(modules: Record<string, { readonly renderedLength
     entry.renderedCharacters += module.renderedLength;
     sizes.set(key, entry);
   }
-  return [...sizes.values()].sort((a, b) =>
-    a.packageName !== b.packageName
-      ? (a.packageName < b.packageName ? -1 : 1)
-      : ((a.exactSpecifier ?? "") < (b.exactSpecifier ?? "") ? -1 : (a.exactSpecifier ?? "") > (b.exactSpecifier ?? "") ? 1 : 0),
+  return [...sizes.values()].sort(
+    (a, b) => compareCodeUnits(a.packageName, b.packageName) || compareCodeUnits(a.exactSpecifier ?? "", b.exactSpecifier ?? ""),
   );
 }
 
@@ -1067,21 +1006,12 @@ function byCodeThenSubject(
   a: { readonly code: string; readonly subject: string },
   b: { readonly code: string; readonly subject: string },
 ): number {
-  if (a.code !== b.code) return a.code < b.code ? -1 : 1;
-  return a.subject === b.subject ? 0 : a.subject < b.subject ? -1 : 1;
+  return compareCodeUnits(a.code, b.code) || compareCodeUnits(a.subject, b.subject);
 }
 
 // ---------------------------------------------------------------------------
 // The build
 // ---------------------------------------------------------------------------
-
-function isRegularFile(file: string): boolean {
-  try {
-    return statSync(file).isFile();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Refuses an entry that offers no component for the shim to bind.
@@ -1188,8 +1118,7 @@ async function bundleWithRolldown(
         // shape); the report and the audits speak for everything else.
         logs.push({ code: log.code ?? "", id: log.id ?? "", message: log.message });
       },
-      transform: { jsx: "react-jsx" },
-      experimental: { attachDebugInfo: "none" },
+      ...cellBundlerInputOptions(),
       ...rolldownAliasOptions(alias),
       plugins: [
         {
@@ -1211,11 +1140,7 @@ async function bundleWithRolldown(
         },
       ],
     });
-    ({ output } = await build.generate({
-      format: "iife",
-      name: request.componentBinding,
-      codeSplitting: false,
-    }));
+    ({ output } = await build.generate(cellBundlerOutputOptions(request.componentBinding)));
   } catch (error) {
     if (resources.refusals.length > 0) throw new CellResourcePolicyError(resources.refusals);
     // The resource refusal keeps its code — see `resolveResourceSpecifier`.

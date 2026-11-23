@@ -737,7 +737,7 @@ function parseImportsOption(value, where) {
   if (names.length === 0) {
     fail(`${where} names no imported binding. A named import surface is a non-empty list, e.g. \`--imports debounce\`; to probe the whole namespace, omit it.`);
   }
-  return [...new Set(names)].sort();
+  return [...new Set(names)].sort(core.compareCodeUnits);
 }
 
 /**
@@ -786,7 +786,7 @@ function validateDeclaredImports(value, packageName) {
   if (value.some(name => name.trim().length === 0)) {
     fail(`The decision file for "${packageName}" declares a blank name in "imports"; every entry must name an imported binding.`);
   }
-  return [...new Set(value.map(name => name.trim()))].sort();
+  return [...new Set(value.map(name => name.trim()))].sort(core.compareCodeUnits);
 }
 
 /**
@@ -984,7 +984,7 @@ function decisionFromFile(document) {
   // `rejection` at all, which is what `lockEvidenceProfileForDecision` reads.
   if (strategy === "replace" && !architectural && document.rejection === undefined) {
     fail(
-      `The decision file for "${packageName}" uses strategy "replace" but states no "rejection". A technical rejection has to name the finding that disqualified the candidate; the codes the probe can produce are ${[...new Set(core.REPLACEMENT_SIGNAL_REJECTIONS.map((entry) => entry.code))].sort().join(", ")}.`,
+      `The decision file for "${packageName}" uses strategy "replace" but states no "rejection". A technical rejection has to name the finding that disqualified the candidate; the codes the probe can produce are ${[...new Set(core.REPLACEMENT_SIGNAL_REJECTIONS.map((entry) => entry.code))].sort(core.compareCodeUnits).join(", ")}.`,
     );
   }
 
@@ -1376,7 +1376,10 @@ async function candidateProblems(lock, options, report) {
   const projectRoot = fromWorkingDirectory(options.project ?? ".");
   const evidence = report === null ? [] : [await evidencePreflight(projectRoot, report)].filter(problem => problem !== null);
 
-  return [...conformance, ...resolver.validateFgcLockDocument(lock), ...evidence];
+  // From `core`, its defining package (#157): the resolver used to forward the decision model as a
+  // compatibility proxy, and this was that proxy's last consumer. Reading it from `core` is what
+  // the resolver's own header has told new code to do since #105.
+  return [...conformance, ...core.validateFgcLockDocument(lock), ...evidence];
 }
 
 /**
@@ -1582,7 +1585,7 @@ function subjectShareOf(artifact, packageName) {
  * *records* (for the subject's pre-rejection decision) where that returns projected decisions.
  */
 function effectiveCellDecisions(lock, cellTarget) {
-  const packageNames = [...new Set(lock.decisions.map(record => record.packageName))].sort();
+  const packageNames = [...new Set(lock.decisions.map(record => record.packageName))].sort(core.compareCodeUnits);
   const resolved = [];
   for (const packageName of packageNames) {
     const record = core.findLockDecision(lock, { packageName, cellTarget });

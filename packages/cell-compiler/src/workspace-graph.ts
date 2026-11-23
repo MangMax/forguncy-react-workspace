@@ -84,12 +84,14 @@ import path from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
+import { isPlainRecord } from "@forguncy-react-workspace/core";
+
 import type {
   WorkspaceGraph,
   WorkspaceGraphIndexResult,
   WorkspacePackageRecord,
 } from "./workspace-source.ts";
-import { indexWorkspaceGraph } from "./workspace-source.ts";
+import { indexWorkspaceGraph } from "./workspace-source-audit.ts";
 
 /** The manifest pnpm reads its member globs from. */
 export const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
@@ -123,10 +125,6 @@ export const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
  */
 const DEPENDENCY_FIELDS = ["dependencies", "peerDependencies", "optionalDependencies"] as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function readString(value: unknown): string | undefined {
   // Trimmed on the way *out*, not only on the way in. A manifest name of
   // `" @app/ui "` passes a `length > 0` test and would then be stored under that
@@ -146,7 +144,7 @@ function readString(value: unknown): string | undefined {
  * an absolute path would leak this machine's checkout location (see {@link forMessage}).
  */
 function readWorkspacePatterns(document: unknown, fileName: string): readonly string[] {
-  if (!isRecord(document)) {
+  if (!isPlainRecord(document)) {
     throw new Error(
       `"${fileName}" does not parse as a mapping, so its workspace members cannot be read. A pnpm workspace manifest is a YAML mapping with a \`packages\` key.`,
     );
@@ -271,7 +269,7 @@ function forMessage(root: string, target: string): string {
  */
 function readPackageRecord(manifest: unknown, directory: string, root: string): WorkspacePackageRecord | undefined {
   const where = forMessage(root, directory);
-  if (!isRecord(manifest)) {
+  if (!isPlainRecord(manifest)) {
     throw new Error(
       `The workspace member at "${where}" has a package.json that is not a JSON object, so it cannot be read as a workspace package.`,
     );
@@ -288,7 +286,7 @@ function readPackageRecord(manifest: unknown, directory: string, root: string): 
   const imports = new Set<string>();
   for (const field of DEPENDENCY_FIELDS) {
     const declarations = manifest[field];
-    if (!isRecord(declarations)) continue;
+    if (!isPlainRecord(declarations)) continue;
     for (const [dependencyName, specifier] of Object.entries(declarations)) {
       // A malformed dependency entry is skipped rather than turned into an edge:
       // the shape of a dependency must be npm's (`string` specifier), and

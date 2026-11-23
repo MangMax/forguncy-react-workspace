@@ -23,9 +23,43 @@ export default defineConfig({
     // A blanket `node_modules` ignore would hide them along with everything else under that name.
     ignorePatterns: ["**/.claude/**"],
     options: {
-      typeAware: false,
+      // #163: the rules that need TypeScript's answers — floating promises, unbound methods,
+      // base-to-string, implied eval — now run in `vp check`. `typeCheck` stays off because
+      // `vp run typecheck` is the separate gate for whole-program types; turning it on here would
+      // report the same diagnostics a second time under a different name.
+      typeAware: true,
       typeCheck: false,
     },
+    // The two rule waivers #163 allows. Each is a false positive in the files it names, not a
+    // weakening of the rule for production source, and each states its reason beside the rule so
+    // `toolchain-contract.test.ts` can hold the Issue's "one-line reason" clause.
+    overrides: [
+      {
+        files: ["**/*.test.ts", "**/*.test.tsx"],
+        rules: {
+          "typescript/no-implied-eval": "off", // Tests evaluate the code they test with `new Function`; that is the sandbox, not eval of untrusted input.
+        },
+      },
+      {
+        // Compile-only fixture Cells: they are bundled and asserted on, never executed, so a
+        // method referenced without binding it cannot lose a `this` context at run time.
+        files: ["packages/cell-compiler/tests/fixtures/**"],
+        rules: {
+          "typescript/unbound-method": "off", // Fixture Cells are compiled, not executed.
+        },
+      },
+      {
+        // These two example Cells display the host's data-source error with `String(...)` on
+        // purpose, and #152 forbids changing what a Cell does — the artifact bytes are compared.
+        files: [
+          "examples/dev-harness/cells/sales-summary/src/App.tsx",
+          "examples/runtime-facade/src/App.tsx",
+        ],
+        rules: {
+          "typescript/no-base-to-string": "off", // The example's authored error text; changing it would change the Cell's output (#152).
+        },
+      },
+    ],
   },
   test: {
     // The deduplication #100 exists for. `.claude/skills/<name>` and `.agents/skills/<name>` are

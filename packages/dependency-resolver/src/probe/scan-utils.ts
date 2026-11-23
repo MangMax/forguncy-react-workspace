@@ -28,36 +28,7 @@
 
 import { sep } from "node:path";
 
-/** Code-unit comparison — never `localeCompare`, which would sort differently per machine. */
-export function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}
-
-/**
- * Removes colour and cursor codes.
- *
- * Rolldown frames every message with ANSI styling; two identical failures must
- * compare equal in a diffed CI log, and an escape sequence inside a message
- * makes them unequal. Mirrors `cell-compiler`'s stripping so both consumers of
- * the same bundler's output read it the same way.
- *
- * The escape byte is built from its code point rather than written as a control
- * character in source, and the remainder (`ESC [ params letter`) is matched
- * without it — an ANSI sequence whose byte got lost still leaves the bracket
- * form behind for this second pass.
- */
-export function stripAnsi(text: string): string {
-  const esc = String.fromCharCode(0x1b);
-  return text.split(esc).join("").replace(/\[[0-9;]*[A-Za-z]/g, "");
-}
-
-function firstLine(text: string): string {
-  const newline = text.indexOf("\n");
-  return newline === -1 ? text : text.slice(0, newline);
-}
+import { describeReportedError, describeValue, hasReportedErrors, stripAnsi } from "@forguncy-react-workspace/core";
 
 /**
  * Makes a bundler message portable: ANSI stripped, every occurrence of the
@@ -79,49 +50,6 @@ export function portableText(text: string, projectRoot: string): string {
   return out.replace(/\\/g, "/");
 }
 
-interface ReportedBuildError {
-  readonly message?: unknown;
-  readonly id?: unknown;
-  readonly loc?: Readonly<{ file?: unknown; line?: unknown; column?: unknown }> | null;
-}
-
-function hasReportedErrors(value: unknown): value is { readonly errors: readonly unknown[] } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "errors" in value &&
-    Array.isArray((value as { readonly errors?: unknown }).errors)
-  );
-}
-
-/**
- * One reported bundler error as one diagnostic line: message first, location
- * pulled out of the structured `loc` rather than scraped from a painted frame.
- *
- * The frame's source excerpt is dropped for the reason `cell-compiler` drops
- * it: the excerpt would carry an absolute path into a report that has to stay
- * portable, and the message plus `file:line:column` is what a reader acts on.
- */
-function describeReportedError(value: unknown, projectRoot: string): string {
-  if (typeof value !== "object" || value === null) {
-    return portableText(String(value), projectRoot);
-  }
-  const error = value as ReportedBuildError;
-  const message =
-    typeof error.message === "string"
-      ? portableText(firstLine(stripAnsi(error.message)), projectRoot)
-      : portableText(String(error.message ?? ""), projectRoot);
-  const loc = error.loc ?? undefined;
-  const file = typeof loc?.file === "string" ? loc.file : typeof error.id === "string" ? error.id : undefined;
-  const line = typeof loc?.line === "number" ? loc.line : undefined;
-  const column = typeof loc?.column === "number" ? loc.column : undefined;
-  if (file === undefined) return message;
-  const portableFile = portableText(file, projectRoot).replace(/^[/\\]+/, "");
-  if (line === undefined) return `${message} (${portableFile})`;
-  if (column === undefined) return `${message} (${portableFile}:${line})`;
-  return `${message} (${portableFile}:${line}:${column})`;
-}
-
 /**
  * Turns an escaped bundler failure into the non-empty `diagnostics` array a
  * `failed` probe step owes (`validateProbeReport` refuses a failure without
@@ -132,15 +60,26 @@ function describeReportedError(value: unknown, projectRoot: string): string {
  * print this time.
  */
 export function describeBuildFailureLines(error: unknown, projectRoot: string): readonly string[] {
+  // The message and the file share one portability rule: the report this feeds may be read on
+  // another machine, so a path that escaped here would be a leak rather than a detail.
+  const portable = (text: string): string => portableText(text, projectRoot);
   const raw: string[] = [];
   if (hasReportedErrors(error) && error.errors.length > 0) {
-    raw.push(...error.errors.map(entry => describeReportedError(entry, projectRoot)));
+    raw.push(
+      ...error.errors.map(entry =>
+        describeReportedError(entry, {
+          message: portable,
+          file: text => portable(text).replace(/^[/\\]+/, ""),
+        }),
+      ),
+    );
   } else if (error instanceof Error) {
-    raw.push(...portableText(error.message, projectRoot).split("\n"));
+    raw.push(...portable(error.message).split("\n"));
   } else if (error !== undefined && error !== null) {
-    // Only a non-empty stringified value is evidence; `String(undefined)` is
-    // the literal "undefined", which is noise rather than a diagnostic.
-    const text = portableText(String(error), projectRoot);
+    // A nullish failure has no text worth showing — `describeValue` renders it as the empty
+    // string — so it falls through to the "without a readable message" line below instead of
+    // contributing a blank diagnostic.
+    const text = portable(describeValue(error));
     if (text.trim().length > 0) {
       raw.push(...text.split("\n"));
     }
@@ -169,7 +108,7 @@ export function describeBuildFailureLines(error: unknown, projectRoot: string): 
  * not "every file a browser build reaches", and the difference is where `three`'s
  * optional draco loaders and `@embedpdf/pdfium`'s Node builds live.
  *
- * `module-source.ts`'s `collectReachableSourceFiles` replaces it: same determinism
+ * `module-source-reachability.ts`'s `collectReachableSourceFiles` replaces it: same determinism
  * guarantees, bounded by the manifest's browser entries. This note stays so that a
  * future reader who needs a directory walk finds the reason it was withdrawn rather
  * than re-adding it — a whole-tree walk is exactly the shape a scanner reaches for
