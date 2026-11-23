@@ -12,6 +12,6 @@
     "reference exists for it, which is exactly the claim this example proves."
   ],
   "dependencies": {
-    "es-toolkit": "1.52.0"
+    "es-toolkit": "1.53.2"
   }
 }

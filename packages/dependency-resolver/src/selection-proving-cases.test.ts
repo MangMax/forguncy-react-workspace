@@ -265,7 +265,7 @@ describe("#16 proving case: a simple ESM package", () => {
 
       expect(ran.record).not.toBeNull();
       expect(ran.record!.strategy).toBe("inline");
-      expect(ran.record!.resolvedVersion).toBe("1.52.0");
+      expect(ran.record!.resolvedVersion).toBe("1.53.2");
       expect(ran.record!.probe.status).toBe("passed");
       expect(ran.record!.probe.fingerprint).not.toBeNull();
 

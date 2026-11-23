@@ -578,7 +578,8 @@ function unclaimedHostAliases(userAlias: unknown): Record<string, string> {
 /**
  * Whether a value is a resolver Vite will actually honour, in either of the two forms it accepts.
  *
- * Vite 8.3.0 (the version this repository pins) types the field as
+ * Vite 8.3.0 (the version this behaviour was measured on; the repository pins the same 8.3
+ * line) types the field as
  * `ResolverFunction | ResolverObject | null`, and its runtime `resolveCustomResolver` follows the
  * same two shapes:
  *

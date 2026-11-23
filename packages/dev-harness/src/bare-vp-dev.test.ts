@@ -26,7 +26,7 @@ import { DEV_HARNESS_PLUGIN_NAME } from "./vite-plugin.ts";
  * that finding was correct — the docstring here previously stopped one step short of saying so.
  * It calls `vite.loadConfigFromFile(..., "bundle")`, so it proves the config graph loads under
  * *Vite's* bundle loader. It cannot speak for the `vp dev` **command**: this file imports
- * `vite@8.3.0`, while `vp dev` resolves `vite` to `@voidzero-dev/vite-plus-core` — different
+ * `vite@8.3.8`, while `vp dev` resolves `vite` to `@voidzero-dev/vite-plus-core` — different
  * packages — so a regression in Vite+'s target selection or its forwarding would leave this green.
  *
  * The command half lives in `vp-dev-command.test.ts`, which spawns `vp dev` and expects the
