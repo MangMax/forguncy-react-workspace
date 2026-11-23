@@ -5,13 +5,8 @@ import { createCellRegistry } from "@forguncy-react-workspace/core";
 import { describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 
-import {
-  devHarness,
-  HARNESS_ENTRY_URL_PATH,
-  HARNESS_MOUNT_ELEMENT_ID,
-  normalizeAliasFind,
-  projectAliasTarget,
-} from "./vite-plugin.ts";
+import { normalizeAliasFind, projectAliasTarget } from "./alias-audit.ts";
+import { devHarness, HARNESS_ENTRY_URL_PATH, HARNESS_MOUNT_ELEMENT_ID } from "./vite-plugin.ts";
 import { hostModuleAliases } from "./host-modules.ts";
 
 /**

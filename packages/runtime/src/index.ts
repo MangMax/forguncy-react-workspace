@@ -15,32 +15,35 @@
 export { LOCAL_DEV_RUNTIME_DECISION, RUNTIME_FACADE_DECISION } from "./provenance.ts";
 export type { RuntimeFacadeProvider } from "./contract.ts";
 export {
-  LOCAL_DEV_BOUNDARIES,
-  LOCAL_DEV_DIAGNOSTIC_RULES,
   LOCAL_DEV_ERROR_SURFACING,
   LOCAL_DEV_FORBIDDEN_PATTERNS,
   LOCAL_DEV_GOVERNING_DECISIONS,
   LOCAL_DEV_LOOP_STAGES,
-  LOCAL_DEV_MODULE_RESOLUTIONS,
-  LOCAL_DEV_VERSION_FIELDS,
   assertLocalDevExtensionChoicesAreDeclared,
   assertLocalDevProviderIsMock,
-  auditLocalDevConfiguration,
-  createLocalDevDiagnostic,
-  findLocalDevModuleIdResolution,
-  formatLocalDevAudit,
-  formatLocalDevDiagnostic,
+} from "./local-dev.ts";
+export type { LocalDevExtensionChoice } from "./local-dev.ts";
+export {
+  LOCAL_DEV_BOUNDARIES,
   formatLocalDevValidationDistinction,
-  localDevAlignmentChecks,
   localDevRealRuntimeOwedChecks,
+} from "./local-dev-claims.ts";
+export {
+  LOCAL_DEV_DIAGNOSTIC_RULES,
+  createLocalDevDiagnostic,
+  formatLocalDevDiagnostic,
+} from "./local-dev-diagnostics.ts";
+export type { LocalDevDiagnostic } from "./local-dev-diagnostics.ts";
+export { auditLocalDevConfiguration, formatLocalDevAudit } from "./local-dev-audit.ts";
+export type { LocalDevAudit } from "./local-dev-audit.ts";
+export {
+  LOCAL_DEV_MODULE_RESOLUTIONS,
+  LOCAL_DEV_VERSION_FIELDS,
+  findLocalDevModuleIdResolution,
+  localDevAlignmentChecks,
   localDevVersionFieldIsBrowserObserved,
-} from "./local-dev.ts";
-export type {
-  LocalDevAudit,
-  LocalDevDiagnostic,
-  LocalDevExtensionChoice,
-  LocalDevVersionField,
-} from "./local-dev.ts";
+} from "./local-dev-host-modules.ts";
+export type { LocalDevVersionField } from "./local-dev-host-modules.ts";
 export { runtimeFacade } from "./cell-runtime.ts";
 export { installRuntimeFacadeProvider } from "./provider.ts";
 export { createMockDataSource, createMockRuntimeFacadeProvider } from "./mock-provider.ts";
