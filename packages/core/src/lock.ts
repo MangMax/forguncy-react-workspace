@@ -38,6 +38,7 @@ import {
 import { createCanonicalizer } from "./canonical.ts";
 import { compareCodeUnits } from "./code-units.ts";
 import { isPlainRecord } from "./guards.ts";
+import { containsMachineSpecificPath } from "./portability.ts";
 import type { RuntimeContractTarget } from "./runtime-contract.ts";
 import { RUNTIME_CONTRACT_TARGET } from "./runtime-contract.ts";
 import {
@@ -776,50 +777,20 @@ export class FgcLockValidationError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Patterns that identify an absolute, machine-specific path *occurrence*.
- *
- * Anchored on the character before the path rather than on the start of the
- * string, because the path that leaks is rarely the whole value: a fingerprint
- * like `entry=/Users/mang/project/App.tsx` starts with `entry=`, and an
- * `^`-anchored check reports it as portable.
- *
- * The leading guard on the POSIX pattern is what keeps URLs out: in
- * `https://github.com/...` the first slash follows `:` and the second follows
- * `/`, so neither is the start of a path.
- */
-const ABSOLUTE_PATH_OCCURRENCES: readonly RegExp[] = [
-  // A file URL is a filesystem path wearing a scheme, and it is what a Node/Vite
-  // probe produces from `import.meta.url` — so it is the shape a machine path
-  // most easily re-enters the lock in. `http(s)://` stays allowed; this one
-  // cannot be portable on any machine.
-  /(?:^|[^0-9A-Za-z])file:[\\/]/i,
-  // C:\Users\... or C:/Users/... — the guard keeps `https:` out (`s` is alphanumeric).
-  /(?:^|[^0-9A-Za-z])[A-Za-z]:[\\/]/,
-  // \\server\share
-  /(?:^|[^\\])\\\\[^\\/]/,
-  // ~/ or ~\ home-relative
-  /(?:^|[^0-9A-Za-z._~-])~[\\/]/,
-  // A slash that starts a path rather than continuing one, followed by a
-  // path-ish character so prose containing " / " is not a hit.
-  /(?:^|[^0-9A-Za-z._~:/#-])\/[0-9A-Za-z._~-]/,
-];
-
-function containsAbsolutePath(value: string): boolean {
-  return ABSOLUTE_PATH_OCCURRENCES.some(pattern => pattern.test(value));
-}
-
-/**
  * Every absolute or machine-specific path anywhere in the document.
  *
- * Exported as a document-wide scan rather than only as a field check so the
- * portability guarantee holds for the whole shape, including fields added later.
+ * The rule itself is `portability.ts`'s `containsMachineSpecificPath` (#154): the lock and a
+ * committed configuration must give one value one verdict, so the pattern set lives there and
+ * this scan is the lock's use of it. Exported as a document-wide scan rather than only as a
+ * field check so the portability guarantee holds for the whole shape, including fields added
+ * later.
  */
 export function findMachineSpecificPaths(value: unknown): readonly string[] {
   const found = new Set<string>();
 
   const visit = (node: unknown): void => {
     if (typeof node === "string") {
-      if (containsAbsolutePath(node)) {
+      if (containsMachineSpecificPath(node)) {
         found.add(node);
       }
       return;
@@ -855,7 +826,7 @@ export function isRepositoryRelativeReference(reference: string): boolean {
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
     return false;
   }
-  if (containsAbsolutePath(value)) {
+  if (containsMachineSpecificPath(value)) {
     return false;
   }
   return !value.split(/[\\/]/).includes("..");
