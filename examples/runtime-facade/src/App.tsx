@@ -19,19 +19,6 @@
 
 import { canReadOrders, readOrderPermissions, refreshOrders, useOrdersSummary } from "./orders.ts";
 
-/**
- * The data source's error as the text the alert shows.
- *
- * `error` is `unknown` because that is what the page reports; a plain `String()` would put
- * `[object Object]` in front of the user whenever it is not a string, so its own message, its
- * own text, or its JSON form is shown instead.
- */
-function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return JSON.stringify(error) ?? "";
-}
-
 export function App() {
   const summary = useOrdersSummary(3);
   // Synchronous, and that is the point of showing it here: the permission check is
@@ -46,7 +33,7 @@ export function App() {
       <h2>本月销售</h2>
       {mayRead ? null : <p role="alert">当前用户没有 Orders.Read 权限。</p>}
       {summary.error ? (
-        <p role="alert">销售数据不可用：{describeError(summary.error)}</p>
+        <p role="alert">销售数据不可用：{String(summary.error)}</p>
       ) : (
         <ul>
           {summary.rows.map((row, index) => (
