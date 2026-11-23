@@ -103,3 +103,4 @@ export * from "./guards.ts";
 export * from "./canonical.ts";
 export * from "./cell-code-budget.ts";
 export * from "./cell-assets.ts";
+export * from "./cell-bundler-options.ts";
