@@ -30,13 +30,66 @@
  * Everything else stays in the modules that own it — this is not a home for "config
  * helpers". `MARKER_NAMESPACE_PATTERN`, for instance, is about one runtime field and stays
  * with its validation in `cell-registry.ts`.
+ *
+ * ## One rule, two documents (#154)
+ *
+ * `containsMachineSpecificPath` is the rule both committed documents ask. It was the lock's
+ * anywhere-in-string pattern set, which is stricter than the configuration's original
+ * start-anchored one: the same string could be portable in a `forguncy.config` value and
+ * non-portable in `fgc.lock.json`. `machineSpecificPathProblem` stays as the config side's
+ * wording of that one answer, and the lock's document-wide scan calls the same predicate.
  */
 
-const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH = /^\\\\/;
-const POSIX_ABSOLUTE_PATH = /^\//;
-const HOME_RELATIVE_PATH = /^~/;
-const FILE_URL_PATTERN = /^file:\/\//i;
+/**
+ * The machine-path shapes, most specific first, each with the wording that names it.
+ *
+ * These identify an absolute, machine-specific path *occurrence*. Anchored on the character
+ * before the path rather than on the start of the string, because the path that leaks is rarely
+ * the whole value: a fingerprint like `entry=/Users/mang/project/App.tsx` starts with `entry=`,
+ * and an `^`-anchored check reports it as portable.
+ *
+ * The leading guard on the POSIX pattern is what keeps URLs out: in
+ * `https://github.com/...` the first slash follows `:` and the second follows
+ * `/`, so neither is the start of a path.
+ *
+ * This is the *only* machine-path rule in the repository (#154). It was the lock's
+ * `ABSOLUTE_PATH_OCCURRENCES` and the configuration's five `^`-anchored patterns, which meant
+ * one value could be portable in a config and non-portable in a lock. The lock's
+ * anywhere-in-string answer won because it is the stricter one: a path embedded in a value is
+ * exactly how a machine path re-enters a committed file.
+ *
+ * One ordered table rather than a pattern list plus a separate chain of `if`s, because the
+ * *order* is part of the rule: `file:///c:/x` matches both the file URL and the drive pattern,
+ * and the reader has to be told the shape that actually names the defect.
+ * `machineSpecificPathProblem` reports the first match's wording, and
+ * `containsMachineSpecificPath` asks whether any matched.
+ */
+const MACHINE_SPECIFIC_PATH_SHAPES: readonly { readonly pattern: RegExp; readonly problem: string }[] = [
+  // A file URL is a filesystem path wearing a scheme, and it is what a Node/Vite
+  // probe produces from `import.meta.url` — so it is the shape a machine path
+  // most easily re-enters the lock in. `http(s)://` stays allowed; this one
+  // cannot be portable on any machine.
+  { pattern: /(?:^|[^0-9A-Za-z])file:[\\/]/i, problem: "a file:// URL" },
+  // C:\Users\... or C:/Users/... — the guard keeps `https:` out (`s` is alphanumeric).
+  { pattern: /(?:^|[^0-9A-Za-z])[A-Za-z]:[\\/]/, problem: "an absolute Windows path" },
+  // \\server\share
+  { pattern: /(?:^|[^\\])\\\\[^\\/]/, problem: "a UNC path" },
+  // ~/ or ~\ home-relative
+  { pattern: /(?:^|[^0-9A-Za-z._~-])~[\\/]/, problem: "a home-relative path" },
+  // A slash that starts a path rather than continuing one, followed by a
+  // path-ish character so prose containing " / " is not a hit.
+  { pattern: /(?:^|[^0-9A-Za-z._~:/#-])\/[0-9A-Za-z._~-]/, problem: "an absolute path" },
+];
+
+/**
+ * True when the value contains a machine-specific path anywhere in it.
+ *
+ * The one answer both committed documents ask for (#154): a configuration value and a lock
+ * value that carry the same string get the same verdict.
+ */
+export function containsMachineSpecificPath(value: string): boolean {
+  return MACHINE_SPECIFIC_PATH_SHAPES.some(shape => shape.pattern.test(value));
+}
 
 const SECRET_KEY_WORDS = [
   "token",
@@ -58,24 +111,13 @@ const SECRET_KEY_WORDS = [
  *
  * Ordered from most to least specific so `C:\x` is reported as a Windows path
  * rather than as a generic directory-looking value.
+ *
+ * The file URL is asked first because it *contains* a drive path:
+ * `file:///c:/x` would otherwise be reported as a Windows path and the reader
+ * would be told to fix the wrong thing.
  */
 export function machineSpecificPathProblem(value: string): string | undefined {
-  if (WINDOWS_DRIVE_PATH.test(value)) {
-    return "an absolute Windows path";
-  }
-  if (WINDOWS_UNC_PATH.test(value)) {
-    return "a UNC path";
-  }
-  if (FILE_URL_PATTERN.test(value)) {
-    return "a file:// URL";
-  }
-  if (HOME_RELATIVE_PATH.test(value)) {
-    return "a home-relative path";
-  }
-  if (POSIX_ABSOLUTE_PATH.test(value)) {
-    return "an absolute path";
-  }
-  return undefined;
+  return MACHINE_SPECIFIC_PATH_SHAPES.find(shape => shape.pattern.test(value))?.problem;
 }
 
 /** True when the key names something that would have to be a secret. */
