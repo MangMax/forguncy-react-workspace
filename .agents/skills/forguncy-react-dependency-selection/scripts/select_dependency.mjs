@@ -1376,7 +1376,10 @@ async function candidateProblems(lock, options, report) {
   const projectRoot = fromWorkingDirectory(options.project ?? ".");
   const evidence = report === null ? [] : [await evidencePreflight(projectRoot, report)].filter(problem => problem !== null);
 
-  return [...conformance, ...resolver.validateFgcLockDocument(lock), ...evidence];
+  // From `core`, its defining package (#157): the resolver used to forward the decision model as a
+  // compatibility proxy, and this was that proxy's last consumer. Reading it from `core` is what
+  // the resolver's own header has told new code to do since #105.
+  return [...conformance, ...core.validateFgcLockDocument(lock), ...evidence];
 }
 
 /**

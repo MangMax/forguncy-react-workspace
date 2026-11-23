@@ -27,10 +27,10 @@
  * a green plan is `local` evidence (AGENTS.md rules 6–7).
  */
 
-import type { CellProjectBuild } from "@forguncy-react-workspace/cell-compiler";
 import type { CellRegistry, DependencyDecision, ExtensionLibraryListing } from "@forguncy-react-workspace/core";
 import {
   cellTargetLabel,
+  deployedStateOfRead,
   formatCellSyncPlan,
   planCellSyncTargets,
   planSetCellsDispatch,
@@ -48,6 +48,12 @@ import type {
 
 import { cellLockOf, deploymentWithheldOf } from "./project.ts";
 import type { ProjectBuild } from "./build.ts";
+import { requireCompiledCells } from "./compiled-cells.ts";
+import type { CompiledCell } from "./compiled-cells.ts";
+
+// Re-exported so the package's surface is unchanged: the refusal a caller catches is still the one
+// this package has always raised, now declared beside the guard that throws it (#157).
+export { ProjectPlanError } from "./compiled-cells.ts";
 
 /** One Cell's planned sync, in the report's vocabulary. */
 export interface PlannedCellSync {
@@ -116,39 +122,20 @@ export interface PlanProjectOptions {
   readonly overwrite?: CellOverwritePolicy;
 }
 
-/** A compiled artifact, or a throw naming the Cells that did not compile. */
-function requireArtifacts(build: ProjectBuild): readonly { readonly cellId: string; readonly artifact: Extract<CellProjectBuild["cells"][number]["outcome"], { status: "compiled" }>["artifact"] }[] {
-  const rejected = build.build.cells.filter(cell => cell.outcome.status === "rejected");
-  if (rejected.length > 0) {
+/** The compiled artifacts a plan needs, or a refusal naming the Cells that did not compile. */
+function requireArtifacts(build: ProjectBuild): readonly CompiledCell[] {
+  return requireCompiledCells(build, (rejected, total) => {
     const detail = rejected
       .map(cell => {
-        const outcome = cell.outcome as Extract<CellProjectBuild["cells"][number]["outcome"], { status: "rejected" }>;
         const codes = [
-          ...outcome.diagnostics.map(diagnostic => diagnostic.code),
-          ...(outcome.workspace?.diagnostics.map(diagnostic => diagnostic.code) ?? []),
+          ...cell.outcome.diagnostics.map(diagnostic => diagnostic.code),
+          ...(cell.outcome.workspace?.diagnostics.map(diagnostic => diagnostic.code) ?? []),
         ];
         return `${cell.cellId}: ${codes.join(", ") || "(no named diagnostic)"}`;
       })
       .join("; ");
-    // A plan over a half-built project would describe a sync of Cells that do not exist. The
-    // build report is what reports the failures — this refuses, and says which one to read.
-    throw new ProjectPlanError(
-      `Cannot plan a sync: ${rejected.length} of ${build.build.cells.length} Cell(s) did not compile (${detail}). Run the build and read its report; nothing was planned for the Cells that did compile, because a partial plan is a plan to deploy a partial project.`,
-    );
-  }
-  return build.build.cells.map(cell => ({
-    cellId: cell.cellId,
-    artifact: (cell.outcome as Extract<CellProjectBuild["cells"][number]["outcome"], { status: "compiled" }>).artifact,
-  }));
-}
-
-/** A refusal raised before any target is planned. */
-export class ProjectPlanError extends Error {
-  readonly code = "project-plan-refused";
-  constructor(message: string) {
-    super(message);
-    this.name = "ProjectPlanError";
-  }
+    return `Cannot plan a sync: ${rejected.length} of ${total} Cell(s) did not compile (${detail}). Run the build and read its report; nothing was planned for the Cells that did compile, because a partial plan is a plan to deploy a partial project.`;
+  });
 }
 
 function decisionsOf(build: ProjectBuild, cellId: string): readonly DependencyDecision[] {
@@ -318,14 +305,10 @@ export async function planProjectAgainstPort(build: ProjectBuild, options: PlanA
   for (const cell of artifacts) {
     const target = targetOf(registry, cell.cellId);
     const state = await options.port.readCellSource({ pageName: target.pageName, cell: target.cell });
-    deployed.set(
-      cell.cellId,
-      state.kind === "blank"
-        ? { kind: "read", code: "" }
-        : state.kind === "occupied"
-          ? { kind: "occupied", detail: state.code }
-          : { kind: "read", code: state.code, frontendLibraries: state.frontendLibraries },
-    );
+    // `mcp-sync`'s mapping, not a copy of it (#157): `sync` classifies the same read through this
+    // function, and two spellings of "blank is writable, occupied is designer work" would let a plan
+    // describe a write the sync then refuses — or the reverse.
+    deployed.set(cell.cellId, deployedStateOfRead(state));
     read.add(cell.cellId);
   }
 

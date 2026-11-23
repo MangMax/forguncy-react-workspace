@@ -690,7 +690,7 @@ describe("replace decisions expire differently by rejection kind", () => {
   // PR review of #77, P1 (round 4). Round 3 refused a `cell-code-budget-exceeded` record outright
   // in the *shape* validator, which runs on the parse path — so a schema-v1 lock holding one failed
   // to parse and never reached freshness at all. The record now stays readable and goes **stale**
-  // here, which is what the migration contract in `lock-migration.ts` requires and what the
+  // here, which is what the lock's read contract requires and what the
   // revision bump exists to produce.
   it("reports a pre-revision-14 budget rejection as missing its compile evidence, not as invalid", () => {
     // Built by removing the field rather than setting it to `undefined`: an explicit `undefined`
@@ -764,7 +764,7 @@ describe("replace decisions expire differently by rejection kind", () => {
   // `subjectDecision: { strategy: "replace" }` through its normal writer (a second `record` read the
   // `replace` the first write had stored). Refusing it at the read boundary made a schema-v1 lock the
   // previous toolchain could write fail to *parse*, so the record never reached freshness — the
-  // migration failure `lock-migration.ts` exists to prevent. It is readable now, and reports why it
+  // read failure the contract above exists to prevent. It is readable now, and reports why it
   // cannot be replayed rather than pretending otherwise.
   it("reports a legacy subject decision as unreplayable rather than refusing to read the lock", () => {
     // Built through the parser rather than as a typed object, and that is more than convenience:

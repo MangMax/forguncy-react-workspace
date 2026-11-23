@@ -31,87 +31,18 @@
  *   `ProbeReport`, a recomputable fingerprint and a file cache under
  *   `.fgc/probe-cache/` (#17).
  *
- * The decision model, its validation, its canonical form, its migration chain and its freshness
- * rules are owned by `core` (#8). The blocks below re-export them as a *compatibility proxy*: an
- * import already written against this package keeps resolving, while the canonical home stays
- * `@forguncy-react-workspace/core`. New code imports them from `core` (#105, #126 §1.6).
+ * The decision model, its validation, its canonical form and its freshness rules are owned by
+ * `core` (#8), and are imported from there. This package used to re-export them as a compatibility
+ * proxy; #157 deleted that block, because #105's reference scan and #126's audit both measured no
+ * consumer of the copy and every remaining importer already names `core`. A second door onto the
+ * same names is a second surface to keep in step for nobody, and it is what made "narrow the root
+ * entry" impossible to start.
  *
  * What is *not* implemented here: the Agent-driven library selection that decides
  * a strategy in the first place (`Implement: Forguncy React dependency-selection
  * Agent Skill` #18). Composing a probe fingerprint is #17's; selecting a package
  * from a probe's assessment remains the Agent's job.
  */
-
-import type { DependencyDecision } from "@forguncy-react-workspace/core";
-
-// Compatibility proxy (#105). These names belong to `core`; this package owns lock storage and the
-// probe, not the decision model. They are re-exported so an import already written against this
-// package keeps working, and #126's audit measured no cross-package consumer of this copy. New
-// code takes them from `@forguncy-react-workspace/core`; this block is kept for compatibility,
-// not recommended.
-export type {
-  DecisionEvidenceKind,
-  DecisionEvidenceLink,
-  DependencyCheck,
-  DependencyCheckLevel,
-  DependencyDecision,
-  DependencyStrategy,
-  ExtensionEvidence,
-  FgcLockDocument,
-  ForguncyTargetIdentity,
-  LockDecisionAssessment,
-  LockDecisionQuery,
-  LockDecisionResolution,
-  LockDecisionState,
-  LockedDependencyDecision,
-  LockEnvironment,
-  LockEvidencePolicy,
-  LockEvidenceProfile,
-  LockFreshness,
-  LockProbeEvidence,
-  LockProbeRequirement,
-  LockRealRuntimeValidation,
-  LockRecordMetadata,
-  LockStalenessReason,
-  ProbeStatus,
-  RejectedCandidateEvidence,
-  ToolchainIdentity,
-} from "@forguncy-react-workspace/core";
-
-export {
-  assessLockDecision,
-  assertFgcLockDocument,
-  assertFgcLockDocumentShape,
-  assertSupportedFgcLockSchemaVersion,
-  canonicalizeFgcLock,
-  createEmptyFgcLock,
-  dependencyDecisionOf,
-  FGC_LOCK_FILE_NAME,
-  FGC_LOCK_SCHEMA_VERSION,
-  FgcLockSchemaVersionError,
-  FgcLockValidationError,
-  findLockDecision,
-  findMachineSpecificPaths,
-  forguncyTargetIdentity,
-  isCanonicallyOrdered,
-  isEvidenceReference,
-  isSupportedFgcLockSchemaVersion,
-  LOCK_EVIDENCE_POLICY,
-  LOCK_EVIDENCE_PROFILES,
-  LOCK_GOVERNING_DECISIONS,
-  LOCK_GOVERNING_SPEC_REFERENCE_LINE,
-  LOCK_STALENESS_REASONS,
-  lockDecisionBlockers,
-  lockEvidenceProfileOf,
-  matchesForguncyTargetIdentity,
-  parseFgcLockDocument,
-  requiresRuntimeValidation,
-  requiresTargetIdentity,
-  resolveLockDecision,
-  RUNTIME_CONFIRMED_TECHNICAL_REJECTION_CODES,
-  serializeFgcLock,
-  validateFgcLockDocument,
-} from "@forguncy-react-workspace/core";
 
 export {
   compilationDependencies,
@@ -220,7 +151,10 @@ export type {
   RunDependencyProbeOptions,
 } from "./probe/probe-engine.ts";
 
-export { composeProbeFingerprint } from "./probe/fingerprint.ts";
+// `PROBE_ANALYSIS_REVISION` is exported beside the composer because `local.ts` projects the whole
+// of `probe/fingerprint.ts` (#157), and a name reachable there but not here would make the
+// projection a second public surface rather than a projection of this one.
+export { composeProbeFingerprint, PROBE_ANALYSIS_REVISION } from "./probe/fingerprint.ts";
 export type { ComposedProbeFingerprint, ComposeProbeFingerprintInput } from "./probe/fingerprint.ts";
 
 export { createFileProbeCache, PROBE_CACHE_DIRECTORY, probeCacheRelativePath } from "./probe/cache.ts";
@@ -285,27 +219,3 @@ export {
 } from "./probe/identity.ts";
 
 export { describeBuildFailureLines, portableText, stripAnsi } from "./probe/scan-utils.ts";
-
-export interface ResolveDependencyInput {
-  packageName: string;
-  version?: string;
-}
-
-/**
- * Placeholder for the probe-driven resolution path.
- *
- * Retained for compatibility, and measured as unused: #105's reference scan found no import of
- * this function or {@link ResolveDependencyInput} under `packages/`, `examples/` or
- * `.agents/skills/`. It stays a refusal rather than a guess: without an executed probe there is
- * no evidence to record, and #8 explicitly rules out auto-selecting a library without Agent
- * reasoning and probe evidence.
- *
- * The implemented path is `runDependencyProbe` → `recordDependencyDecision`/`upsertLockDecision`,
- * driven by the dependency-selection Skill (#17/#18). Removing this name is a later, deliberate
- * step; until then it is a documented refusal, not a usable API.
- */
-export async function resolveDependency(_input: ResolveDependencyInput): Promise<DependencyDecision> {
-  throw new Error(
-    "Probe-driven dependency resolution is not implemented yet. Recording and reading decisions from `fgc.lock.json` is implemented; producing the evidence belongs to the dependency probe engine (#17) and the dependency-selection Agent Skill (#18).",
-  );
-}

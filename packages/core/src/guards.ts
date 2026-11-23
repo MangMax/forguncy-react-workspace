@@ -4,8 +4,8 @@
  * Decision source: GitHub Issue #155
  * (https://github.com/MangMax/forguncy-react-workspace/issues/155), under the parent spec #152
  * (https://github.com/MangMax/forguncy-react-workspace/issues/152), which records five copies of
- * this predicate: `isPlainObject` in `core/lock.ts`, `core/probe-protocol.ts` and
- * `core/lock-migration.ts`; `isConfigRecord` in `core/forguncy-config.ts`; `isConfigRecordValue` in
+ * this predicate: `isPlainObject` in `core/lock.ts` and `core/probe-protocol.ts`; `isConfigRecord`
+ * in `core/forguncy-config.ts`; `isConfigRecordValue` in
  * `core/resolve-config.ts`; `isRecord` in `cell-compiler/workspace-graph.ts`; and `asPlainObject` in
  * `dependency-resolver/install-identity.ts`. They agree today, and a parser that disagreed about
  * what an object is would accept a document another parser refuses — the drift this module makes

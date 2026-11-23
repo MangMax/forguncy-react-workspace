@@ -478,19 +478,6 @@ export type {
 } from "./lock.ts";
 
 export {
-  FGC_LOCK_MIGRATION_STEPS,
-  findFgcLockMigrationStep,
-  FgcLockMigrationError,
-  FgcLockMigrationStepError,
-  migrateFgcLockDocument,
-  migratableFgcLockSchemaVersions,
-  parseMigratedFgcLockDocument,
-  planFgcLockMigration,
-  validateFgcLockMigrationSteps,
-} from "./lock-migration.ts";
-export type { FgcLockMigrationOptions, FgcLockMigrationResult, FgcLockMigrationStep } from "./lock-migration.ts";
-
-export {
   assessLockDecision,
   findLockDecision,
   LOCK_FRESHNESS_STATES,

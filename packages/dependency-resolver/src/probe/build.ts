@@ -45,22 +45,10 @@ import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
 
 import { describeBuildFailureLines, portableText, safePathSegment } from "./scan-utils.ts";
 
-/**
- * The declared inputs of the build half of a probe — what `LockProbeEvidence.fingerprint`
- * must cover so a change here invalidates recorded evidence.
- *
- * Kept as data (rather than only applied inside `runCandidateBuild`) because the
- * fingerprint composes it without running a build: #8 requires the fingerprint to
- * be recomputable from declared inputs alone, and a configuration that only
- * existed inside a function body would not be.
- */
-export const BUILD_CONFIGURATION_FINGERPRINT: Readonly<Record<string, string>> = {
-  format: "iife",
-  codeSplitting: "false",
-  jsx: "react-jsx",
-  platform: "browser",
-  attachDebugInfo: "none",
-};
+// The declared build inputs live in their own leaf module (#157) so the fingerprint composer can
+// reach them on `dependency-resolver/local` without evaluating this module's `rolldown` import.
+// Re-exported so this module's surface — and the barrel's — is unchanged.
+export { BUILD_CONFIGURATION_FINGERPRINT } from "./build-configuration.ts";
 
 export interface CandidateBuildOptions {
   readonly projectRoot: string;

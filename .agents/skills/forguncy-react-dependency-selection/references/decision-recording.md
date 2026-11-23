@@ -108,7 +108,7 @@ probe finding 一样不可信。
 - `compileFingerprint` / `subjectDecision` / `subjectRenderedCharacters` 一并记录，是 `status` 能重新编译并核对这条记录的依据（被改过的数字报 `artifact-verdict-changed` / `artifact-attribution-changed`）。
 - 反过来，其它 code 的记录**不会**带 `artifactEvidence`：那些 code 是 probe 能观测的，脚本只在 `isArtifactObservedRejectionCode` 为真时编译取数，所以带上编译数字的 probe 拒绝在结构上产生不了。
 - 这条记录的 evidence profile 是 `artifact-rejection`（**不是** `technical-rejection`）：它要求 probe **通过**——包本身没问题，超限的是合成出来的 Cell。这正是"好包 + 过大 Cell"这个预期状态之所以能落盘的原因。
-- revision 14 之前写的 `cell-code-budget-exceeded` 记录**仍然可读**，只是 stale（`artifact-evidence-missing`），需要从新的证据路径重新记录。不升 schema、不静默删除或改判——见 `lock-migration.ts` 的契约。
+- revision 14 之前写的 `cell-code-budget-exceeded` 记录**仍然可读**，只是 stale（`artifact-evidence-missing`），需要从新的证据路径重新记录。不升 schema、不静默删除或改判——这是锁读取路径的契约。
 
 ## 脚本对决策文件做的事
 

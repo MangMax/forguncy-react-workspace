@@ -152,7 +152,6 @@ export {
   formatHostBridgeDiagnostics,
   formatHostBridgePlan,
   hostBridgeDiagnosticRule,
-  interceptedHostBridgeModuleIds,
   HOST_BRIDGE_GENERATED_BANNER,
   planHostBridge,
   renderHostBridgeAdapterModule,
@@ -178,7 +177,6 @@ export type {
 export {
   extensionExternalModuleIds,
   formatExtensionExternalsPlan,
-  interceptedExtensionExternalModuleIds,
   planExtensionExternals,
   renderExtensionExternalModule,
   EXTENSION_EXTERNAL_GENERATED_BANNER,

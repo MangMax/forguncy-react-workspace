@@ -197,14 +197,23 @@ describe("the repository fixes its own line endings", () => {
     expect(attributes).toMatch(/^\* text=auto eol=lf$/m);
   });
 
-  it("leaves probe-engine.ts to Git's binary detection, because it holds a literal NUL", () => {
-    // The file carries two U+0000 code points in a string literal, which is what makes Git treat
-    // it as binary — and that is correct: marking it `text` would make Git normalize the bytes of
-    // the very literal the file exists to hold. The pin is that no later rule reintroduces it,
-    // matched as an *attribute rule* (`probe-engine … text`) rather than as the bare filename,
-    // which the comment above the rule legitimately mentions while explaining this.
+  it("keeps probe-engine.ts text, and declares no exception for it", () => {
+    // #157 replaced the file's two literal U+0000 code points with `\0` escapes, so the source is
+    // now ordinary text and Git's own detection agrees. Two facts are pinned, because either one
+    // alone could regress silently:
+    //
+    // 1. **No attribute rule names it.** A `probe-engine … text` rule would be the old workaround
+    //    restored, and it would mask a reintroduced literal rather than report it.
+    // 2. **The bytes are what Git's detection reads.** The escapes must stay escapes; a literal NUL
+    //    would make `git diff` and `git blame` treat the file as binary again, which is the
+    //    defect #152 named.
     const attributes = readRepositoryFile(".gitattributes");
-
     expect(attributes).not.toMatch(/probe-engine\S*\s+\S*text/);
+
+    const source = readFileSync(
+      join(repositoryRoot, "packages", "dependency-resolver", "src", "probe", "probe-engine.ts"),
+    );
+    expect(source.includes(0), "probe-engine.ts contains a literal NUL, so Git treats it as binary").toBe(false);
+    expect(source.toString("utf8")).toContain('id.startsWith("\\0")');
   });
 });

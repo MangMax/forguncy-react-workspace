@@ -32,7 +32,7 @@ import { createLocalDevProvider } from "../../../examples/runtime-facade/src/loc
 import type { OrdersSummary } from "../../../examples/runtime-facade/src/orders.ts";
 
 import type { DataSourceBinding, RuntimeFacadeCellProps, RuntimeFacadeProvider } from "./contract.ts";
-import { runtimeFacade } from "./facade.ts";
+import { runtimeFacade } from "./cell-runtime.ts";
 import { createHostRuntimeFacadeProvider } from "./host-provider.ts";
 import { installRuntimeFacadeProvider, uninstallRuntimeFacadeProvider } from "./provider.ts";
 

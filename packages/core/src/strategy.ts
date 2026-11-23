@@ -331,8 +331,7 @@ export function isSubjectCompileDecision(value: unknown): value is SubjectCompil
  * revision 16's `record` persisted `{"strategy":"replace"}` through its normal writer, so a lock
  * written by that toolchain must still load. Such a record cannot be replayed — the package is not
  * in the Cell it names — so freshness reports it stale rather than pretending otherwise; what it
- * must not do is make the whole document unreadable, which is the migration contract in
- * `lock-migration.ts`.
+ * must not do is make the whole document unreadable, which is the lock's read contract.
  *
  * Every *other* illegal shape is still refused at the read boundary: `replace` is the one value the
  * previous toolchain could actually emit, so it is the only one a reader has to tolerate.
@@ -414,8 +413,8 @@ export function validateDependencyDecisionShape(decision: DependencyDecision): r
     // settle. The requirement that a compile-observed code **carry** the evidence is deliberately
     // not here: this validator runs on the parse path too, and a lock written before revision 14
     // holds such a rejection with no `artifactEvidence`. Refusing it here would make an existing
-    // lock unreadable instead of stale — the opposite of the migration contract in
-    // `lock-migration.ts`. So the requirement lives on the two paths that can act on it:
+    // lock unreadable instead of stale — the opposite of the lock's read contract. So the
+    // requirement lives on the two paths that can act on it:
     // `auditSelectionDecision` refuses to *record* such a rejection without evidence, and freshness
     // reports an existing one as `artifact-evidence-missing`. Both directions below are safe here
     // because they can only fire on a record that *has* the field.

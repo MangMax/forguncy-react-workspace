@@ -37,7 +37,9 @@
 
 import { createCanonicalizer } from "@forguncy-react-workspace/core";
 
-import { BUILD_CONFIGURATION_FINGERPRINT } from "./build.ts";
+// The leaf, not `build.ts` (#157): the composer is exported from `dependency-resolver/local`, and
+// `build.ts` imports `rolldown`, which is the cost that projection exists to avoid.
+import { BUILD_CONFIGURATION_FINGERPRINT } from "./build-configuration.ts";
 
 /**
  * Recursively canonicalize: object keys sorted at every depth, array order
