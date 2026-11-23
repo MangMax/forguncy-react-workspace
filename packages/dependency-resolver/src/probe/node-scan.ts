@@ -31,7 +31,7 @@
  *
  * So the step now scans what a browser build can actually reach, and reads each file
  * through the same parser the target uses, which is what makes "this is comment
- * text" a parse result rather than a guess. `module-source.ts` holds both mechanisms
+ * text" a parse result rather than a guess. `module-source-analysis.ts` and `module-source-reachability.ts` hold both mechanisms
  * and the reasoning; this module holds the Node-specific judgement about what the
  * reachable code means.
  *
@@ -69,8 +69,9 @@ import {
 } from "./browser-entry.ts";
 import type { ResolvedPackageIdentity } from "./identity.ts";
 import { locateManifest } from "./identity.ts";
-import type { PackageSourceFile } from "./module-source.ts";
-import { collectReachableSourceFiles, isInside, readSourceFile, sourceWithoutCommentsLenient } from "./module-source.ts";
+import { sourceWithoutCommentsLenient } from "./module-source-analysis.ts";
+import type { PackageSourceFile } from "./module-source-reachability.ts";
+import { collectReachableSourceFiles, isInside, readSourceFile } from "./module-source-reachability.ts";
 
 
 /**
@@ -148,7 +149,7 @@ function isNodeOnlySpecifier(specifier: string): boolean {
 /**
  * Every Node-only specifier named in `source`, in first-seen order, deduplicated.
  *
- * Parses rather than scans, for the reason `module-source.ts` records at length:
+ * Parses rather than scans, for the reason `module-source-analysis.ts` records at length:
  * `es-toolkit` names `node:fs` and `node:vm` only inside JSDoc `@example` blocks, and
  * a text match cannot tell that from a real import. Comments are blanked before the
  * patterns run, so a specifier in prose is documentation rather than a dependency.

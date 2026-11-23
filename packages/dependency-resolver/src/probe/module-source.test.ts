@@ -36,11 +36,11 @@ import { observeExportMetadata } from "./export-metadata.ts";
 import type { ResolvedPackageIdentity } from "./identity.ts";
 import {
   analyzeModuleSource,
-  collectReachableSourceFiles,
   maskComments,
   sourceWithoutComments,
   sourceWithoutCommentsLenient,
-} from "./module-source.ts";
+} from "./module-source-analysis.ts";
+import { collectReachableSourceFiles } from "./module-source-reachability.ts";
 
 describe("resolveBrowserEntryPaths", () => {
   it("prefers the browser condition over the Node builds beside it", () => {

@@ -34,7 +34,7 @@
  * construct. `es-toolkit`'s emitted chunk names `import('node:fs')` and `import('node:vm')`
  * only inside JSDoc `@example` blocks while the chunk's own `dynamicImports` is empty;
  * matching the raw text reported a runtime module load the artifact does not perform.
- * `module-source.ts` holds the mechanism and the reasoning, and
+ * `module-source-analysis.ts` holds the mechanism and the reasoning, and
  * {@link matchableChunkCode} is this step's single point of application.
  */
 
@@ -47,7 +47,7 @@ import type {
 import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import type { OutputAsset, OutputChunk } from "rolldown";
 
-import { sourceWithoutCommentsLenient } from "./module-source.ts";
+import { sourceWithoutCommentsLenient } from "./module-source-analysis.ts";
 import { portableText } from "./scan-utils.ts";
 
 /** Marker patterns matched against emitted chunk code. Order does not matter; findings dedupe by signal. */

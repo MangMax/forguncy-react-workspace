@@ -188,22 +188,19 @@ export {
 } from "./probe/browser-entry.ts";
 export type { BrowserEntryResolution } from "./probe/browser-entry.ts";
 
-export {
-  analyzeModuleSource,
-  collectReachableSourceFiles,
-  isRelativeSpecifier,
-  maskComments,
-  sourceWithoutComments,
-} from "./probe/module-source.ts";
+export { analyzeModuleSource, maskComments, sourceWithoutComments } from "./probe/module-source-analysis.ts";
 export type {
   CommentRange,
   ImportReference,
   ImportReferenceKind,
   ModuleSourceAnalysis,
+} from "./probe/module-source-analysis.ts";
+export { collectReachableSourceFiles, isRelativeSpecifier } from "./probe/module-source-reachability.ts";
+export type {
   PackageSourceFile,
   ReachableSourceResult,
   SelfReferenceResolver,
-} from "./probe/module-source.ts";
+} from "./probe/module-source-reachability.ts";
 
 export { observeExportMetadata } from "./probe/export-metadata.ts";
 export type { ExportMetadataObservation } from "./probe/export-metadata.ts";
