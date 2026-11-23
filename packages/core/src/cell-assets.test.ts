@@ -17,6 +17,7 @@ import {
   CELL_SUPPORTED_STATIC_ASSET_EXTENSIONS,
   cellAssetExtensionOf,
   cellStaticAssetMediaType,
+  classifyCellResource,
   encodeBase64,
   findCellCssUnsupportedConstructs,
   findCellCssUrlReferences,
@@ -318,5 +319,88 @@ describe("an @import is found wherever it is written", () => {
 
   it("does not read an @important-looking name as the at-rule", () => {
     expect(findCellCssUnsupportedConstructs("a { color: red !important; }")).toEqual([]);
+  });
+});
+
+describe("one classification for dev and compiler (#153)", () => {
+  /** A probe over a fixed set of regular files, so the classification is exercised without a disk. */
+  const probe = (files: Readonly<Record<string, number>>) => ({
+    isRegularFile: (filePath: string) => filePath in files,
+    byteLength: (filePath: string) => files[filePath],
+  });
+
+  const classify = (filePath: string, options: { query?: string; files?: Record<string, number> } = {}) =>
+    classifyCellResource({
+      subject: filePath,
+      filePath,
+      ...(options.query === undefined ? {} : { query: options.query }),
+      inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
+      probe: probe(options.files ?? { [filePath]: 8 }),
+    });
+
+  it("accepts a plain stylesheet and a small supported asset", () => {
+    expect(classify("/p/x.css")).toEqual({ kind: "css", filePath: "/p/x.css" });
+    expect(classify("/p/x.png")).toEqual({
+      kind: "asset",
+      filePath: "/p/x.png",
+      mediaType: "image/png",
+      bytes: 8,
+    });
+  });
+
+  it("answers `not-a-resource` for what neither path owns", () => {
+    expect(classify("/p/App.tsx")).toEqual({ kind: "not-a-resource" });
+    expect(classify("/p/data.json")).toEqual({ kind: "not-a-resource" });
+  });
+
+  it("refuses any authored query on a resource, not only the Vite transform parameters", () => {
+    const refusal = classify("/p/x.css", { query: "foo" });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("resource-query");
+    expect(refusal.refusal.detail).toContain('"?foo"');
+  });
+
+  it("refuses a Vite transform parameter on a file that is not a resource at all", () => {
+    // `worker.js?worker` names no resource extension and is still refused, which is why this check
+    // runs before the `not-a-resource` answer.
+    const refusal = classify("/p/worker.js", { query: "worker" });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("resource-query");
+    expect(refusal.refusal.detail).toContain("?worker");
+  });
+
+  it("refuses a directory or a missing file by the regular-file answer, not by the extension", () => {
+    for (const filePath of ["/p/directory.css", "/p/missing.css"]) {
+      const refusal = classify(filePath, { files: {} });
+      expect(refusal.kind).toBe("refuse");
+      if (refusal.kind !== "refuse") return;
+      expect(refusal.refusal.code).toBe("missing-resource-file");
+      expect(refusal.refusal.detail).toContain("does not resolve to a regular file");
+    }
+  });
+
+  it("refuses an oversized asset by the size the probe reported", () => {
+    const refusal = classify("/p/big.png", { files: { "/p/big.png": CELL_ASSET_INLINE_LIMIT_BYTES + 1 } });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.code).toBe("oversized-asset");
+    expect(refusal.refusal.detail).toContain(`${CELL_ASSET_INLINE_LIMIT_BYTES + 1} bytes`);
+    expect(refusal.refusal.detail).toContain(`limit is ${CELL_ASSET_INLINE_LIMIT_BYTES}`);
+  });
+
+  it("names the importer in the same sentence the compiler's diagnostic carries", () => {
+    const refusal = classifyCellResource({
+      subject: "/p/x.module.css",
+      filePath: "/p/x.module.css",
+      importer: "/p/App.tsx",
+      inlineLimitBytes: CELL_ASSET_INLINE_LIMIT_BYTES,
+      probe: probe({ "/p/x.module.css": 8 }),
+    });
+    expect(refusal.kind).toBe("refuse");
+    if (refusal.kind !== "refuse") return;
+    expect(refusal.refusal.importer).toBe("/p/App.tsx");
+    expect(refusal.refusal.detail).toContain('(imported from "/p/App.tsx")');
   });
 });

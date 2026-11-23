@@ -96,7 +96,7 @@ import {
   resolveCellResource,
 } from "./cell-resources.ts";
 import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
-import { queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
+import { cellResourceQueryRefusal, queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -539,14 +539,11 @@ async function resolveResourceSpecifier(
   const { path: barePath, query } = splitCellSpecifierQuery(source);
   // A Vite resource query is refused for *any* file, not only a resource extension: `worker.js`
   // has an ordinary `.js` extension and is still a runtime asset the compiled Cell cannot serve.
-  if (query !== undefined && queryHasRejectedResourceParameter(query)) {
-    const refusal: CellResourceRefusal = {
-      subject: source,
-      ...(importer === undefined ? {} : { importer }),
-      detail: `"${source}"${importer === undefined ? "" : ` (imported from "${importer}")`} uses the Vite query "?${query}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker — each selects a transform the single-file compiler does not implement, and a Worker or runtime asset has nowhere to be loaded from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
-    };
-    state.refusals.push(refusal);
-    throwResourceRefusal([refusal]);
+  // The sentence is `core`'s (#153), so the same import refused locally reads identically here.
+  const queryRefusal = cellResourceQueryRefusal(source, query, importer);
+  if (queryRefusal !== undefined && query !== undefined && queryHasRejectedResourceParameter(query)) {
+    state.refusals.push(queryRefusal);
+    throwResourceRefusal([queryRefusal]);
   }
 
   // A `.svg` imported without a query is a resource; a `./data.json` is not, and must not pay for
