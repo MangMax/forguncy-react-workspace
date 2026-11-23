@@ -23,6 +23,8 @@
  *   six would point the Agent at the wrong fix.
  */
 
+import { createDiagnosticFields, defineDiagnosticVocabulary } from "@forguncy-react-workspace/core";
+
 import type { CellArtifactGuaranteeId } from "./guarantees.ts";
 
 /** The failure modes GitHub Issue #6 names explicitly. */
@@ -281,11 +283,41 @@ export interface ArtifactMeasurements {
 }
 
 /**
+ * The shared vocabulary, closed over this package's rule table and diagnostic shape.
+ *
+ * `subjectOf` reads `subject` and `format` adds the location this package can carry;
+ * both are supplied rather than defaulted so a change to either spelling is an edit
+ * here rather than a change to every package at once.
+ */
+const CELL_ARTIFACT_DIAGNOSTIC_VOCABULARY = defineDiagnosticVocabulary<
+  CellArtifactDiagnosticCode,
+  CellArtifactDiagnosticRule,
+  CellArtifactDiagnostic,
+  { readonly detail?: string; readonly location?: string; readonly budgetEvidence?: ArtifactMeasurements }
+>({
+  rules: CELL_ARTIFACT_DIAGNOSTIC_RULES,
+  instance: input => ({
+    ...createDiagnosticFields(input.rule, input.code, input.subject, input.detail),
+    ...(input.options.location === undefined ? {} : { location: input.options.location }),
+    ...(input.options.budgetEvidence === undefined ? {} : { budgetEvidence: input.options.budgetEvidence }),
+  }),
+  subjectOf: diagnostic => diagnostic.subject,
+  format: diagnostic => {
+    const where = diagnostic.location === undefined ? "" : ` (${diagnostic.location})`;
+    return `[${diagnostic.code}] ${diagnostic.subject}${where}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}`;
+  },
+  emptyReport: "No Cell artifact diagnostics.",
+});
+
+/**
  * Builds a diagnostic from the rule table.
  *
  * `detail` is appended to the rule's sentence rather than replacing it, so the
  * generic statement stays reviewable in one place and the per-occurrence facts
  * stay in the diagnostic.
+ *
+ * The composition and the dedupe key are `core`'s shared vocabulary (#156); this
+ * package's own half is the two extra fields it can carry and the line it prints.
  */
 export function createCellArtifactDiagnostic(
   code: CellArtifactDiagnosticCode,
@@ -296,18 +328,7 @@ export function createCellArtifactDiagnostic(
     readonly budgetEvidence?: ArtifactMeasurements;
   } = {},
 ): CellArtifactDiagnostic {
-  const rule = cellArtifactDiagnosticRule(code);
-  const message = options.detail === undefined ? rule.states : `${rule.states} ${options.detail}`;
-  return {
-    code,
-    subject,
-    message,
-    remediation: rule.remediation,
-    fixOwner: rule.fixOwner,
-    breaksGuarantees: rule.breaksGuarantees,
-    ...(options.location === undefined ? {} : { location: options.location }),
-    ...(options.budgetEvidence === undefined ? {} : { budgetEvidence: options.budgetEvidence }),
-  };
+  return CELL_ARTIFACT_DIAGNOSTIC_VOCABULARY.create(code, subject, options);
 }
 
 /**
@@ -321,29 +342,17 @@ export function createCellArtifactDiagnostic(
 export function dedupeCellArtifactDiagnostics(
   diagnostics: readonly CellArtifactDiagnostic[],
 ): readonly CellArtifactDiagnostic[] {
-  const seen = new Set<string>();
-  const result: CellArtifactDiagnostic[] = [];
-  for (const diagnostic of diagnostics) {
-    const key = `${diagnostic.code}\u0000${diagnostic.subject}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(diagnostic);
-  }
-  return result;
+  return CELL_ARTIFACT_DIAGNOSTIC_VOCABULARY.dedupe(diagnostics);
 }
 
 /** One line, for a PR body, a CLI summary or a test failure message. */
 export function formatCellArtifactDiagnostic(diagnostic: CellArtifactDiagnostic): string {
-  const where = diagnostic.location === undefined ? "" : ` (${diagnostic.location})`;
-  return `[${diagnostic.code}] ${diagnostic.subject}${where}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}`;
+  return CELL_ARTIFACT_DIAGNOSTIC_VOCABULARY.format(diagnostic);
 }
 
 /** A block a report or a test failure can carry verbatim. */
 export function formatCellArtifactDiagnostics(diagnostics: readonly CellArtifactDiagnostic[]): string {
-  if (diagnostics.length === 0) {
-    return "No Cell artifact diagnostics.";
-  }
-  return diagnostics.map(diagnostic => `- ${formatCellArtifactDiagnostic(diagnostic)}`).join("\n");
+  return CELL_ARTIFACT_DIAGNOSTIC_VOCABULARY.formatAll(diagnostics);
 }
 
 export function cellArtifactDiagnosticCodes(

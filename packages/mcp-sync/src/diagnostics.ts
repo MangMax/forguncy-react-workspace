@@ -37,7 +37,12 @@
  * place for one of the two.
  */
 
-import { EXTENSION_EXTERNAL_DIAGNOSTIC_CODES, extensionExternalDiagnosticRule } from "@forguncy-react-workspace/core";
+import {
+  createDiagnosticFields,
+  defineDiagnosticVocabulary,
+  EXTENSION_EXTERNAL_DIAGNOSTIC_CODES,
+  extensionExternalDiagnosticRule,
+} from "@forguncy-react-workspace/core";
 import type {
   ExtensionExternalDiagnostic,
   ExtensionExternalDiagnosticCode,
@@ -389,6 +394,37 @@ export function syncDiagnosticRule(code: SyncDiagnosticCode): SyncDiagnosticRule
 }
 
 /**
+ * The shared vocabulary, closed over this package's rule table and diagnostic shape.
+ *
+ * The delegate is this package's own conditional field — present on every
+ * `missing-extension` so a caller branching on the case does not have to look up the rule
+ * — and the rendered line appends the delegate and the upstream origin, both of which the
+ * factory cannot know about.
+ */
+const SYNC_DIAGNOSTIC_VOCABULARY = defineDiagnosticVocabulary<
+  SyncDiagnosticCode,
+  SyncDiagnosticRule,
+  SyncDiagnostic,
+  { readonly detail?: string }
+>({
+  rules: SYNC_DIAGNOSTIC_RULES,
+  instance: input => ({
+    ...createDiagnosticFields(input.rule, input.code, input.subject, input.detail),
+    ...(input.code === "missing-extension" ? { delegate: EXTENSION_CREATION_DELEGATE } : {}),
+  }),
+  subjectOf: diagnostic => diagnostic.subject,
+  format: diagnostic => {
+    const delegate = diagnostic.delegate === undefined ? "" : ` Delegate: ${diagnostic.delegate.repository}.`;
+    const derived =
+      diagnostic.derivedFrom === undefined
+        ? ""
+        : ` Detected by ${diagnostic.derivedFrom.detectedBy} as "${diagnostic.derivedFrom.code}".`;
+    return `[${diagnostic.code}] ${diagnostic.subject}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}${delegate}${derived}`;
+  },
+  emptyReport: "No sync diagnostics.",
+});
+
+/**
  * Builds a diagnostic from the rule table.
  *
  * `detail` is appended to the rule's sentence rather than replacing it, so the generic
@@ -407,17 +443,7 @@ export function createSyncDiagnostic(
   subject: string,
   options: { readonly detail?: string } = {},
 ): SyncDiagnostic {
-  const rule = syncDiagnosticRule(code);
-  const message = options.detail === undefined ? rule.states : `${rule.states} ${options.detail}`;
-  return {
-    code,
-    subject,
-    message,
-    remediation: rule.remediation,
-    fixOwner: rule.fixOwner,
-    breaksGuarantees: rule.breaksGuarantees,
-    ...(code === "missing-extension" ? { delegate: EXTENSION_CREATION_DELEGATE } : {}),
-  };
+  return SYNC_DIAGNOSTIC_VOCABULARY.create(code, subject, options);
 }
 
 /**
@@ -450,33 +476,17 @@ export function syncDiagnosticFromExtensionAudit(diagnostic: ExtensionExternalDi
  * detectors.
  */
 export function dedupeSyncDiagnostics(diagnostics: readonly SyncDiagnostic[]): readonly SyncDiagnostic[] {
-  const seen = new Set<string>();
-  const result: SyncDiagnostic[] = [];
-  for (const diagnostic of diagnostics) {
-    const key = `${diagnostic.code}\u0000${diagnostic.subject}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(diagnostic);
-  }
-  return result;
+  return SYNC_DIAGNOSTIC_VOCABULARY.dedupe(diagnostics);
 }
 
 /** One line, for a PR body, a CLI summary or a test failure message. */
 export function formatSyncDiagnostic(diagnostic: SyncDiagnostic): string {
-  const delegate = diagnostic.delegate === undefined ? "" : ` Delegate: ${diagnostic.delegate.repository}.`;
-  const derived =
-    diagnostic.derivedFrom === undefined
-      ? ""
-      : ` Detected by ${diagnostic.derivedFrom.detectedBy} as "${diagnostic.derivedFrom.code}".`;
-  return `[${diagnostic.code}] ${diagnostic.subject}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}${delegate}${derived}`;
+  return SYNC_DIAGNOSTIC_VOCABULARY.format(diagnostic);
 }
 
 /** A block a report or a test failure can carry verbatim. */
 export function formatSyncDiagnostics(diagnostics: readonly SyncDiagnostic[]): string {
-  if (diagnostics.length === 0) {
-    return "No sync diagnostics.";
-  }
-  return diagnostics.map(diagnostic => `- ${formatSyncDiagnostic(diagnostic)}`).join("\n");
+  return SYNC_DIAGNOSTIC_VOCABULARY.formatAll(diagnostics);
 }
 
 export function syncDiagnosticCodes(diagnostics: readonly SyncDiagnostic[]): readonly SyncDiagnosticCode[] {

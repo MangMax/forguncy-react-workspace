@@ -113,6 +113,7 @@
  * A reversal of any input array is a regression test.
  */
 
+import { createDiagnosticFields, defineDiagnosticVocabulary } from "@forguncy-react-workspace/core";
 import type {
   DependencyCheckLevel,
   DependencyDecision,
@@ -1192,6 +1193,27 @@ export function isWorkspaceSourceDiagnosticCode(value: unknown): value is Worksp
 }
 
 /**
+ * The shared vocabulary, closed over this package's rule table and diagnostic shape.
+ *
+ * The ordering this package adds — by the code table's order, then by subject — stays in
+ * `orderWorkspaceSourceDiagnostics`: the factory owns composition and the dedupe key, not
+ * the sort a report prints in.
+ */
+const WORKSPACE_SOURCE_VOCABULARY = defineDiagnosticVocabulary<
+  WorkspaceSourceDiagnosticCode,
+  WorkspaceSourceDiagnosticRule,
+  WorkspaceSourceDiagnostic,
+  { readonly detail?: string }
+>({
+  rules: WORKSPACE_SOURCE_DIAGNOSTIC_RULES,
+  instance: input => createDiagnosticFields(input.rule, input.code, input.subject, input.detail),
+  subjectOf: diagnostic => diagnostic.subject,
+  format: diagnostic =>
+    `[${diagnostic.code}] ${diagnostic.subject}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}`,
+  emptyReport: "No workspace source diagnostics.",
+});
+
+/**
  * Builds a diagnostic from the rule table, so a code cannot reach a caller without
  * a remediation and a fix owner.
  *
@@ -1204,15 +1226,7 @@ export function createWorkspaceSourceDiagnostic(
   subject: string,
   options: { readonly detail?: string } = {},
 ): WorkspaceSourceDiagnostic {
-  const rule = WORKSPACE_SOURCE_DIAGNOSTIC_RULES[code];
-  return {
-    code,
-    subject,
-    message: options.detail === undefined ? rule.states : `${rule.states} ${options.detail}`,
-    remediation: rule.remediation,
-    fixOwner: rule.fixOwner,
-    breaksGuarantees: rule.breaksGuarantees,
-  };
+  return WORKSPACE_SOURCE_VOCABULARY.create(code, subject, options);
 }
 
 /**
@@ -1228,17 +1242,8 @@ export function orderWorkspaceSourceDiagnostics(
   diagnostics: readonly WorkspaceSourceDiagnostic[],
 ): readonly WorkspaceSourceDiagnostic[] {
   const rank = new Map(WORKSPACE_SOURCE_DIAGNOSTIC_CODES.map((code, index) => [code, index]));
-  const seen = new Set<string>();
-  const result: WorkspaceSourceDiagnostic[] = [];
 
-  for (const diagnostic of diagnostics) {
-    const key = `${diagnostic.code}\u0000${diagnostic.subject}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(diagnostic);
-  }
-
-  return result.sort(
+  return [...WORKSPACE_SOURCE_VOCABULARY.dedupe(diagnostics)].sort(
     (a, b) =>
       (rank.get(a.code) ?? 0) - (rank.get(b.code) ?? 0) || compareStrings(a.subject, b.subject),
   );
@@ -1246,15 +1251,14 @@ export function orderWorkspaceSourceDiagnostics(
 
 /** One line, for a PR body, a CLI summary or a test failure message. */
 export function formatWorkspaceSourceDiagnostic(diagnostic: WorkspaceSourceDiagnostic): string {
-  return `[${diagnostic.code}] ${diagnostic.subject}: ${diagnostic.message} Fix (${diagnostic.fixOwner}): ${diagnostic.remediation}`;
+  return WORKSPACE_SOURCE_VOCABULARY.format(diagnostic);
 }
 
 /** A block a report or a test failure can carry verbatim. */
 export function formatWorkspaceSourceDiagnostics(
   diagnostics: readonly WorkspaceSourceDiagnostic[],
 ): string {
-  if (diagnostics.length === 0) return "No workspace source diagnostics.";
-  return diagnostics.map(diagnostic => `- ${formatWorkspaceSourceDiagnostic(diagnostic)}`).join("\n");
+  return WORKSPACE_SOURCE_VOCABULARY.formatAll(diagnostics);
 }
 
 // ---------------------------------------------------------------------------

@@ -88,6 +88,27 @@ export type {
   PlatformConflictUnclassified,
 } from "./platform-conflicts.ts";
 
+// The shared leaf primitives (#156): each is one answer every package can import without
+// dragging a graph along, and each replaces copies that had already started to drift.
+export { packageNameOfSpecifier } from "./specifier.ts";
+
+export {
+  composeDiagnosticMessage,
+  createDiagnosticFields,
+  defineDiagnosticVocabulary,
+  diagnosticDedupeKey,
+} from "./diagnostics.ts";
+export type {
+  DefineDiagnosticVocabularyOptions,
+  DiagnosticFields,
+  DiagnosticInstanceInput,
+  DiagnosticRuleShape,
+  DiagnosticVocabulary,
+} from "./diagnostics.ts";
+
+export { defineDecisionProvenance } from "./provenance.ts";
+export type { DecisionProvenance } from "./provenance.ts";
+
 export {
   assertDependencyDecision,
   checksForLevel,

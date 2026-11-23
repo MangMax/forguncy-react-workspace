@@ -54,6 +54,7 @@ import {
 } from "./governance.ts";
 import type { ArchitectureDecisionSource } from "./governance.ts";
 import { findPlatformConflictRule } from "./platform-conflicts.ts";
+import { packageNameOfSpecifier } from "./specifier.ts";
 import { cellUserScopeBinding, CELL_PRESET_LIBRARIES } from "./runtime-contract.ts";
 import type { CellBindingAvailability, CellUserScopeBinding, RuntimeEvidenceChannel } from "./runtime-contract.ts";
 
@@ -416,18 +417,20 @@ export function findHostBridgeModuleMapping(
 
 /** Every mapping whose specifier or subpath belongs to `packageName`. */
 export function hostBridgeMappingsForPackage(packageName: string): readonly HostBridgeMapping[] {
-  return HOST_BRIDGE_MAPPINGS.filter(mapping => packageNameOfModuleId(mapping.specifier) === packageName);
+  return HOST_BRIDGE_MAPPINGS.filter(mapping => packageNameOfSpecifier(mapping.specifier) === packageName);
 }
 
 /** The npm package a module id belongs to.
  *
  * Only used to answer package-shaped questions (which package's identity is
  * being checked); interception itself never keys on it.
+ *
+ * The rule is `core`'s one package-name-of-specifier (#156), re-exported under this
+ * module's older name so callers keep working. That is not a second copy: it is the same
+ * function, and the one behaviour it changed is the one this module used to get wrong —
+ * a relative path now comes back unchanged instead of as `.`.
  */
-export function packageNameOfModuleId(specifier: string): string {
-  const segments = specifier.split("/");
-  return specifier.startsWith("@") ? segments.slice(0, 2).join("/") : (segments[0] ?? specifier);
-}
+export { packageNameOfSpecifier as packageNameOfModuleId } from "./specifier.ts";
 
 /**
  * The binding a mapping declares for one of its module ids.
@@ -1136,7 +1139,7 @@ export function assertHostBridgeMappingsAreUnambiguous(
  * would not resolve the ownership conflict, it would hide one behind a global.
  */
 export function assertHostBridgeMappingIsNotAnOwnershipConflict(mapping: HostBridgeMapping): void {
-  const packageName = packageNameOfModuleId(mapping.specifier);
+  const packageName = packageNameOfSpecifier(mapping.specifier);
   const rule = findPlatformConflictRule(packageName);
   if (rule === undefined || rule.allowedCellLocalRoles.length > 0) return;
 
