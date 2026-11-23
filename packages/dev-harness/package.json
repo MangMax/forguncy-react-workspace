@@ -15,7 +15,11 @@
     "bundler can answer reported as a boundary instead of silently withheld. It exists as its own",
     "entry because `cell-project`'s build/plan commands need the same projection the dev server",
     "uses, and importing `.` would pull Vite and the React plugin into a build-only process. The",
-    "module reaches `dependency-resolver/local` and `node:module`, not a bundler or a dev server."
+    "module reaches `dependency-resolver/local` and `node:module`, not a bundler or a dev server.",
+    "",
+    "`./internal` is the full projection of this package's modules (#159): the surface the root",
+    "entry used to export, kept for this package's own tests. No other package may import it, and",
+    "`package-boundaries.test.ts` asserts that rule for every package."
   ],
   "//dependencies": [
     "`react` / `react-dom` are the harness's *host substitutions*, not an implementation detail.",
@@ -70,6 +74,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./internal": "./src/internal.ts",
     "./mount": "./src/mount.ts",
     "./local-decisions": "./src/local-decision-projection.ts"
   },

@@ -22,7 +22,7 @@ import type {
   ConformanceProblemCode,
   ExtensionCatalog,
   HostBridgeManifest,
-} from "./index.ts";
+} from "./internal.ts";
 import {
   auditLockDecisionConformance,
   conformanceErrors,
@@ -32,7 +32,7 @@ import {
   JSX_RUNTIME_MODULE_IDS,
   PRESET_PROVIDED_HOST_GLOBALS,
   validateLockDecisionConformance,
-} from "./index.ts";
+} from "./internal.ts";
 
 const FINGERPRINT = "probe=inline-bundle;entry=src/cells/orders-table/App.tsx";
 

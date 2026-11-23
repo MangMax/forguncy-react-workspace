@@ -28,7 +28,7 @@ import {
   recordDependencyDecision,
   recordedPackageNames,
   resolveInstalledVersions,
-} from "./index.ts";
+} from "./internal.ts";
 
 const FIXTURE_TOOLCHAIN = {
   vitePlus: "0.3.2",

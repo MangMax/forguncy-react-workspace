@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -51,6 +51,7 @@ function workspacePackages(): readonly {
   readonly name: string;
   readonly dependencies: ReadonlySet<string>;
   readonly devDependencies: ReadonlySet<string>;
+  readonly exports: Readonly<Record<string, string>>;
 }[] {
   const packagesRoot = join(repositoryRoot, "packages");
   return readdirSync(packagesRoot)
@@ -61,12 +62,14 @@ function workspacePackages(): readonly {
         name: string;
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
+        exports?: Record<string, string>;
       };
       return {
         directory: join(packagesRoot, entry),
         name: manifest.name,
         dependencies: new Set(Object.keys(manifest.dependencies ?? {})),
         devDependencies: new Set(Object.keys(manifest.devDependencies ?? {})),
+        exports: manifest.exports ?? {},
       };
     });
 }
@@ -174,5 +177,569 @@ describe("a package's `src/` imports only what its `dependencies` declare", () =
       name.startsWith("@forguncy-react-workspace/"),
     );
     expect(imported).toEqual(["@forguncy-react-workspace/core"]);
+  });
+});
+
+/**
+ * The surface each package presents to the workspace (#159).
+ *
+ * Decision source: GitHub Issue #159 — "refactor: narrow every package root entry; test-only
+ * exports move to `./internal`" (https://github.com/Mang-X/forguncy-react-workspace/issues/159),
+ * under the shape-stabilisation Spec #152.
+ *
+ * ## Why the pin, and why `./internal`
+ *
+ * A barrel re-export is not a declaration: a name can stay public long after its last consumer
+ * disappeared, and every internal change then reads as a breaking one. #159 fixes each root entry
+ * to what another workspace package, an example, or the dependency-selection Skill actually names,
+ * and keeps the rest reachable only through `./internal` — an entry no other package may import.
+ *
+ * Both lists are ratchets, in the shape `cell-project`'s `consumer-surface.test.ts` established:
+ * adding a public name is one deliberate edit here, reviewed with the API change it represents.
+ * `cell-project` is absent because its own entry is already pinned by that test.
+ *
+ * The names are read two ways, because they fail differently: the source read (following
+ * `export *`) sees types, which are erased at run time; the dynamic import sees the values a
+ * consumer actually receives. A name that survives one and not the other is a broken export, not
+ * a surface change.
+ */
+const SURFACE_PACKAGES = [
+  "@forguncy-react-workspace/core",
+  "@forguncy-react-workspace/cell-compiler",
+  "@forguncy-react-workspace/dependency-resolver",
+  "@forguncy-react-workspace/dev-harness",
+  "@forguncy-react-workspace/mcp-sync",
+  "@forguncy-react-workspace/runtime",
+  "@forguncy-react-workspace/vite-plugin-fgc",
+] as const;
+
+interface PinnedSurface {
+  readonly values: readonly string[];
+  readonly types: readonly string[];
+}
+
+const PINNED_SURFACE: Readonly<Record<(typeof SURFACE_PACKAGES)[number], PinnedSurface>> = {
+
+  "@forguncy-react-workspace/core": {
+    values: [
+      "APPLICATION_OWNED_ROLES",
+      "APPLICATION_OWNERSHIP_INVARIANT",
+      "ARCHITECTURAL_REJECTION_PROBE_STATUS",
+      "CELL_ASSET_INLINE_LIMIT_BYTES",
+      "CELL_CODE_BUDGET_DECISION",
+      "CELL_CODE_BUDGET_MEASUREMENT",
+      "CELL_DATA_SOURCE_CONTRACT",
+      "CELL_ENTRY_SHAPES",
+      "CELL_FORGUNCY_FACADE",
+      "CELL_FORGUNCY_PROP_KEYS",
+      "CELL_PRESET_LIBRARIES",
+      "CELL_PROPS_BASE_KEYS",
+      "CELL_PROPS_KEY_ORDER",
+      "CELL_RUNTIME_BINDING_CONTRACT",
+      "CELL_RUNTIME_BINDING_HOST_NAMES",
+      "CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR",
+      "CELL_SERVER_COMMANDS_CONTRACT",
+      "CELL_SOURCE_VALIDATION_MECHANISM",
+      "CELL_USER_SCOPE_BINDINGS",
+      "CONDITIONAL_SELECTION_STAGES",
+      "DECISION_EVIDENCE_KINDS",
+      "DEPENDENCY_STRATEGIES",
+      "DEPENDENCY_STRATEGY_SEMANTICS",
+      "EXTENSION_EXTERNALS_DECISION",
+      "EXTENSION_EXTERNAL_DIAGNOSTIC_CODES",
+      "EXTENSION_EXTERNAL_MAPPINGS",
+      "EXTENSION_GLOBAL_READ_TIMING",
+      "EXTENSION_LIBRARY_REFERENCE_FIELD_NAME",
+      "ExtensionExternalContractError",
+      "FGC_LOCK_FILE_NAME",
+      "FGC_LOCK_SCHEMA_VERSION",
+      "FRONTEND_LIBRARY_REFERENCE_CONTRACT",
+      "FRONTEND_LIBRARY_REFERENCE_EXAMPLE",
+      "FgcLockValidationError",
+      "ForguncyConfigError",
+      "GOVERNING_ARCHITECTURE_DECISIONS",
+      "HOST_BRIDGE_DECISION",
+      "HOST_BRIDGE_DEFERRED_MODULES",
+      "HOST_BRIDGE_DIAGNOSTIC_RULES",
+      "HOST_BRIDGE_MAPPINGS",
+      "HostBridgeContractError",
+      "JSX_RUNTIME_ADAPTER_EXPORTS",
+      "LOCK_EVIDENCE_POLICY",
+      "NO_PACKAGE_ADAPTER_REGISTRY_INVARIANT",
+      "OWNERSHIP_AND_DEPENDENCY_DECISION",
+      "PLATFORM_CONFLICT_RULES",
+      "PROBE_ASSESSMENT_STATUSES",
+      "PROBE_DEPLOYMENT_REQUIRED_STEPS",
+      "PROBE_REPORT_SCHEMA_VERSION",
+      "PROBE_STEP_IDS",
+      "REPAIR_RECIPE_CONDITIONS",
+      "REPLACEMENT_SIGNAL_REJECTIONS",
+      "RUNTIME_CONTRACT_DECISION",
+      "RUNTIME_CONTRACT_TARGET",
+      "RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED",
+      "RUNTIME_CONTRACT_TARGET_FIELD_SOURCES",
+      "RUNTIME_EVIDENCE_CHANNELS",
+      "SELECTION_ACCEPTANCE_CRITERIA",
+      "SELECTION_BRANCHES",
+      "SELECTION_GOVERNING_SPEC_REFERENCE_LINE",
+      "SELECTION_SIGNALS",
+      "SELECTION_SIGNAL_FAMILY_SEMANTICS",
+      "SELECTION_STAGES",
+      "SPEC_PROVING_CASES",
+      "TARGET_LOCATOR_FINALIZATION",
+      "assertCellCodeBudget",
+      "assertDistinctTargetClaims",
+      "assertExtensionExternalContract",
+      "assertFgcLockDocument",
+      "assertFgcLockDocumentShape",
+      "assertHostBridgeContract",
+      "assertProbeReport",
+      "assertUniqueTargets",
+      "assessDependencyRole",
+      "assessLockDecision",
+      "assessProbeReport",
+      "auditExtensionLibraryMetadata",
+      "auditSelectionDecision",
+      "branchForOwnership",
+      "buildConfigurationFingerprintInput",
+      "canonicalizeFgcLock",
+      "canonicalizeImports",
+      "canonicalizeProbeReport",
+      "cellBundlerInputOptions",
+      "cellBundlerOutputOptions",
+      "cellResourceQueryRefusal",
+      "cellSourceValidationVisitsAstKey",
+      "cellUnsupportedAssetRefusal",
+      "cellUserScopeBinding",
+      "checksForLevel",
+      "citesDecision",
+      "citesEveryArchitectureDecision",
+      "classifyCellCodeSize",
+      "classifyCellResource",
+      "compareCodeUnits",
+      "compareEvidenceLinks",
+      "compareLockDecisions",
+      "composeCellCompileFingerprint",
+      "concernsOwnedBy",
+      "createCanonicalizer",
+      "createCellRegistry",
+      "createDiagnosticFields",
+      "createEmptyFgcLock",
+      "createExtensionExternalDiagnostic",
+      "defineDecisionProvenance",
+      "defineDiagnosticVocabulary",
+      "defineForguncyConfig",
+      "dependencyDecisionOf",
+      "effectiveCellResourceQuery",
+      "emitCellEntryShapes",
+      "evaluateRepairRecipe",
+      "extensionExternalDiagnosticRule",
+      "extensionInterceptedModuleIds",
+      "extensionMappingForPackage",
+      "extensionModuleIds",
+      "findCellEntryShape",
+      "findCellHostRuntimeFact",
+      "findCellSourceRejection",
+      "findExtensionExternalMapping",
+      "findForbiddenProbeKeys",
+      "findForguncyConfigFile",
+      "findHostBridgeModuleMapping",
+      "findLockDecision",
+      "findMachineSpecificPaths",
+      "forguncyTargetIdentity",
+      "formatCellAssetDataUri",
+      "formatCellCssRefusalDetail",
+      "formatCellResourceSupportMatrix",
+      "formatExtensionExternalDiagnostics",
+      "hostBridgeAdapterMappings",
+      "hostBridgeBindingFor",
+      "hostBridgeGlobalIsAlwaysAvailable",
+      "hostBridgeGlobalMappings",
+      "hostBridgeInterceptedModuleIds",
+      "hostBridgeModuleIds",
+      "hostBridgeShapeFor",
+      "isApplicationOwned",
+      "isArtifactObservedRejectionCode",
+      "isCellCssFile",
+      "isCellCssModuleFile",
+      "isCellRegistry",
+      "isCellResourcePath",
+      "isConfigRecord",
+      "isOwnershipGateFirst",
+      "isPlainRecord",
+      "isPlatformConflict",
+      "isRepositoryRelativeReference",
+      "loadForguncyConfig",
+      "lockDecisionBlockers",
+      "lockEvidenceProfileForDecision",
+      "lockEvidenceProfileOf",
+      "lockProbeStatusForAssessment",
+      "lockRecordIdentity",
+      "matchesForguncyTargetIdentity",
+      "normalizeExtensionMappings",
+      "normalizeResolveConfig",
+      "openRuntimeContractQuestions",
+      "packageNameOfModuleId",
+      "packageNameOfSpecifier",
+      "parseFgcLockDocument",
+      "parseProbeReport",
+      "probeStepObservesSignal",
+      "probeStepOrder",
+      "probeStepsObserving",
+      "queryHasRejectedResourceParameter",
+      "replacementRejectionFor",
+      "resolveLockDecision",
+      "rewriteCellCssReferences",
+      "serializeFgcLock",
+      "serializeProbeReport",
+      "splitCellSpecifierQuery",
+      "stagesSkippedOnEarlyExit",
+      "validateDependencyDecisionShape",
+      "validateFgcLockDocument",
+      "validateProbeReport",
+    ],
+    types: [
+      "ArchitectureDecisionSource",
+      "ArtifactBudgetEvidence",
+      "ArtifactCompileSnapshot",
+      "CellCssViolation",
+      "CellEntryKind",
+      "CellPresetLibrary",
+      "CellRegistry",
+      "CellResourceFileProbe",
+      "CellResourceRefusal",
+      "CellResourceRefusalCode",
+      "CellSourceRejectionId",
+      "CellUserScopeBinding",
+      "DecisionEvidenceLink",
+      "DependencyCheckLevel",
+      "DependencyDecision",
+      "DependencyRole",
+      "DependencyStrategy",
+      "ExtensionDependencyDecision",
+      "ExtensionEvidence",
+      "ExtensionExternalDiagnostic",
+      "ExtensionExternalDiagnosticCode",
+      "ExtensionExternalMapping",
+      "ExtensionLibraryListing",
+      "FgcLockDocument",
+      "ForguncyConfig",
+      "ForguncyConfigModuleLoader",
+      "ForguncyTargetIdentity",
+      "FrontendLibraryReference",
+      "HostBridgeAdapterMapping",
+      "HostBridgeDeferredModule",
+      "HostBridgeDiagnosticCode",
+      "HostBridgeDiagnosticRule",
+      "HostBridgeFixOwner",
+      "HostBridgeGlobalMapping",
+      "HostBridgeMapping",
+      "HostBridgeMappingKind",
+      "HostBridgeModuleShape",
+      "InstallGraphIdentity",
+      "LockDecisionQuery",
+      "LockEnvironment",
+      "LockProbeEvidence",
+      "LockRealRuntimeValidation",
+      "LockStalenessReason",
+      "LockedDependencyDecision",
+      "NormalizedExtensionMappings",
+      "NormalizedResolveConfig",
+      "OwnershipConcernId",
+      "PlatformConflictAssessment",
+      "ProbeAssessment",
+      "ProbeEnvironment",
+      "ProbeFact",
+      "ProbeRejectionFinding",
+      "ProbeReport",
+      "ProbeRisk",
+      "ProbeStatus",
+      "ProbeStepId",
+      "ProbeValidationEntry",
+      "RegisteredCell",
+      "RejectedCandidateEvidence",
+      "RuntimeContractTarget",
+      "RuntimeEvidenceChannel",
+      "SelectionSignalId",
+      "ToolchainIdentity",
+    ],
+  },
+  "@forguncy-react-workspace/cell-compiler": {
+    values: [
+      "ARTIFACT_CONTRACT_DECISION",
+      "CELL_ARTIFACT_BANNER",
+      "buildCellProject",
+      "canonicalizeFrontendLibraries",
+      "compileCell",
+      "createRolldownCellBundler",
+      "frontendLibraryIds",
+      "frontendLibraryReference",
+      "packageNameOfSpecifier",
+      "planCellCompile",
+      "planExtensionExternals",
+      "resolveCellResource",
+      "serializeCompileCellResult",
+      "verifyCellArtifact",
+    ],
+    types: [
+      "BuiltCell",
+      "CellDependencies",
+      "CellProjectBuild",
+      "CellProjectWorkspace",
+      "CompileCellOutcome",
+      "CompileCellResult",
+    ],
+  },
+  "@forguncy-react-workspace/dependency-resolver": {
+    values: [
+      "ProbeIdentityError",
+      "auditLockDecisionConformance",
+      "compilationDependencies",
+      "composeProbeFingerprint",
+      "conformanceErrors",
+      "extensionCatalogOfNormalized",
+      "fgcLockPath",
+      "findExactLockDecision",
+      "localCompilationDependencies",
+      "mergeDependencyDecisionUpdate",
+      "probeLockEnvironment",
+      "probeRunLockEvidence",
+      "readFgcLock",
+      "readToolchainIdentity",
+      "recordDependencyDecision",
+      "recordedPackageNames",
+      "resolveInstalledVersions",
+      "runDependencyProbe",
+      "upsertLockDecision",
+      "validateLockDecisionConformance",
+      "writeFgcLock",
+    ],
+    types: [
+      "ExtensionCatalog",
+      "WithheldCompilationDependency",
+    ],
+  },
+  "@forguncy-react-workspace/dev-harness": {
+    values: [
+      "CellResourceRefusedError",
+      "ExtensionSubstituteError",
+      "LOCAL_DEV_UNOBSERVABLE_STALENESS_REASONS",
+      "createDevCellResourcePolicy",
+      "defineForguncyViteConfig",
+      "extensionSubstitutionModuleSource",
+      "extensionSubstitutions",
+      "installedToolchain",
+      "projectLocalDecisions",
+    ],
+    types: [
+      "ExtensionSubstitution",
+    ],
+  },
+  "@forguncy-react-workspace/mcp-sync": {
+    values: [
+      "FORGUNCY_SYNC_PORT_METHODS",
+      "cellTargetLabel",
+      "deployedStateOfRead",
+      "executeCellSync",
+      "executeCellSyncBatch",
+      "fingerprintArtifact",
+      "formatCellSyncPlan",
+      "planCellSync",
+      "planCellSyncTargets",
+      "planSetCellsDispatch",
+      "resolveCellSyncTargets",
+    ],
+    types: [
+      "CellDivergence",
+      "CellOverwritePolicy",
+      "CellSyncBatchReport",
+      "CellSyncPlan",
+      "CellSyncRun",
+      "CellSyncTargetPlan",
+      "CellWriteAction",
+      "DeployedCellState",
+      "ForguncySyncPort",
+      "SyncCellInput",
+    ],
+  },
+  "@forguncy-react-workspace/runtime": {
+    values: [
+      "LOCAL_DEV_BOUNDARIES",
+      "LOCAL_DEV_DIAGNOSTIC_RULES",
+      "LOCAL_DEV_ERROR_SURFACING",
+      "LOCAL_DEV_FORBIDDEN_PATTERNS",
+      "LOCAL_DEV_GOVERNING_DECISIONS",
+      "LOCAL_DEV_LOOP_STAGES",
+      "LOCAL_DEV_MODULE_RESOLUTIONS",
+      "LOCAL_DEV_RUNTIME_DECISION",
+      "LOCAL_DEV_VERSION_FIELDS",
+      "RUNTIME_FACADE_DECISION",
+      "assertLocalDevExtensionChoicesAreDeclared",
+      "assertLocalDevProviderIsMock",
+      "auditLocalDevConfiguration",
+      "createLocalDevDiagnostic",
+      "createMockDataSource",
+      "createMockRuntimeFacadeProvider",
+      "findLocalDevModuleIdResolution",
+      "formatLocalDevAudit",
+      "formatLocalDevDiagnostic",
+      "formatLocalDevValidationDistinction",
+      "installRuntimeFacadeProvider",
+      "localDevAlignmentChecks",
+      "localDevRealRuntimeOwedChecks",
+      "localDevVersionFieldIsBrowserObserved",
+      "resolveCellFixtureOptions",
+      "runtimeFacade",
+    ],
+    types: [
+      "CellFixtureContext",
+      "LocalDevAudit",
+      "LocalDevDiagnostic",
+      "LocalDevExtensionChoice",
+      "LocalDevVersionField",
+      "MockRuntimeFacadeOptions",
+      "RuntimeFacadeProvider",
+    ],
+  },
+  "@forguncy-react-workspace/vite-plugin-fgc": {
+    values: [
+      "cellVirtualModuleId",
+      "forguncy",
+    ],
+    types: [],
+  },};
+
+/** The exported names of a barrel, following `export *` re-exports. */
+function exportedNames(file: string, seen = new Set<string>()): readonly string[] {
+  if (seen.has(file)) {
+    return [];
+  }
+  seen.add(file);
+  const source = readFileSync(file, "utf8");
+  const names = new Set<string>();
+
+  for (const match of source.matchAll(/^[ \t]*export\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*"([^"]+)"/gm)) {
+    for (const part of (match[1] ?? "").split(",")) {
+      // `type X` is a type-only binding; `X as Y` exports Y.
+      const name =
+        part
+          .trim()
+          .replace(/^type\s+/, "")
+          .split(/\s+as\s+/)
+          .pop()
+          ?.trim() ?? "";
+      if (name.length > 0) {
+        names.add(name);
+      }
+    }
+  }
+
+  for (const match of source.matchAll(/^[ \t]*export\s+\*\s+from\s*"([^"]+)"/gm)) {
+    for (const name of exportedNames(resolve(dirname(file), match[1] ?? ""), seen)) {
+      names.add(name);
+    }
+  }
+
+  for (const match of source.matchAll(
+    /^[ \t]*export\s+(?:declare\s+)?(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+  )) {
+    if (match[1] !== undefined) {
+      names.add(match[1]);
+    }
+  }
+
+  return [...names].sort();
+}
+
+/** Every source file under `directory`, excluding installs, build output and the discovery mirror. */
+function workspaceSourceFiles(directory: string, found: string[] = []): readonly string[] {
+  for (const entry of readdirSync(directory)) {
+    if (["node_modules", ".git", ".fgc", "dist", ".claude"].includes(entry)) {
+      continue;
+    }
+    const path = join(directory, entry);
+    if (statSync(path).isDirectory()) {
+      workspaceSourceFiles(path, found);
+      continue;
+    }
+    if (/\.(ts|tsx|mjs|js)$/.test(entry)) {
+      found.push(path);
+    }
+  }
+  return found;
+}
+
+describe("every package's root entry is exactly its consumed surface", () => {
+  it("exports the pinned values and types", async () => {
+    const packages = workspacePackages();
+
+    for (const name of SURFACE_PACKAGES) {
+      const pkg = packages.find(candidate => candidate.name === name);
+      expect(pkg, `${name} is missing from the workspace scan`).toBeDefined();
+      const entry = pkg!.exports["."];
+      expect(entry, `${name} declares no root export`).toBeDefined();
+      const file = join(pkg!.directory, entry!);
+      const pinned = PINNED_SURFACE[name];
+
+      // The control: the source read found a real surface, so a mismatch below is about the list
+      // rather than about a parser that found nothing.
+      expect(exportedNames(file).length, `${name}'s root entry`).toBe(pinned.values.length + pinned.types.length);
+      expect(exportedNames(file), `${name}'s root entry`).toEqual([...pinned.values, ...pinned.types].sort());
+
+      const module = (await import(pathToFileURL(file).href)) as Record<string, unknown>;
+      expect(Object.keys(module).sort(), `${name}'s root entry at run time`).toEqual([...pinned.values].sort());
+    }
+  });
+});
+
+describe("a package's ./internal entry is reachable only from its own tests", () => {
+  it("declares ./internal for every surface package", () => {
+    const packages = workspacePackages();
+
+    for (const name of SURFACE_PACKAGES) {
+      const pkg = packages.find(candidate => candidate.name === name);
+      expect(pkg, `${name} is missing from the workspace scan`).toBeDefined();
+      const internal = pkg!.exports["./internal"];
+      expect(internal, `${name} declares no ./internal entry`).toBeDefined();
+      expect(() => readFileSync(join(pkg!.directory, internal!), "utf8"), `${name}'s ./internal file`).not.toThrow();
+    }
+  });
+
+  it("is imported by that package's tests and by nothing else", () => {
+    const packages = workspacePackages();
+    const problems: string[] = [];
+    let internalImports = 0;
+
+    for (const root of [
+      join(repositoryRoot, "packages"),
+      join(repositoryRoot, "examples"),
+      join(repositoryRoot, ".agents"),
+    ]) {
+      for (const file of workspaceSourceFiles(root)) {
+        const source = readFileSync(file, "utf8");
+        for (const match of source.matchAll(/(?:from\s+|import\(\s*)"(@forguncy-react-workspace\/[^/"]+)\/internal"/g)) {
+          internalImports += 1;
+          const name = match[1]!;
+          const pkg = packages.find(candidate => candidate.name === name);
+          if (pkg === undefined) {
+            problems.push(`${file} imports ./internal of ${name}, which is not a workspace package`);
+            continue;
+          }
+          const inside = file.startsWith(pkg.directory + "\\") || file.startsWith(pkg.directory + "/");
+          if (!inside) {
+            problems.push(`${file} imports ${name}/internal from outside the package`);
+            continue;
+          }
+          if (!/\.test\.tsx?$/.test(file)) {
+            problems.push(`${file} imports ${name}/internal but is not a test`);
+          }
+        }
+      }
+    }
+
+    // The control: at least one package's own tests reach its `./internal` entry, so "no problems"
+    // is the result of checking something.
+    expect(internalImports, "no ./internal import was found, so the rule was never exercised").toBeGreaterThan(0);
+    expect(problems).toEqual([]);
   });
 });

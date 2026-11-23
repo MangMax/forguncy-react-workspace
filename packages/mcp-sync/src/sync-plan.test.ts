@@ -10,7 +10,7 @@ import type { CompileCellResult } from "@forguncy-react-workspace/cell-compiler"
 
 import { syncDiagnosticCodes } from "./diagnostics.ts";
 import { fingerprintArtifact, readSyncMarker, stampSyncMarker } from "./fingerprint.ts";
-import * as mcpSync from "./index.ts";
+import * as mcpSync from "./internal.ts";
 import {
   CELL_SYNC_HOLD_REASONS,
   formatCellSyncPlan,

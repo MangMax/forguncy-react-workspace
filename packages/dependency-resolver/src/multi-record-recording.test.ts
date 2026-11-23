@@ -59,7 +59,7 @@ import {
   RUNTIME_CONTRACT_TARGET,
 } from "@forguncy-react-workspace/core";
 
-import type { DependencyDecisionUpdate } from "./index.ts";
+import type { DependencyDecisionUpdate } from "./internal.ts";
 import {
   compilationDependencies,
   composeProbeFingerprint,
@@ -67,7 +67,7 @@ import {
   readFgcLock,
   recordDependencyDecision,
   recordDependencyDecisions,
-} from "./index.ts";
+} from "./internal.ts";
 
 const PACKAGE = "es-toolkit";
 const CHART_PACKAGE = "@tanstack/react-query";

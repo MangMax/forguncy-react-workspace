@@ -1,0 +1,353 @@
+/**
+ * The full projection of this package's modules — the surface the root entry used to export.
+ *
+ * It exists for this package's own tests (#159): the root entry exports only what another
+ * workspace package, an example, or the dependency-selection Skill imports, so a test that
+ * reaches past that imports it from here. No other package may import this entry;
+ * `package-boundaries.test.ts` asserts that.
+ */
+
+/**
+ * `@forguncy-react-workspace/cell-compiler` — the executable projection of the
+ * generated-artifact contract and of the workspace-source contract built on it.
+ *
+ * Decision sources: GitHub Issue #6 — "Spec: generated ReactCellType artifact and
+ * compiler boundary"
+ * (https://github.com/Mang-X/forguncy-react-workspace/issues/6) — and Issue #14 —
+ * "Spec: local workspace packages are source dependencies and inline by default"
+ * (https://github.com/Mang-X/forguncy-react-workspace/issues/14) — both downstream
+ * of:
+ * - #4 "application ownership boundaries and dependency strategy semantics"
+ *   — https://github.com/Mang-X/forguncy-react-workspace/issues/4
+ * - #5 "establish the ReactCellType target/runtime contract on Forguncy 12.0.100"
+ *   — https://github.com/Mang-X/forguncy-react-workspace/issues/5
+ *
+ * A third Spec is projected here: #9 "host module bridge for React, ReactDOM,
+ * antd and built-in globals"
+ * (https://github.com/Mang-X/forguncy-react-workspace/issues/9), which decides
+ * what a `host` dependency compiles *to*. The mapping table itself is `core`'s —
+ * the dependency resolver audits locks against the same table and may not depend
+ * on this package — so what lives here is the generated source and the guard.
+ *
+ * A fourth Spec is projected here: #12 "`extension` dependencies as external modules
+ * + `frontendLibraries` metadata"
+ * (https://github.com/Mang-X/forguncy-react-workspace/issues/12), which decides what
+ * an `extension` dependency compiles *to*. The same division holds — the mapping table
+ * and the load-order rules are `core`'s, because the dependency resolver audits locks
+ * against the same identity while being unable to depend on this package — so what
+ * lives here is the generated module and the externals plan.
+ *
+ * Scope note: this package states the *artifact* contract, the boundary that
+ * produces one, and the rules that make local workspace packages source rather than
+ * runtime modules. It does not resolve dependencies (#8), and the artifact boundary
+ * names no bundler: #7's Rolldown port ships here as an *implementation* of
+ * `CellBundlerPort` that a caller injects, so the boundary stays bundler-agnostic
+ * even though this package now provides one. It also does not load or parse a
+ * project config (#26 owns that in `core` —
+ * `registry-plan` consumes an already-loaded registry and never reads disk), package
+ * Forguncy frontend extensions, or measure the cell code budget (#21) — it takes
+ * that budget, and the workspace graph, as configuration. What it does own is every
+ * question that separates a Cell artifact from a web bundle, so a caller cannot
+ * produce one by accident.
+ */
+
+// Provenance
+export {
+  ARTIFACT_CONTRACT_CITATION_PATTERNS,
+  ARTIFACT_CONTRACT_DECISION,
+  ARTIFACT_CONTRACT_DECISION_QUALIFIED_REFERENCE,
+  ARTIFACT_CONTRACT_DECISION_REFERENCE,
+  COMPILER_GOVERNING_DECISIONS,
+  COMPILER_GOVERNING_SPEC_REFERENCE_LINE,
+  WORKSPACE_GRAPH_CITATION_PATTERNS,
+  WORKSPACE_GRAPH_IMPLEMENTATION,
+  WORKSPACE_GRAPH_IMPLEMENTATION_REFERENCE,
+  WORKSPACE_SOURCE_CITATION_PATTERNS,
+  WORKSPACE_SOURCE_DECISION,
+  WORKSPACE_SOURCE_DECISION_QUALIFIED_REFERENCE,
+  WORKSPACE_SOURCE_DECISION_REFERENCE,
+  WORKSPACE_SOURCE_GOVERNING_DECISIONS,
+  WORKSPACE_SOURCE_GOVERNING_SPEC_REFERENCE_LINE,
+} from "./provenance.ts";
+
+// The public guarantees
+export {
+  CELL_ARTIFACT_GUARANTEE_IDS,
+  CELL_ARTIFACT_GUARANTEES,
+  findCellArtifactGuarantee,
+  locallyCheckableCellArtifactGuarantees,
+  realRuntimeCellArtifactGuarantees,
+} from "./guarantees.ts";
+export type { CellArtifactGuarantee, CellArtifactGuaranteeId } from "./guarantees.ts";
+
+// The error model
+export {
+  cellArtifactDiagnosticCodes,
+  CELL_ARTIFACT_DIAGNOSTIC_CODES,
+  CELL_ARTIFACT_DIAGNOSTIC_RULES,
+  cellArtifactDiagnosticRule,
+  CONTRACT_CELL_ARTIFACT_DIAGNOSTIC_CODES,
+  createCellArtifactDiagnostic,
+  dedupeCellArtifactDiagnostics,
+  formatCellArtifactDiagnostic,
+  formatCellArtifactDiagnostics,
+  isCellArtifactDiagnosticCode,
+  REQUIRED_CELL_ARTIFACT_DIAGNOSTIC_CODES,
+} from "./diagnostics.ts";
+export type {
+  ArtifactMeasurements,
+  CellArtifactDiagnostic,
+  CellArtifactDiagnosticCode,
+  CellArtifactDiagnosticOrigin,
+  CellArtifactDiagnosticRule,
+  CellArtifactFixOwner,
+  ContractCellArtifactDiagnosticCode,
+  RequiredCellArtifactDiagnosticCode,
+} from "./diagnostics.ts";
+
+// The entry contract
+export {
+  acceptedButNotEmittableCellEntryKinds,
+  CELL_ARTIFACT_DEFAULT_ENTRY_KIND,
+  CELL_ENTRY_COMPONENT_BINDING,
+  CELL_ENTRY_COMPONENT_PLACEHOLDER,
+  CELL_ENTRY_WRAPPER_HOST_NAMES,
+  CELL_ENTRY_WRAPPER_SUPPORT,
+  JAVASCRIPT_IDENTIFIER_PATTERN,
+  cellEntryWrapperHostNames,
+  cellEntryWrapperNamesAreVerified,
+  expressibleCellEntryKinds,
+  findCellEntryWrapperSupport,
+  renderCellEntryWrapper,
+  runtimeContractEmittableCellEntryKinds,
+} from "./entry.ts";
+export type { CellEntryWrapperRender, CellEntryWrapperSupport, RenderCellEntryWrapperInput } from "./entry.ts";
+
+// The metadata contract
+export {
+  auditFrontendLibraries,
+  canonicalizeFrontendLibraries,
+  collectFrontendLibraries,
+  compareFrontendLibraries,
+  FRONTEND_LIBRARIES_FIELD_NAME,
+  FRONTEND_LIBRARY_REFERENCE_FIELD_NAME,
+  FRONTEND_LIBRARY_REFERENCE_KEYS,
+  frontendLibraryIds,
+  frontendLibraryReference,
+  isCanonicalFrontendLibraries,
+} from "./frontend-libraries.ts";
+export type { FrontendLibrariesCollection } from "./frontend-libraries.ts";
+
+// The source guard
+export {
+  auditCellSource,
+  CELL_SOURCE_SCAN_SKIPPED,
+  findDynamicImportCall,
+  refusedCalleeNames,
+  rejectionForRefusedCalleeName,
+  scanCellArtifactSource,
+} from "./source-guard.ts";
+export type {
+  CellSourceAudit,
+  CellSourceCallFinding,
+  CellSourceScanFinding,
+  CellSourceScanOmission,
+} from "./source-guard.ts";
+
+// The host module bridge (#9): the interposed modules and the artifact guard
+export {
+  createHostBridgeDiagnostic,
+  formatHostBridgeDiagnostic,
+  formatHostBridgeDiagnostics,
+  formatHostBridgePlan,
+  hostBridgeDiagnosticRule,
+  HOST_BRIDGE_GENERATED_BANNER,
+  planHostBridge,
+  renderHostBridgeAdapterModule,
+  renderHostBridgeGlobalModule,
+  renderHostBridgeGuard,
+  renderHostBridgeModule,
+} from "./host-bridge.ts";
+export type {
+  CreateHostBridgeDiagnosticOptions,
+  HostBridgeActivation,
+  HostBridgeAdapterExportName,
+  HostBridgeDiagnostic,
+  HostBridgeInterception,
+  HostBridgePlan,
+  HostBridgeUsage,
+  PlanHostBridgeOptions,
+  RenderHostBridgeGuardOptions,
+} from "./host-bridge.ts";
+
+// The extension externals (#12): the interposed modules that answer an authored
+// import from a verified frontend extension's page global, and the plan a resolver
+// hook and the artifact's `frontendLibraries` metadata are derived from.
+export {
+  extensionExternalModuleIds,
+  formatExtensionExternalsPlan,
+  planExtensionExternals,
+  renderExtensionExternalModule,
+  EXTENSION_EXTERNAL_GENERATED_BANNER,
+} from "./extension-externals.ts";
+export type {
+  ExtensionExternalInterception,
+  ExtensionExternalsActivation,
+  ExtensionExternalsPlan,
+  PlanExtensionExternalsOptions,
+} from "./extension-externals.ts";
+
+// The runtime binding (#82): the generated module that installs the host provider inside a
+// Cell, so authored source that calls `runtimeFacade()` works in a compiled artifact rather
+// than only under the local harness.
+export {
+  CELL_RUNTIME_BINDING_HOST_NAMES,
+  CELL_RUNTIME_BINDING_ID,
+  RUNTIME_BINDING_GENERATED_BANNER,
+  renderRuntimeBindingModule,
+  runtimeBindingNamesAreVerified,
+} from "./runtime-binding.ts";
+
+// The workspace-source contract (#14): workspace packages are source, not runtime modules,
+// and the pnpm/Vite+ workspace graph it is resolved against (#15).
+export {
+  auditWorkspaceSource,
+  classifyWorkspaceModule,
+  createWorkspaceSourceDiagnostic,
+  findWorkspaceSourceGuarantee,
+  findWorkspaceSourceReuseClass,
+  formatWorkspaceSourceAudit,
+  formatWorkspaceSourceDiagnostic,
+  formatWorkspaceSourceDiagnostics,
+  indexWorkspaceGraph,
+  isWorkspaceSourceDiagnosticCode,
+  isWorkspaceSourceSpecifier,
+  locallyCheckableWorkspaceSourceGuarantees,
+  orderWorkspaceSourceDiagnostics,
+  realRuntimeWorkspaceSourceGuarantees,
+  traceWorkspaceSourceClosure,
+  WORKSPACE_CONTEXT_SEMANTICS,
+  WORKSPACE_MODULE_KINDS,
+  workspacePackageFor,
+  workspaceReuseClassesRequiringDelegation,
+  WORKSPACE_SOURCE_DIAGNOSTIC_CODES,
+  WORKSPACE_SOURCE_DIAGNOSTIC_RULES,
+  WORKSPACE_SOURCE_GUARANTEE_IDS,
+  WORKSPACE_SOURCE_GUARANTEES,
+  WORKSPACE_SOURCE_REUSE_CLASSES,
+  WORKSPACE_SOURCE_REUSE_CLASS_IDS,
+  WORKSPACE_SOURCE_SHARING_INVARIANT,
+} from "./workspace-source.ts";
+export type {
+  WorkspaceDelegationAssessment,
+  WorkspaceDelegationGap,
+  WorkspaceDelegationStatus,
+  WorkspaceExternalModule,
+  WorkspaceGraph,
+  WorkspaceGraphIndex,
+  WorkspaceGraphIndexResult,
+  WorkspaceGraphState,
+  WorkspaceImportCycle,
+  WorkspaceModuleIdentity,
+  WorkspaceModuleKind,
+  WorkspacePackageRecord,
+  WorkspaceSourceAudit,
+  WorkspaceSourceAuditInput,
+  WorkspaceSourceDiagnostic,
+  WorkspaceSourceDiagnosticCode,
+  WorkspaceSourceDiagnosticRule,
+  WorkspaceSourceFixOwner,
+  WorkspaceSourceGuarantee,
+  WorkspaceSourceGuaranteeId,
+  WorkspaceSourceClosure,
+  WorkspaceSourceReuseClass,
+  WorkspaceSourceReuseClassId,
+  WorkspaceSourceReuseSafety,
+  WorkspaceStateSharingEstablished,
+  WorkspaceUsageState,
+} from "./workspace-source.ts";
+
+// The workspace graph loader (#15): the pnpm/Vite+ graph #14 takes as an argument,
+// read from the real `pnpm-workspace.yaml` and member manifests.
+export { loadPnpmWorkspaceGraph, PNPM_WORKSPACE_FILE } from "./workspace-graph.ts";
+export type { LoadedWorkspaceGraph, LoadWorkspaceGraphOptions } from "./workspace-graph.ts";
+
+// The boundary
+export {
+  assembleCellArtifact,
+  CELL_ARTIFACT_BANNER,
+  compileCell,
+  formatCompileCellOutcome,
+  serializeCompileCellResult,
+  verifyCellArtifact,
+} from "./artifact.ts";
+export type {
+  AssembleCellArtifactInput,
+  BundledCellModule,
+  CellBundlerPort,
+  CellBundlingRequest,
+  CellResolveRequest,
+  CompileCellInput,
+  CompileCellOptions,
+  CompileCellOutcome,
+  CompileCellResult,
+} from "./artifact.ts";
+
+// The specifier and decision-lookup primitives the artifact boundary and the
+// workspace contract both answer with (#6 / #14 / #15). Re-exported from the
+// boundary so a caller that imported them there keeps working.
+export {
+  dependencyDecisionsFor,
+  findDependencyDecision,
+  isSourceSpecifier,
+  packageNameOfSpecifier,
+} from "./specifier.ts";
+
+// The v1 CSS/static-asset pipeline (#98): the inlined style/asset report, the keyed and
+// reference-counted style installer, and the pure functions a caller needs to read the ledger.
+export {
+  CELL_STYLE_INSTALLER_SOURCE,
+  CellResourcePolicyError,
+  cellResourceBudgetOf,
+  cellResourceFileIdOf,
+  cellResourceModuleIdOf,
+  cellResourceRefusalOf,
+  cellResourcesNeedStyleInstaller,
+  cellStyleIdOf,
+  createCellResourceDiagnostic,
+  formatCellResourceLedger,
+  isCellResourceFile,
+  isCellResourcePolicyError,
+  renderCellStyleInstaller,
+  resolveCellResource,
+} from "./cell-resources.ts";
+export type {
+  CellInlinedAsset,
+  CellInlinedResource,
+  CellInlinedStyle,
+  CellResourceBudget,
+  CellResourceReader,
+  CellResourceRefusal,
+  CellResourceResolution,
+} from "./cell-resources.ts";
+
+// The Rolldown-backed bundler port (#7): the concrete `CellBundlerPort`
+export { createRolldownCellBundler } from "./rolldown-bundler.ts";
+export type { CreateRolldownCellBundlerOptions } from "./rolldown-bundler.ts";
+
+// The #26 registry seam: declared Cell id in, compilable input + target out
+export { planCellCompile, planCellCompiles } from "./registry-plan.ts";
+export type { CellCompilePlan, CellCompileTarget } from "./registry-plan.ts";
+
+// The public build entry (#97): one declared project in, one artifact per Cell out. Composes
+// the registry, the aliases both paths resolve through, the workspace audit and the compiler,
+// so a project does not have to assemble a bundler port and a decision list by hand.
+export { buildCellProject, requireCompiledCells } from "./build-cell-project.ts";
+export type {
+  BuildCellProjectOptions,
+  BuiltCell,
+  CellDependencies,
+  CellProjectBuild,
+  CellProjectSource,
+  CellProjectWorkspace,
+} from "./build-cell-project.ts";

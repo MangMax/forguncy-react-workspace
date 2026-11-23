@@ -13,11 +13,11 @@ import {
   type HostBridgeMapping,
 } from "@forguncy-react-workspace/core";
 
-// Imported from the package root rather than from `./host-bridge.ts`, and only here:
-// the constructor's fourth parameter is a *public* surface, so the compatibility
-// regression below has to go through the export that makes it public. An import from the
-// module would pass even if the re-export were dropped.
-import { createHostBridgeDiagnostic as createHostBridgeDiagnosticFromRoot } from "@forguncy-react-workspace/cell-compiler";
+// Imported through the package's own `./internal` projection rather than from `./host-bridge.ts`,
+// and only here: the constructor's fourth parameter is a *public* surface, so the compatibility
+// regression below has to go through an entry that re-exports it. An import from the module would
+// pass even if the re-export were dropped.
+import { createHostBridgeDiagnostic as createHostBridgeDiagnosticFromRoot } from "@forguncy-react-workspace/cell-compiler/internal";
 
 import {
   createHostBridgeDiagnostic,

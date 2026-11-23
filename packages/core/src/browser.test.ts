@@ -27,13 +27,16 @@ import * as browser from "./browser.ts";
  * 2. **Nothing is exported here that `index.ts` does not export.** Without it, `./browser`
  *    could grow into a second public API whose names nothing else in the repository knows
  *    about.
- * 3. **Nothing browser-safe is *missing* here.** Without it, a name added to a browser-safe
- *    module would be reachable from `core` and not from `core/browser`, and the failure would
- *    appear as a runtime "does not provide an export named" in a browser rather than as a test.
+ * 3. **The barrel adds only the node-side modules beside this entry.** `index.ts` is
+ *    `export *` of `./browser` plus the four node-side modules, so a browser-safe name cannot
+ *    be reachable from `core` and missing here without the barrel listing a second, competing
+ *    module — which the first assertion reads from its source and rejects.
  *
- * The three are asserted rather than the file being written defensively, because `export *`
- * was chosen deliberately: a hand-copied list of names would be the "second copy of a rule"
- * this repository keeps finding and deleting, and it would drift on the first omission.
+ * The three are asserted rather than the files being written defensively, because the direction
+ * that cannot be a hand-copied list is the one that matters: the barrel re-exports this entry
+ * wholesale (#159), so the parity the three properties describe is a construction that a second,
+ * competing name list would have to break visibly — which is exactly what the first assertion
+ * reads for.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "..");
@@ -122,7 +125,7 @@ function nodeImportsOf(moduleName: string, seen = new Set<string>()): readonly s
 }
 
 describe("core/browser is a projection of core's surface, not a second one", () => {
-  it("re-exports every browser-safe module the barrel does", () => {
+  it("is re-exported wholesale by the barrel, beside the node-side modules and nothing else", () => {
     const barrelModules = barrelModuleNames();
     const browserModules = browserModuleNames();
 
@@ -138,9 +141,14 @@ describe("core/browser is a projection of core's surface, not a second one", () 
     // rule applies — this is about the *primitive*, not about the project.
     const nodeSide = ["cell-compile-fingerprint", "cell-registry", "config-loader", "resolve-config"] as const;
 
-    const expected = barrelModules.filter(name => !(nodeSide as readonly string[]).includes(name));
-    expect(expected.length).toBeGreaterThan(10);
-    expect(browserModules).toEqual(expected);
+    // The barrel names this entry plus the node-side modules, and no browser-safe module of its
+    // own: that is the construction that makes browser/node parity hold without a second list.
+    expect(barrelModules).toEqual(["browser", ...nodeSide].sort());
+    expect(readFileSync(join(here, "index.ts"), "utf8")).toContain('export * from "./browser.ts";');
+
+    // The control: the projection has a real module list, so the comparison above is about this
+    // surface rather than about two empty reads.
+    expect(browserModules.length).toBeGreaterThan(10);
   });
 
   it("reaches no `node:` builtin transitively", () => {

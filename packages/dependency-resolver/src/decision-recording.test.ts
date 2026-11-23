@@ -14,7 +14,7 @@ import {
   serializeFgcLock,
 } from "@forguncy-react-workspace/core";
 
-import type { DependencyDecisionUpdate } from "./index.ts";
+import type { DependencyDecisionUpdate } from "./internal.ts";
 import {
 
 /**
@@ -32,7 +32,7 @@ import {
   readFgcLock,
   recordDependencyDecision,
   recordDependencyDecisions,
-} from "./index.ts";
+} from "./internal.ts";
 
 const FIXTURE_TOOLCHAIN = {
   vitePlus: "0.3.2",

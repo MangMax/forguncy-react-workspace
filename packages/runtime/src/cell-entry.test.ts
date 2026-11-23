@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import * as cellEntry from "./cell.ts";
-import * as rootEntry from "./index.ts";
+import * as rootEntry from "./internal.ts";
 import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
 
 /**

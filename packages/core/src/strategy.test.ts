@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { DependencyDecision, DependencyRejection, DependencyStrategy } from "./index.ts";
+import type { DependencyDecision, DependencyRejection, DependencyStrategy } from "./internal.ts";
 import {
   assertDependencyDecision,
   checksForLevel,
@@ -12,7 +12,7 @@ import {
   validateDependencyDecision,
   validateDependencyDecisionShape,
   validateDependencyVerification,
-} from "./index.ts";
+} from "./internal.ts";
 
 const technicalRejection: DependencyRejection = {
   kind: "technical",
