@@ -33,15 +33,15 @@
  * guesses in favour of the newer claim.
  */
 
-import type { LockedDependencyDecision, LockEvidenceProfile, LockEvidencePolicy } from "./lock.ts";
+import type { LockedDependencyDecision, LockEvidenceProfile, LockEvidencePolicy } from "./lock-types.ts";
 import {
   forguncyTargetIdentity,
   LOCK_EVIDENCE_POLICY,
   lockEvidenceProfileOf,
   matchesForguncyTargetIdentity,
   requiresRuntimeValidation,
-} from "./lock.ts";
-import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock.ts";
+} from "./lock-types.ts";
+import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock-types.ts";
 import { isArtifactObservedRejectionCode } from "./rejection.ts";
 import { isSubjectCompileDecision } from "./strategy.ts";
 import type { RuntimeContractTarget } from "./runtime-contract.ts";

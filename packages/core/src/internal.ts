@@ -428,27 +428,14 @@ export type {
 } from "./resolve-config.ts";
 
 export {
-  assertFgcLockDocument,
-  assertFgcLockDocumentShape,
   assertSupportedFgcLockSchemaVersion,
-  canonicalizeFgcLock,
-  canonicalizeImports,
-  compareEvidenceLinks,
-  compareLockDecisions,
   createEmptyFgcLock,
   DECISION_EVIDENCE_KINDS,
   dependencyDecisionOf,
   FGC_LOCK_FILE_NAME,
   FGC_LOCK_SCHEMA_VERSION,
   FgcLockSchemaVersionError,
-  FgcLockValidationError,
-  findMachineSpecificPaths,
   forguncyTargetIdentity,
-  inspectFgcLockDocument,
-  isCanonicallyOrdered,
-  isEvidenceReference,
-  isEvidenceUrl,
-  isRepositoryRelativeReference,
   isSupportedFgcLockSchemaVersion,
   LOCK_EVIDENCE_POLICY,
   LOCK_EVIDENCE_PROFILES,
@@ -459,15 +446,32 @@ export {
   lockEvidenceProfileForDecision,
   lockEvidenceProfileOf,
   matchesForguncyTargetIdentity,
-  parseFgcLockDocument,
   PROBE_STATUSES,
   requiresRuntimeValidation,
   requiresTargetIdentity,
   RUNTIME_CONFIRMED_TECHNICAL_REJECTION_CODES,
-  serializeFgcLock,
   SUPPORTED_FGC_LOCK_SCHEMA_VERSIONS,
+} from "./lock-types.ts";
+export {
+  canonicalizeFgcLock,
+  canonicalizeImports,
+  compareEvidenceLinks,
+  compareLockDecisions,
+  isCanonicallyOrdered,
+  serializeFgcLock,
+} from "./lock-canonical.ts";
+export {
+  FgcLockValidationError,
+  assertFgcLockDocument,
+  assertFgcLockDocumentShape,
+  findMachineSpecificPaths,
+  inspectFgcLockDocument,
+  isEvidenceReference,
+  isEvidenceUrl,
+  isRepositoryRelativeReference,
+  parseFgcLockDocument,
   validateFgcLockDocument,
-} from "./lock.ts";
+} from "./lock-validate.ts";
 export type {
   DecisionEvidenceKind,
   DecisionEvidenceLink,
@@ -484,7 +488,7 @@ export type {
   ProbeStatus,
   RejectedCandidateEvidence,
   ToolchainIdentity,
-} from "./lock.ts";
+} from "./lock-types.ts";
 
 export {
   assessLockDecision,

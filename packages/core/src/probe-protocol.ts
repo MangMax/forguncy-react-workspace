@@ -35,8 +35,8 @@
 import { createCanonicalizer } from "./canonical.ts";
 import { compareCodeUnits } from "./code-units.ts";
 import { isPlainRecord } from "./guards.ts";
-import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock.ts";
-import { isEvidenceReference } from "./lock.ts";
+import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock-types.ts";
+import { isEvidenceReference } from "./lock-validate.ts";
 import type { SelectionSignalId } from "./selection-signals.ts";
 import { findSelectionSignal, isSelectionSignalId, validateSignalFindings } from "./selection-signals.ts";
 

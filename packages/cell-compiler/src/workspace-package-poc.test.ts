@@ -60,7 +60,7 @@ import { compileCell } from "./artifact.ts";
 import type { CompileCellOutcome } from "./artifact.ts";
 import { CELL_ENTRY_COMPONENT_BINDING } from "./entry.ts";
 import { createRolldownCellBundler } from "./rolldown-bundler.ts";
-import { auditWorkspaceSource, traceWorkspaceSourceClosure, workspacePackageFor } from "./workspace-source.ts";
+import { auditWorkspaceSource, traceWorkspaceSourceClosure, workspacePackageFor } from "./workspace-source-audit.ts";
 import { loadPnpmWorkspaceGraph } from "./workspace-graph.ts";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");

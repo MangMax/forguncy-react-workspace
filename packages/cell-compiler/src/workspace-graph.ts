@@ -91,7 +91,7 @@ import type {
   WorkspaceGraphIndexResult,
   WorkspacePackageRecord,
 } from "./workspace-source.ts";
-import { indexWorkspaceGraph } from "./workspace-source.ts";
+import { indexWorkspaceGraph } from "./workspace-source-audit.ts";
 
 /** The manifest pnpm reads its member globs from. */
 export const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";

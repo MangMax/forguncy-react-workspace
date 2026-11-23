@@ -215,7 +215,7 @@ describe("lock provenance", () => {
   });
 
   it("makes each lock module cite the decisions it is downstream of", () => {
-    for (const file of ["lock.ts", "lock-freshness.ts"]) {
+    for (const file of ["lock-types.ts", "lock-canonical.ts", "lock-validate.ts", "lock-freshness.ts"]) {
       const source = readFileSync(join(sourceDirectory, file), "utf8");
       for (const decision of LOCK_GOVERNING_DECISIONS) {
         expect(citesDecision(source, decision), `${file} should cite #${decision.issue}`).toBe(true);
