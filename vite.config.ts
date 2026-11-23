@@ -45,20 +45,5 @@ export default defineConfig({
     // Skill's own scripts resolve against; `.claude/skills/**` exists only so agent-discovery
     // tools that look in `.claude` still find these Skills, so excluding it here costs no coverage.
     exclude: [...configDefaults.exclude, "**/.claude/**"],
-
-    // Cap the worker count, and pin it rather than inheriting the runner's default (#150).
-    //
-    // Vitest 5 changed that default: it used to be `min(12, cpus - 1)` and is now `cpus - 1`
-    // uncapped, so this 16-core machine went from 12 workers to 15. This suite does not tolerate
-    // the extra contention, and it fails in a way that reads as a product defect rather than a
-    // scheduling one: several integration tests re-derive the install-graph identity, whose
-    // `linkTargetsDigest` walks every `node_modules` location in the repository (~1.3 s on this
-    // tree), and under that contention a case can overrun Vitest's 5 s default timeout. Measured
-    // on the upgrade: `extension-query-poc.test.ts`'s local-projection case timed out in one
-    // full-suite run at 15 workers, and did not in runs at 4 or at the 12 this pins. It is
-    // contention rather than a regression — the same file passes alone either way — so the fix is
-    // the worker count this suite was written against, which is also what CI's 4-core runner
-    // resolves to on its own. Local and CI now schedule the same way.
-    maxWorkers: 12,
   },
 });

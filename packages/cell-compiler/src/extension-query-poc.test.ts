@@ -108,6 +108,31 @@ const EXTENSION_CATALOG: ExtensionCatalog = {
 };
 
 /**
+ * The installed toolchain, read **once** for this file.
+ *
+ * `readToolchainIdentity` is not cheap: `installGraph.installedTree` runs `linkTargetsDigest`,
+ * which walks every `node_modules` location in the repository — measured ~800 ms on this tree,
+ * against 1–3 ms for the rest of {@link environmentFor}. Every case in this file builds an
+ * environment, so reading it per call re-walked the same unchanged tree a dozen times.
+ *
+ * That was survivable at the previous toolchain and stopped being so at #150's: the upgrade adds
+ * dependencies, the walk grows with them, and CI's runner is slower than a developer machine. On
+ * CI the file's cases then overran Vitest's 5 s default timeout — 2 of 14 on Linux, 13 of 14 on
+ * Windows — which is a cost the suite was paying for no information: the tree does not change
+ * between cases in one run, so the second read can only return the first read's answer.
+ *
+ * Memoized rather than given a longer timeout, because the timeout would hide a real cost rather
+ * than remove it. `install-identity.test.ts` is where a *changing* tree is exercised, and it calls
+ * the function directly each time.
+ */
+let installedToolchain: Promise<Awaited<ReturnType<typeof readToolchainIdentity>>> | undefined;
+
+function installedIdentity(): ReturnType<typeof readToolchainIdentity> {
+  installedToolchain ??= readToolchainIdentity(exampleRoot);
+  return installedToolchain;
+}
+
+/**
  * The `LockEnvironment` a real project's page would report right now.
  *
  * Versions come from the install graph the bundler reads; the probe
@@ -150,7 +175,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
   // The drift itself is not assumed away: the test below asserts that the *installed* toolchain
   // reports `toolchain-changed` against this record, and the axes have their own direct coverage
   // in `install-identity.test.ts` and `lock-freshness.test.ts`.
-  const identity = await readToolchainIdentity(exampleRoot);
+  const identity = await installedIdentity();
   const recorded = lock.decisions[0]?.probedWith;
   const installGraph = recorded?.installGraph ?? identity.installGraph;
   const node = recorded?.node ?? identity.node;
@@ -415,6 +440,19 @@ function providerFrom(tree: unknown, facade: Readonly<Record<string, unknown>>):
 // Tests
 // ---------------------------------------------------------------------------
 
+/**
+ * How long a case here may take.
+ *
+ * Every case builds a `LockEnvironment`, and the first one pays {@link installedIdentity}'s
+ * install-graph walk — measured ~800 ms on this developer machine and, on CI's runners, close to
+ * Vitest's 5 s default on its own. That default is a *budget for a unit test*, and this file is an
+ * integration case over a real install, so it states its own budget the way the sibling
+ * integration suites do (`consumer-entrypoint`, `integration-regression`, `quickstart-doc-smoke`,
+ * `install-esm-chain`). Memoization makes the walk happen once; this makes the one that does
+ * happen not race a threshold it was never meant to fit.
+ */
+const CASE_TIMEOUT_MS = 120_000;
+
 describe("extension tanstack-query PoC (#13)", () => {
   it("authors ordinary @tanstack/react-query imports, with no extension global in sight", () => {
     const source = readFileSync(join(exampleRoot, entry), "utf8");
@@ -451,7 +489,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     expect(environment.resolvedVersions[PACKAGE_NAME]).toBe(EXPECTED_VERSION);
     expect(environment.extensionVersions["tanstack-query"]).toBe(EXPECTED_VERSION);
     expect(environment.extensionIdentities["tanstack-query"]).toBe(EXPECTED_IDENTITY);
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("admits the decision through the deployment gate now that a real runtime check recorded a target", async () => {
     // #13 steps 7–8 have run: the committed lock records the observed
@@ -471,7 +509,7 @@ describe("extension tanstack-query PoC (#13)", () => {
 
     const outcome = await compileWith(dependencies);
     expect(outcome.status).toBe("compiled");
-  });
+  }, CASE_TIMEOUT_MS);
 
   // #120: the example's probe was run against 12.0.100.0 and the repository now targets
   // 12.0.102.0, so this record is correctly withheld for a *different* build than the one the
@@ -495,7 +533,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     // The recorded runtime claim is still what it was — the target change withholds it, it does
     // not erase it — which is the distinction the gates below are about.
     expect(assessment.realRuntimeValidation).toBe("validated");
-  });
+  }, CASE_TIMEOUT_MS);
 
   // #150: the record was probed with `vite-plus 0.3.2` / `rolldown 1.2.9`, and this repository
   // now installs `1.7.0` / `1.3.3`. The record is not rewritten to name the new tools; the drift
@@ -510,7 +548,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     expect(record?.probedWith?.rolldown).toBe("1.2.9");
 
     // And the installation has moved on from them.
-    const installed = await readToolchainIdentity(exampleRoot);
+    const installed = await installedIdentity();
     expect(installed.vitePlus).not.toBe(record?.probedWith?.vitePlus);
     expect(installed.rolldown).not.toBe(record?.probedWith?.rolldown);
 
@@ -543,7 +581,7 @@ describe("extension tanstack-query PoC (#13)", () => {
       stalenessReasons: expect.arrayContaining(["toolchain-changed"]),
       realRuntimeValidation: "validated",
     });
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("withholds a target-less copy of the decision from the deployment gate", async () => {
     // The complement on purpose: the pre-validation state (target cleared on
@@ -572,7 +610,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     expect(outcome.diagnostics.map(diagnostic => diagnostic.code)).toContain(
       "unresolved-dependency-decision",
     );
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("still reports extension-version drift on the deployment gate, even with a recorded target", async () => {
     // Freshness and runtime validation are separate axes (#8): a moved
@@ -591,7 +629,7 @@ describe("extension tanstack-query PoC (#13)", () => {
       stalenessReasons: ["extension-version-changed"],
       realRuntimeValidation: "validated",
     });
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("still reports extension-identity drift on the deployment gate, even with a recorded target", async () => {
     // Identity is the second half of the extension axis (#8): the version can
@@ -612,7 +650,7 @@ describe("extension tanstack-query PoC (#13)", () => {
       stalenessReasons: ["extension-identity-changed"],
       realRuntimeValidation: "validated",
     });
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("withholds package and extension drift on the local path too — freshness still gates", async () => {
     // PR review of #61 P2: the local projection enforces freshness on every
@@ -633,7 +671,7 @@ describe("extension tanstack-query PoC (#13)", () => {
       stalenessReasons: ["package-version-changed", "extension-version-changed"],
       realRuntimeValidation: "validated",
     });
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("emits exactly one tanstack-query reference and no bundled npm implementation", async () => {
     const outcome = await compileExample();
@@ -673,7 +711,7 @@ describe("extension tanstack-query PoC (#13)", () => {
 
     const bytes = Buffer.byteLength(code, "utf8");
     console.info(`#13 extension tanstack-query artifact: ${code.length} characters, ${bytes} bytes`);
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("refuses to evaluate without the page global, which is what rules out a bundled copy", async () => {
     const code = await compiledArtifact();
@@ -695,7 +733,7 @@ describe("extension tanstack-query PoC (#13)", () => {
       libraryId: "tanstack-query",
       globalName: "TanStackQuery",
     });
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("renders the self-check through the extension global", async () => {
     const code = await compiledArtifact();
@@ -724,7 +762,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     const provider = providerFrom(tree, facade);
     expect(provider.type).toBe(facade.QueryClientProvider);
     expect((provider.props.client as { constructor: unknown }).constructor).toBe(facade.QueryClient);
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("gives two Cells compiled from this example one shared module identity", async () => {
     // Compiled twice: two Cells, two artifacts — like #13's real-project step 8,
@@ -764,7 +802,7 @@ describe("extension tanstack-query PoC (#13)", () => {
     // one module/class on the page; sharing one client instance across Cells is
     // an application-level choice this PoC does not impose.
     expect(providerA.props.client).not.toBe(providerB.props.client);
-  });
+  }, CASE_TIMEOUT_MS);
 
   it("produces byte-identical artifacts for identical inputs", async () => {
     const original = await compileExample();
@@ -776,5 +814,5 @@ describe("extension tanstack-query PoC (#13)", () => {
     expect(rerun.artifact.code).toBe(original.artifact.code);
     expect(rerun.artifact.frontendLibraries).toEqual(original.artifact.frontendLibraries);
     expect(original.artifact.frontendLibraries).toEqual([{ libraryId: "tanstack-query" }]);
-  });
+  }, CASE_TIMEOUT_MS);
 });
