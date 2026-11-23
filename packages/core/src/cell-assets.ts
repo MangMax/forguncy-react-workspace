@@ -337,6 +337,7 @@ export type CellResourceRefusalCode =
   | "unsupported-asset"
   | "oversized-asset"
   | "missing-resource-file"
+  | "not-a-regular-file"
   | "css-reference";
 
 /**
@@ -365,6 +366,14 @@ export interface CellResourceRefusal {
  */
 export interface CellResourceFileProbe {
   readonly isRegularFile: (filePath: string) => boolean;
+  /**
+   * Whether anything at all exists at the path.
+   *
+   * Asked only after `isRegularFile` answered `false`, to tell a path of the wrong kind (a
+   * directory) from a path that names nothing: both refuse, and for the same reader-facing reason,
+   * but they are different problems and the reason code says which one a caller has.
+   */
+  readonly exists: (filePath: string) => boolean;
   /** The file's size in bytes, or `undefined` when it cannot be read. */
   readonly byteLength: (filePath: string) => number | undefined;
 }
@@ -517,8 +526,12 @@ export function classifyCellResource(input: CellResourceClassificationInput): Ce
   }
 
   if (!input.probe.isRegularFile(filePath)) {
+    // A directory answers `false` to the regular-file question while the path exists, which is a
+    // different problem from a path that names nothing. The sentence is the same — what a reader
+    // has to fix ("does this path name a readable file?") does not change — and only the code,
+    // which a caller acts on, distinguishes them.
     return refusal(
-      "missing-resource-file",
+      input.probe.exists(filePath) ? "not-a-regular-file" : "missing-resource-file",
       `"${input.subject}"${importerNote} does not resolve to a regular file at "${filePath}". A Cell artifact can only inline a file it can read at compile time; check the path, or move the asset to a Forguncy frontend extension (extension).`,
     );
   }
