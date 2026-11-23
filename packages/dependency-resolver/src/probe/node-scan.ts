@@ -57,6 +57,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { packageNameOfSpecifier } from "@forguncy-react-workspace/core";
 import type { ProbeFact, ProbeRejectionFinding, ProbeRisk, ProbeValidationEntry } from "@forguncy-react-workspace/core";
 
 import {
@@ -133,7 +134,9 @@ function isNodeOnlySpecifier(specifier: string): boolean {
   if (specifier.startsWith("node:")) {
     return true;
   }
-  const bare = specifier.split("/")[0] ?? specifier;
+  // The package half of the specifier, by `core`'s one rule (#156) rather than by a
+  // second first-segment split here.
+  const bare = packageNameOfSpecifier(specifier);
   // Scoped packages have no builtin form.
   if (bare.startsWith("@")) {
     return false;

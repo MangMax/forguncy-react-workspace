@@ -849,18 +849,20 @@ const NODE_MODULES_MARKER = "node_modules/";
  * (`…/.pnpm/react@19.2.7/node_modules/react/index.js`) and a hoisted layout
  * (`…/node_modules/react/index.js`) answer the same, and what keeps a virtual
  * interception id (`\0cell-host:react/jsx-runtime`) from answering at all.
+ *
+ * The folding itself is `core`'s one package-name rule (#156); this function only
+ * finds where in the path the package name starts. Splitting on the marker and then
+ * folding keeps a scoped package (`@scope/pkg/sub`) and a bare one (`react/sub`) on the
+ * same rule the rest of the repository uses, rather than on a second one written here.
  */
 function packageNameOfModuleId(moduleId: string): string | undefined {
   const normalized = moduleId.replace(/\\/g, "/");
   const at = normalized.lastIndexOf(NODE_MODULES_MARKER);
   if (at < 0) return undefined;
-  const segments = normalized.slice(at + NODE_MODULES_MARKER.length).split("/");
-  const [first, second] = segments;
+  const rest = normalized.slice(at + NODE_MODULES_MARKER.length).replace(/\/$/, "");
+  const [first] = rest.split("/");
   if (first === undefined || first.length === 0) return undefined;
-  if (first.startsWith("@")) {
-    return second === undefined || second.length === 0 ? first : `${first}/${second}`;
-  }
-  return first;
+  return packageNameOfSpecifier(rest);
 }
 
 function inlinedPackageNames(moduleIds: readonly string[]): string[] {

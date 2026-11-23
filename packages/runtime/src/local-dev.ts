@@ -61,8 +61,8 @@ import {
   CELL_PROPS_BASE_KEYS,
   CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR,
   checksForLevel,
+  defineDecisionProvenance,
   DEPENDENCY_STRATEGIES,
-  formatGoverningSpecReferenceLine,
   GOVERNING_ARCHITECTURE_DECISIONS,
   HOST_BRIDGE_DECISION,
   HOST_BRIDGE_DEFERRED_MODULES,
@@ -70,6 +70,7 @@ import {
   hostBridgeInterceptedModuleIds,
   hostBridgeModuleIds,
   isApplicationOwned,
+  packageNameOfSpecifier,
   RUNTIME_CONTRACT_TARGET,
   RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
 } from "@forguncy-react-workspace/core/browser";
@@ -2107,9 +2108,7 @@ export function auditLocalDevConfiguration(input: LocalDevAuditInput = {}): Loca
     // saying so by skipping is the only reading that neither throws nor invents a
     // finding about a value the audit has no vocabulary for.
     if (typeof specifier !== "string") continue;
-    const packageName = specifier.startsWith("@")
-      ? specifier.split("/").slice(0, 2).join("/")
-      : (specifier.split("/")[0] ?? specifier);
+    const packageName = packageNameOfSpecifier(specifier);
     const deferredModule = deferred.find(candidate => candidate.specifier === packageName);
     if (deferredModule === undefined) continue;
     diagnostics.push(
@@ -2479,6 +2478,10 @@ export const LOCAL_DEV_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[
   LOCAL_DEV_RUNTIME_DECISION,
 ];
 
-export const LOCAL_DEV_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(
-  LOCAL_DEV_GOVERNING_DECISIONS,
-);
+/**
+ * The local dev contract's derived constants, from the local dev record and the governing
+ * list above rather than restated per constant (#156).
+ */
+const LOCAL_DEV_PROVENANCE = defineDecisionProvenance(LOCAL_DEV_RUNTIME_DECISION, LOCAL_DEV_GOVERNING_DECISIONS);
+
+export const LOCAL_DEV_GOVERNING_SPEC_REFERENCE_LINE = LOCAL_DEV_PROVENANCE.governingSpecReferenceLine;

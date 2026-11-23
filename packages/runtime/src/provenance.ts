@@ -29,12 +29,7 @@
  * them apart is what stops `#22` from being read as part of the façade's contract.
  */
 
-import {
-  citationPatternsFor,
-  decisionReference,
-  formatGoverningSpecReferenceLine,
-  GOVERNING_ARCHITECTURE_DECISIONS,
-} from "@forguncy-react-workspace/core/browser";
+import { defineDecisionProvenance, GOVERNING_ARCHITECTURE_DECISIONS } from "@forguncy-react-workspace/core/browser";
 import type { ArchitectureDecisionSource } from "@forguncy-react-workspace/core/browser";
 
 /** The façade Spec this package is the executable projection of. */
@@ -44,13 +39,6 @@ export const RUNTIME_FACADE_DECISION: ArchitectureDecisionSource = {
   title: "Spec: typed Forguncy runtime facade for application-owned capabilities",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/27",
 };
-
-/** Short form, e.g. `#27`. */
-export const RUNTIME_FACADE_DECISION_REFERENCE = decisionReference(RUNTIME_FACADE_DECISION);
-
-/** Repo-qualified short form, for a reference that travels outside this repository. */
-export const RUNTIME_FACADE_DECISION_QUALIFIED_REFERENCE =
-  `${RUNTIME_FACADE_DECISION.repository}${RUNTIME_FACADE_DECISION_REFERENCE}`;
 
 /**
  * Every Spec a change to this package has to cite: the architecture decisions
@@ -66,6 +54,21 @@ export const RUNTIME_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[] 
 ];
 
 /**
+ * The façade record's derived constants.
+ *
+ * Derived once from the record and the governing list rather than restated per constant,
+ * so the short form, the qualified form, the line and the citation patterns cannot answer
+ * differently — the drift the four hand-written copies had begun to show (#156).
+ */
+const RUNTIME_FACADE_PROVENANCE = defineDecisionProvenance(RUNTIME_FACADE_DECISION, RUNTIME_GOVERNING_DECISIONS);
+
+/** Short form, e.g. `#27`. */
+export const RUNTIME_FACADE_DECISION_REFERENCE = RUNTIME_FACADE_PROVENANCE.reference;
+
+/** Repo-qualified short form, for a reference that travels outside this repository. */
+export const RUNTIME_FACADE_DECISION_QUALIFIED_REFERENCE = RUNTIME_FACADE_PROVENANCE.qualifiedReference;
+
+/**
  * The line a PR body, plan or report describing this package's contract carries.
  *
  * Built with `core`'s formatter so the wording cannot drift from the other Spec
@@ -73,10 +76,10 @@ export const RUNTIME_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[] 
  * `core`'s established wording; #27 is included because a change to the façade
  * contract is bound by it as much as by #4 and #5.
  */
-export const RUNTIME_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(RUNTIME_GOVERNING_DECISIONS);
+export const RUNTIME_GOVERNING_SPEC_REFERENCE_LINE = RUNTIME_FACADE_PROVENANCE.governingSpecReferenceLine;
 
 /** Patterns a document must match to count as citing the façade contract. */
-export const RUNTIME_FACADE_CITATION_PATTERNS: readonly RegExp[] = citationPatternsFor(RUNTIME_FACADE_DECISION);
+export const RUNTIME_FACADE_CITATION_PATTERNS = RUNTIME_FACADE_PROVENANCE.citationPatterns;
 
 /**
  * The local development runtime Spec this package projects.
@@ -95,13 +98,14 @@ export const LOCAL_DEV_RUNTIME_DECISION: ArchitectureDecisionSource = {
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/22",
 };
 
+/** The local dev runtime record's derived constants. No governing line: #22 is cited, not governing. */
+const LOCAL_DEV_RUNTIME_PROVENANCE = defineDecisionProvenance(LOCAL_DEV_RUNTIME_DECISION);
+
 /** Short form, e.g. `#22`. */
-export const LOCAL_DEV_RUNTIME_DECISION_REFERENCE = decisionReference(LOCAL_DEV_RUNTIME_DECISION);
+export const LOCAL_DEV_RUNTIME_DECISION_REFERENCE = LOCAL_DEV_RUNTIME_PROVENANCE.reference;
 
 /** Repo-qualified short form, for a reference that travels outside this repository. */
-export const LOCAL_DEV_RUNTIME_DECISION_QUALIFIED_REFERENCE =
-  `${LOCAL_DEV_RUNTIME_DECISION.repository}${LOCAL_DEV_RUNTIME_DECISION_REFERENCE}`;
+export const LOCAL_DEV_RUNTIME_DECISION_QUALIFIED_REFERENCE = LOCAL_DEV_RUNTIME_PROVENANCE.qualifiedReference;
 
 /** Patterns a document must match to count as citing the local dev runtime Spec. */
-export const LOCAL_DEV_RUNTIME_CITATION_PATTERNS: readonly RegExp[] =
-  citationPatternsFor(LOCAL_DEV_RUNTIME_DECISION);
+export const LOCAL_DEV_RUNTIME_CITATION_PATTERNS = LOCAL_DEV_RUNTIME_PROVENANCE.citationPatterns;
