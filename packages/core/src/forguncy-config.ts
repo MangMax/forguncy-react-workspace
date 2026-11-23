@@ -24,6 +24,7 @@
  */
 
 import type { ExtensionExternalMapping } from "./extension-externals.ts";
+import { isPlainRecord } from "./guards.ts";
 
 /** Schema revision of the config document itself. */
 export const FORGUNCY_CONFIG_SCHEMA_VERSION = 1 as const;
@@ -294,10 +295,13 @@ export function defineForguncyConfig<const TConfig extends ForguncyConfig>(confi
   return config;
 }
 
-/** True when a value is a non-array object, i.e. something that can hold named fields. */
-export function isConfigRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+/**
+ * True when a value is a non-array object, i.e. something that can hold named fields.
+ *
+ * The predicate itself is {@link isPlainRecord}'s (#155): config, lock and probe parsing share one
+ * definition of "an object" rather than three that agree until one of them is edited.
+ */
+export const isConfigRecord = isPlainRecord;
 
 /** Normalizes an A1 reference to its canonical upper-case form. */
 export function normalizeCellReference(cell: string): string {

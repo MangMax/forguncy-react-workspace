@@ -372,6 +372,13 @@ export type {
 // same rule for an alias target and may not import the registry that calls it.
 export { isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
 
+// #155's shared primitives, each a leaf so a consumer can take one without the graph around it:
+// the code-unit comparator every ordered output uses, the plain-record guard every parser shares,
+// and the canonicaliser factory the lock and the probe report are both built from.
+export { compareCodeUnits } from "./code-units.ts";
+export { isPlainRecord } from "./guards.ts";
+export { createCanonicalizer } from "./canonical.ts";
+
 // The module-resolution aliases (#97): one declared alias set, resolved once for both the
 // dev server and the Cell build.
 export {

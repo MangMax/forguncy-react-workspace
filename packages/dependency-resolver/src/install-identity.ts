@@ -71,7 +71,7 @@ import { dirname, isAbsolute, join, relative as relativePath, resolve } from "no
 import { fileURLToPath } from "node:url";
 
 import type { InstallGraphIdentity, ToolchainIdentity } from "@forguncy-react-workspace/core";
-import { FGC_LOCK_FILE_NAME } from "@forguncy-react-workspace/core";
+import { compareCodeUnits, createCanonicalizer, FGC_LOCK_FILE_NAME, isPlainRecord } from "@forguncy-react-workspace/core";
 import { parse as parseYaml } from "yaml";
 
 import { locatePackage } from "./package-locator.ts";
@@ -209,22 +209,16 @@ function digestOfBytes(bytes: Uint8Array): string {
 /**
  * Sorted-key JSON, so the same inputs compose the same bytes regardless of property order.
  *
- * Deliberately local rather than shared with `probe/fingerprint.ts`: that module imports
- * `build.ts`, which imports `rolldown`, and this module is reachable from `local.ts` — the entry
- * whose whole purpose is to stay free of a bundler.
+ * The walk is core's canonicaliser (#155) with no listed keys — alphabetical at every depth — and
+ * not `probe/fingerprint.ts`'s composer: that module imports `build.ts`, which imports `rolldown`,
+ * and this module is reachable from `local.ts`, the entry whose whole purpose is to stay free of a
+ * bundler. `core` reaches no bundler, so sharing the primitive no longer costs that property, which
+ * is why the copy this used to be is gone rather than kept "for the same reason".
  */
+const canonicalizeIdentityValue = createCanonicalizer([]);
+
 function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    const record = value as Readonly<Record<string, unknown>>;
-    const entries = Object.keys(record)
-      .sort()
-      .map(key => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
-    return `{${entries.join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
+  return JSON.stringify(canonicalizeIdentityValue(value)) ?? "null";
 }
 
 /**
@@ -683,9 +677,7 @@ type ParsedConfig =
   | { readonly kind: "unreadable" };
 
 function asPlainObject(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return isPlainRecord(value) ? value : null;
 }
 
 async function readWorkspaceConfig(projectRoot: string): Promise<ParsedConfig> {
@@ -1166,7 +1158,7 @@ async function pnpmInstalledTreeDigest(installRoot: string): Promise<string | nu
     return null;
   }
 
-  for (const slot of slots.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  for (const slot of slots.sort((a, b) => compareCodeUnits(a.name, b.name))) {
     const slotRoot = join(storeDirectory, slot.name, "node_modules");
     let names: string[];
     try {
@@ -1790,7 +1782,7 @@ async function npmInstalledTreeDigest(installRoot: string): Promise<string | nul
   });
   // Sorted by path so the digest is over the *set* of artifacts rather than over whatever order npm
   // happened to write them in.
-  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  entries.sort((a, b) => compareCodeUnits(a.path, b.path));
   // Link targets are folded in here as well: npm records a `link: true` entry with only a relative
   // `resolved` path, which does not move when the target's source does (see `linkTargetsDigest`).
   const links = await linkTargetsDigest(installRoot);
@@ -2003,7 +1995,7 @@ async function linkTargetsDigest(installRoot: string): Promise<string | null> {
     }
   }
 
-  links.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  links.sort((a, b) => compareCodeUnits(a.name, b.name));
   return digestOf(canonicalJson(links));
 }
 

@@ -45,6 +45,8 @@
  * silent.
  */
 
+import { isPlainRecord } from "@forguncy-react-workspace/core";
+
 import type { SelfReferenceResolver } from "./module-source.ts";
 
 /** Entry fields a browser resolver would consult, in precedence order when `exports` is absent. */
@@ -569,7 +571,7 @@ export function selfReferenceResolver(manifest: Readonly<Record<string, unknown>
   const packageName = typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
 
   const imports = manifest["imports"];
-  const hasImportsMap = imports !== null && typeof imports === "object" && !Array.isArray(imports);
+  const hasImportsMap = isPlainRecord(imports);
 
   // A `browser` map redirects bare specifiers to files in this package, which is a third
   // independent reason the walk needs a resolver — and one an earlier version missed: gating on
@@ -577,7 +579,7 @@ export function selfReferenceResolver(manifest: Readonly<Record<string, unknown>
   // package never had its redirect followed. Measured: the build failed on the `node:fs` the
   // shim imports while the report filed no rejection.
   const browser = manifest["browser"];
-  const hasBrowserMap = browser !== null && typeof browser === "object" && !Array.isArray(browser);
+  const hasBrowserMap = isPlainRecord(browser);
 
   // Nothing to resolve: no `exports` to self-reference through, no `imports` map and no
   // `browser` map.

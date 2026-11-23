@@ -35,26 +35,19 @@
  * segments.
  */
 
+import { createCanonicalizer } from "@forguncy-react-workspace/core";
+
 import { BUILD_CONFIGURATION_FINGERPRINT } from "./build.ts";
 
 /**
  * Recursively canonicalize: object keys sorted at every depth, array order
  * preserved (arrays are ordered data; reordering them would change meaning).
+ *
+ * Core's factory (#155) with no listed keys is exactly that walk, so the fingerprint, the lock and
+ * the install-identity digests now share one definition of "canonical" instead of four copies that
+ * agreed by inspection.
  */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (value !== null && typeof value === "object") {
-    const record = value as Readonly<Record<string, unknown>>;
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) {
-      sorted[key] = canonicalize(record[key]);
-    }
-    return sorted;
-  }
-  return value;
-}
+const canonicalize = createCanonicalizer([]);
 
 /** Recursive sorted-key JSON: `JSON.stringify` preserves insertion order, which would differ per caller. */
 function stableJson(value: Readonly<Record<string, unknown>>): string {
