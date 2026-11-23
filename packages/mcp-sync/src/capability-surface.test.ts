@@ -167,6 +167,11 @@ describe("what the evidence establishes", () => {
         evidenceSourceIds: ["issue-5-designer-probe", "forguncy-library-guide"],
       },
       { method: "api.app.generateProject", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      {
+        method: "api.app.generateProject",
+        version: "12.0.102.0",
+        evidenceSourceIds: ["issue-120-rebase-102-probe"],
+      },
     ]);
 
     // The note and the adapter have to describe the same fail-closed set, or a reader learns the
@@ -212,13 +217,14 @@ describe("what the evidence establishes", () => {
     // twice — #116's fourth review corrected my reading of #5 (a probe record executed against
     // 12.0.100.0, not a version-neutral fact), and the seventh removed the second hand-kept copy.
     it("derives which build each source observed from the calls it recorded", () => {
-      const observed = (id: "issue-5-designer-probe" | "forguncy-library-guide" | "issue-20-designer-execution" | "issue-115-designer-probe") =>
+      const observed = (id: "issue-5-designer-probe" | "forguncy-library-guide" | "issue-20-designer-execution" | "issue-115-designer-probe" | "issue-120-rebase-102-probe") =>
         observedVersionsOf(findSyncEvidenceSource(id));
 
       expect(observed("issue-5-designer-probe")).toEqual(["12.0.100.0"]);
       expect(observed("forguncy-library-guide")).toEqual([]);
       expect(observed("issue-20-designer-execution")).toEqual(["12.0.100.0"]);
       expect(observed("issue-115-designer-probe")).toEqual(["12.0.101.0"]);
+      expect(observed("issue-120-rebase-102-probe")).toEqual(["12.0.102.0"]);
     });
 
     // The counter-examples the review named, asserted so the wildcard cannot come back. Each is a

@@ -155,7 +155,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
     // #13 steps 7–8 ran and that the lock's recorded runtime validation is projected through
     // both gates — the environment that claim holds in is the one the record names. Reading
     // `RUNTIME_CONTRACT_TARGET` here would silently re-assert that claim for whatever build the
-    // repository currently targets, which after the 12.0.101.0 re-base it does not: the record
+    // repository currently targets, which after the 12.0.102.0 re-base it does not: the record
     // was probed against 12.0.100.0, and pretending otherwise is the same defect as rewriting
     // its content-addressed evidence. The drift itself is asserted, one test below, rather than
     // assumed away.
@@ -174,7 +174,7 @@ async function environmentFor(overrides: Partial<LockEnvironment> = {}): Promise
  * A lock record carries {@link ForguncyTargetIdentity} — the four fields freshness compares —
  * not the full {@link RuntimeContractTarget}, so this reconstructs an environment target from
  * the record's own values with the rest taken from the current contract. That is not a way of
- * pretending the run happened on 12.0.101.0: the comparison that matters is the identity, the
+ * pretending the run happened on 12.0.102.0: the comparison that matters is the identity, the
  * recorded version is the one that goes in, and the test below asserts the drift explicitly.
  */
 function targetOfRecordedRun(lock: { readonly decisions: readonly { readonly target: ForguncyTargetIdentity | null; readonly packageName: string }[] }): RuntimeContractTarget {
@@ -466,7 +466,7 @@ describe("extension tanstack-query PoC (#13)", () => {
   });
 
   // #120: the example's probe was run against 12.0.100.0 and the repository now targets
-  // 12.0.101.0, so this record is correctly withheld for a *different* build than the one the
+  // 12.0.102.0, so this record is correctly withheld for a *different* build than the one the
   // rest of the suite assumes. Asserted rather than assumed away, because the two ways of
   // handling it — re-labelling the record, or quietly reading a different environment — are
   // exactly what #116's review rejected, and neither shows up as a failure anywhere else.

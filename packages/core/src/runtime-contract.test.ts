@@ -91,10 +91,11 @@ const NON_FACT_EXPORTS: readonly string[] = [
   "RUNTIME_CONTRACT_UNKNOWNS",
   // The *absence* of an observation, listed per field. Its entries are field names, not claims
   // about the product, and the evidence that they are absent is the absence itself — which is
-  // the same reasoning as `RUNTIME_CONTRACT_UNKNOWNS` above, and the reason
-  // `RUNTIME_CONTRACT_TARGET.evidence` had to drop `generated-runtime-browser` rather than keep
-  // it: this list and that array are the same fact stated twice, so it is checked against the
-  // target's own channels by the provenance tests instead of by carrying evidence here.
+  // the same reasoning as `RUNTIME_CONTRACT_UNKNOWNS` above, and the reason a build without the
+  // observation had to drop `generated-runtime-browser` from `RUNTIME_CONTRACT_TARGET.evidence`
+  // rather than keep it: this list and that array are the same fact stated twice, so it is
+  // checked against the target's own channels by the provenance tests instead of by carrying
+  // evidence here. It is empty on 12.0.102.0, where the observation was made.
   "RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED",
 ];
 
@@ -268,8 +269,8 @@ function isEvidenceBearingMap(value: unknown): value is Record<string, unknown> 
 
 describe("runtime contract target", () => {
   it("pins the exact product build the contract was established against", () => {
-    expect(RUNTIME_CONTRACT_TARGET.productVersion).toBe("12.0.101.0");
-    expect(RUNTIME_CONTRACT_TARGET.productBuild).toContain("12.0.101.0+");
+    expect(RUNTIME_CONTRACT_TARGET.productVersion).toBe("12.0.102.0");
+    expect(RUNTIME_CONTRACT_TARGET.productBuild).toContain("12.0.102.0+");
     expect(RUNTIME_CONTRACT_TARGET.hostReactVersion).toBe("19.2.7");
     expect(RUNTIME_CONTRACT_TARGET.hostReactDomVersion).toBe(RUNTIME_CONTRACT_TARGET.hostReactVersion);
     expect(RUNTIME_CONTRACT_TARGET.browserTranspilerVersion).toBe("7.29.4");
@@ -284,7 +285,7 @@ describe("runtime contract target", () => {
 
   it("renders a header a report or PR body can carry", () => {
     const header = describeRuntimeContractTarget();
-    expect(header).toContain("12.0.101.0");
+    expect(header).toContain("12.0.102.0");
     expect(header).toContain("19.2.7");
     expect(header).toContain("7.29.4");
   });
@@ -321,45 +322,55 @@ describe("runtime contract target", () => {
       }
     });
 
-    // The specific overclaim the review named: `generated-runtime-browser` stayed in the
-    // target's `evidence` across the re-base although no browser observation was made on the new
-    // build, and the version fields are exactly the ones a consumer reads as "what the page runs".
-    it("does not claim a browser observation this build did not make", () => {
-      expect(RUNTIME_CONTRACT_TARGET.evidence).not.toContain("generated-runtime-browser");
-
-      for (const field of RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED) {
-        const source = RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field];
-        expect(source, field).toBeDefined();
-        expect(source.evidence, field).not.toContain("generated-runtime-browser");
-      }
-      // The two version fields a machine consumer reads must both be named, and the list must
-      // not be longer than the fields it is about.
-      expect([...RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED].sort()).toEqual([
-        "browserTranspilerVersion",
-        "hostReactDomVersion",
+    // The specific overclaim #116's review named: a re-base that keeps `generated-runtime-browser`
+    // in the target's `evidence` although no browser observation was made on the new build. That
+    // was true of the `12.0.101.0` re-base and is not true of `12.0.102.0`, where the page itself
+    // reported all three versions — so the invariant asserted now is the *relationship* between
+    // the export and the per-field provenance, which has to hold on a build with and without the
+    // observation rather than pinning this build's state.
+    it("keeps the not-browser-observed list derived from the field provenance", () => {
+      const versionFields = [
         "hostReactVersion",
-      ]);
+        "hostReactDomVersion",
+        "browserTranspilerVersion",
+      ] as const;
+      const lacksBrowser = (field: (typeof versionFields)[number]) =>
+        !RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field].evidence.includes("generated-runtime-browser");
+
+      // On 12.0.102.0 every version field was read from a real page, so the target may claim the
+      // channel and the list is empty.
+      expect(RUNTIME_CONTRACT_TARGET.evidence).toContain("generated-runtime-browser");
+      for (const field of versionFields) {
+        expect(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field].evidence, field).toContain(
+          "generated-runtime-browser",
+        );
+      }
+
+      // Not vacuous either way: a field named in the export must lack the channel, and one that
+      // carries it must not be named. On a build where the observation is missing this resolves
+      // to the three names rather than to `[]`, without the test needing to be rewritten.
+      expect([...RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED].sort()).toEqual(
+        versionFields.filter(lacksBrowser).sort(),
+      );
     });
 
     // The file's own rule is that a question the probe could not settle lives in
-    // `RUNTIME_CONTRACT_UNKNOWNS` rather than being guessed into the contract. The missing
-    // browser observation is such a question, so it has to be there and not only here.
-    it("carries the missing browser observation as an open question", () => {
+    // `RUNTIME_CONTRACT_UNKNOWNS` rather than being guessed into the contract. `12.0.101.0` left
+    // the browser observation open and carried it there; `12.0.102.0` made it, so the question is
+    // resolved rather than silently dropped — the resolution has to be visible in the contract.
+    it("records the browser observation that closed the 12.0.101.0 open question", () => {
       const open = openRuntimeContractQuestions("#120");
 
-      expect(open.map(question => question.id)).toContain("host-versions-not-browser-observed-101");
-      // Asserted as a property of an absence record rather than as wording. Two earlier
-      // revisions each named a blocker that was never established — "two-step verification", then
-      // a login page's RSA endpoint — and both were pinned here by a `toMatch` on the phrase,
-      // which is what let a probe artifact survive as a recorded finding. The property is instead:
-      // the record states that the observation was not made, and quotes no HTTP-level
-      // observation, because none was made. Asserting the classes rather than either past
-      // sentence means the next account to reach for a status code fails here instead of
-      // needing this test rewritten first.
-      expect(open[0]?.whyOpen).toMatch(/not observe|not measured|no browser session|did not observe/i);
-      expect(open[0]?.whyOpen).not.toMatch(/\b(?:GET|POST|PUT|DELETE)\b/);
-      expect(open[0]?.whyOpen).not.toMatch(/https?:\/\//);
-      expect(open[0]?.whyOpen).not.toMatch(/\b4\d{2}\b/);
+      expect(open.map(question => question.id)).not.toContain("host-versions-not-browser-observed-101");
+      expect(RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED).toEqual([]);
+      for (const field of ["hostReactVersion", "hostReactDomVersion", "browserTranspilerVersion"] as const) {
+        expect(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field].observedOn, field).toBe(
+          RUNTIME_CONTRACT_TARGET.productVersion,
+        );
+        expect(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field].evidence, field).toContain(
+          "generated-runtime-browser",
+        );
+      }
     });
   });
 });
@@ -639,11 +650,15 @@ describe("rejected source", () => {
   });
 
   it("documents the error envelope both validation passes surface through", () => {
-    // Both measured frames, newest first, each tied to the build it was observed on — because
-    // the frame moved between 12.0.100.0 and 12.0.101.0 (#120) and a reader has to be able to
-    // tell which one it is looking at.
+    // Both measured frames, newest first, each tied to the builds it was observed on — because
+    // the frame moved between 12.0.100.0 and 12.0.101.0 (#120), 12.0.102.0 reproduced the newer
+    // one verbatim, and a reader has to be able to tell which one it is looking at.
     const templates = CELL_SOURCE_REJECTION_ENVELOPE.templates;
-    expect(templates.map(t => t.versions[0])).toEqual(["12.0.101.0", "12.0.100.0"]);
+    expect(templates.map(t => t.versions[0])).toEqual(["12.0.102.0", "12.0.100.0"]);
+    // The `12.0.101.0` history is kept beside `12.0.102.0` on the current frame rather than
+    // replaced: the two builds produced the same wording and a consumer reading either session's
+    // output needs that to be stated.
+    expect(templates[0].versions).toEqual(["12.0.102.0", "12.0.101.0"]);
     for (const { template, versions } of templates) {
       // The inner wording and the stage placeholder are the *unchanged* parts.
       expect(template, versions.join()).toContain("代码验证失败 [<stage>]：<message>");

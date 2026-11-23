@@ -1,6 +1,6 @@
 /**
  * #20's real-designer validation: the executor, against Forguncy 12.0.100.0 — re-run by #115
- * against 12.0.101.0 through the shipped adapter.
+ * against 12.0.101.0 and by #120 against 12.0.102.0 through the shipped adapter.
  *
  * This is not an automated test. It is the *executed* half of #20's acceptance criteria —
  * "No manual copy/paste is needed for a generated Cell artifact", "Syncing the same
@@ -15,7 +15,7 @@
  * and `unexecutedRuntimeCoverage()` reports the (promise, route, version) cells no single row
  * covers. Read it before reporting a run here as coverage. On the build this repository supports,
  * a passing run of both sibling scripts leaves nothing open; the older build's cells are short
- * of coverage, but #120 narrowed *support* to 12.0.101.0, so they are history rather than an
+ * of coverage, but #120 narrowed *support* to 12.0.102.0, so they are history rather than an
  * outstanding item and are not in the default report.
  *
  * Both routes are now reached through the **shipped adapter**, which is what makes a run of
@@ -29,15 +29,15 @@
  * in `designer-transport.ts`: `readOneCell` compared the Cell's read-back `cellType` against the
  * *write* alias, so a second sync reported `refused` instead of `identical` — with the old
  * comparison restored, step 6 of this very script fails with `foreign-code` / `refused` — and
- * 12.0.101.0 has no `api.app.generatePageAsync`, only `api.app.generateProject`.
+ * 12.0.101.0 and 12.0.102.0 have no `api.app.generatePageAsync`, only `api.app.generateProject`.
  *
  * The script itself is unchanged by #115 apart from this header: what the repository needed was
  * the adapter fixed, not the evidence loosened. `validate-unchanged-against-designer.mjs` is the
  * sibling run that drives the unchanged route on its own and asserts the refusal path.
  *
- * The `runtime.forguncyVersion` this script builds is `12.0.101.0` since #120, matching the
- * contract target. It is the project *declaration* the flow writes into its disposable project,
- * not a measurement: the run's actual build is the one `getProjectSaveStatus` reports.
+ * The `runtime.forguncyVersion` this script builds is `12.0.102.0` since #120's re-base, matching
+ * the contract target. It is the project *declaration* the flow writes into its disposable
+ * project, not a measurement: the run's actual build is the one `getProjectSaveStatus` reports.
  *
  * ## Why it is a script and not a vitest test
  *
@@ -487,7 +487,7 @@ async function main() {
   // the executor is given *ids*, and the coordinates it writes are the config's.
   const registry = createCellRegistry(
     {
-      runtime: { forguncyVersion: "12.0.101", projectAlias: "fgc-sync-validation" },
+      runtime: { forguncyVersion: "12.0.102", projectAlias: "fgc-sync-validation" },
       cells: {
         probeA: { entry: "cells/probeA/App.tsx", target: { pageName: PAGE, cell: "F1" } },
         probeB: { entry: "cells/probeB/App.tsx", target: { pageName: PAGE, cell: "G1" } },

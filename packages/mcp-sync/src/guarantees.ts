@@ -69,32 +69,45 @@ export const EXECUTED_AGAINST_REPROBE =
   "Forguncy 12.0.101.0 (designer assembly 12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0), a live MCP designer session against a disposable page, through the shipped adapter with no port corrections; re-run with packages/mcp-sync/scripts/validate-sync-against-designer.mjs and packages/mcp-sync/scripts/validate-unchanged-against-designer.mjs, evidence on #115.";
 
 /**
+ * The environment #120's `12.0.102.0` validation ran in.
+ *
+ * The third execution on record, and the one the repository currently supports. It re-ran both
+ * routes of the flow through the shipped adapter, plus the retry suite, and it is also what
+ * verified that `createDesignerSyncPort.setCells` preserves a Cell's existing host bindings
+ * (`dataSources`, `permissions`, `availableServerCommands`, #141) rather than replacing
+ * `cellTypeProps` wholesale.
+ */
+export const EXECUTED_AGAINST_REBASE_102 =
+  "Forguncy 12.0.102.0 (designer assembly 12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd), a live MCP designer session against disposable pages, through the shipped adapter with no port corrections; re-run with packages/mcp-sync/scripts/validate-sync-against-designer.mjs (20/20), packages/mcp-sync/scripts/validate-unchanged-against-designer.mjs (13/13) and packages/mcp-sync/scripts/validate-retry-against-designer.mjs (37/37), evidence on #120.";
+
+/**
  * The product versions the repository has *any* executed flow evidence on, oldest first.
  *
  * This is the **evidence vocabulary**, not the support claim: `12.0.100.0` is on it because
- * #20's run happened there and its record is still in the table, and a version cannot be named
- * by an execution row unless it appears here. Read {@link SYNC_SUPPORTED_VERSIONS} for the
- * versions the flow is currently claimed to work on — since #120 that is `12.0.101.0` alone,
- * and the two lists existing separately is what lets 100's evidence be *kept* without being
- * *claimed*.
+ * #20's run happened there and its record is still in the table, `12.0.101.0` because #115 drove
+ * both routes there, and a version cannot be named by an execution row unless it appears here.
+ * Read {@link SYNC_SUPPORTED_VERSIONS} for the versions the flow is currently claimed to work on
+ * — since #120's `12.0.102.0` re-base that is `12.0.102.0` alone, and the two lists existing
+ * separately is what lets the older evidence be *kept* without being *claimed*.
  */
-export const SYNC_MEASURED_VERSIONS = ["12.0.100.0", "12.0.101.0"] as const;
+export const SYNC_MEASURED_VERSIONS = ["12.0.100.0", "12.0.101.0", "12.0.102.0"] as const;
 
 export type SyncMeasuredVersion = (typeof SYNC_MEASURED_VERSIONS)[number];
 
 /**
  * The product versions the flow is currently claimed to work on.
  *
- * One, since #120: `12.0.100.0` is out of use, so coverage is owed — and reported — on
- * `12.0.101.0` only. {@link unexecutedRuntimeCoverage} iterates *this* list, which is why a
- * gap on a version nobody claims support for is no longer reported as an open item.
+ * One, since #120's `12.0.102.0` re-base: `12.0.100.0` and `12.0.101.0` are out of use, so
+ * coverage is owed — and reported — on `12.0.102.0` only. {@link unexecutedRuntimeCoverage}
+ * iterates *this* list, which is why a gap on a version nobody claims support for is no longer
+ * reported as an open item.
  *
- * Why this is separate from {@link SYNC_MEASURED_VERSIONS} rather than a deletion there: #20's
- * `12.0.100.0` execution row stays in {@link SYNC_EXECUTIONS} as history, and the version it
- * names has to remain a member of the vocabulary or the table stops type-checking. Dropping the
- * old version entirely would erase the record that the adapter's read-back tolerance exists
- * *because* of — the pinned build's read-back spelling was never measured, which is why the
- * adapter recognises both names. Keeping the evidence and narrowing the claim are two edits.
+ * Why this is separate from {@link SYNC_MEASURED_VERSIONS} rather than a deletion there: the
+ * older execution rows stay in {@link SYNC_EXECUTIONS} as history, and the versions they name
+ * have to remain members of the vocabulary or the table stops type-checking. Dropping an old
+ * version entirely would erase the record that the adapter's read-back tolerance exists
+ * *because* of — the `12.0.100.0` read-back spelling was never measured, which is why the adapter
+ * recognises both names. Keeping the evidence and narrowing the claim are two edits.
  *
  * Order is not what decides "which build is current" here, and the comment that used to say so
  * was describing an invariant that does not exist. `preferredCallOf` in
@@ -106,7 +119,7 @@ export type SyncMeasuredVersion = (typeof SYNC_MEASURED_VERSIONS)[number];
  * What this list *is* for: it is the answer to "which versions may this repository claim", and it
  * only changes with a run. Adding a version is an edit against a run, never against a release note.
  */
-export const SYNC_SUPPORTED_VERSIONS = ["12.0.101.0"] as const satisfies readonly SyncMeasuredVersion[];
+export const SYNC_SUPPORTED_VERSIONS = ["12.0.102.0"] as const satisfies readonly SyncMeasuredVersion[];
 
 export type SyncSupportedVersion = (typeof SYNC_SUPPORTED_VERSIONS)[number];
 
@@ -131,17 +144,17 @@ export interface SyncExecution {
   readonly evidence: string;
 }
 
-export const SYNC_EXECUTION_IDS = ["issue-20-write-route", "issue-115-both-routes"] as const;
+export const SYNC_EXECUTION_IDS = ["issue-20-write-route", "issue-115-both-routes", "issue-120-rebase-102"] as const;
 
 export type SyncExecutionId = (typeof SYNC_EXECUTION_IDS)[number];
 
 /**
  * The executions on record.
  *
- * Two, and the fact that the second one *re-ran* the first one's route rather than replacing it
- * is the whole reason this is a table: #20's run remains the only evidence for `12.0.100.0`, so
- * dropping it because a newer run covered the same route on a newer build would erase the pinned
- * version's evidence from the repository.
+ * Three, and the fact that each newer one *re-ran* an earlier one's route rather than replacing
+ * it is the whole reason this is a table: #20's run remains the only evidence for `12.0.100.0`
+ * and #115's the only evidence for `12.0.101.0`, so dropping either because a newer run covered
+ * the same route on a newer build would erase those builds' evidence from the repository.
  */
 export const SYNC_EXECUTIONS: Readonly<Record<SyncExecutionId, SyncExecution>> = {
   "issue-20-write-route": {
@@ -159,6 +172,14 @@ export const SYNC_EXECUTIONS: Readonly<Record<SyncExecutionId, SyncExecution>> =
     routes: ["write", "unchanged"],
     evidence:
       "Executed 2026-09-27 for #115, through the shipped adapter with the two port corrections #92's script used to carry removed. Both scripts were run: `validate-sync-against-designer.mjs` (write route, 20/20) and `validate-unchanged-against-designer.mjs` (unchanged route, 13/13).",
+  },
+  "issue-120-rebase-102": {
+    id: "issue-120-rebase-102",
+    environment: EXECUTED_AGAINST_REBASE_102,
+    version: "12.0.102.0",
+    routes: ["write", "unchanged"],
+    evidence:
+      "Executed 2026-11-22/23 for #120 on live `12.0.102.0`, through the shipped adapter with no port corrections: `validate-sync-against-designer.mjs` (write route, 20/20), `validate-unchanged-against-designer.mjs` (unchanged route, 13/13) and `validate-retry-against-designer.mjs` (37/37). The same session verified that `setCells` preserves an existing Cell's `dataSources`, `permissions` and `availableServerCommands` (#141), and that `api.page.getCells` still reports `ReactCellType` while `api.app.generateProject` is the generation call on this build.",
   },
 };
 
@@ -273,11 +294,15 @@ export const SYNC_GUARANTEES: readonly SyncGuarantee[] = [
     // Write only, and that is not an omission: the promise is that a write lands, and it has
     // no meaning on a run that wrote nothing. #92's unchanged route does not touch it.
     runtimeRoutes: ["write"],
-    // Both runs: a write landing on the write route is what this promise is, and both executed it
-    // — #20 on the pinned build, #115 through the shipped adapter. Keeping #20's entry is not
-    // sentiment: it is the only evidence for 12.0.100.0, and it is the *reason* the read-back
-    // tolerance exists.
-    executions: [SYNC_EXECUTIONS["issue-20-write-route"], SYNC_EXECUTIONS["issue-115-both-routes"]],
+    // All three runs: a write landing on the write route is what this promise is, and each
+    // executed it — #20 on 12.0.100.0, #115 and #120 through the shipped adapter on 12.0.101.0
+    // and 12.0.102.0. Keeping #20's entry is not sentiment: it is the only evidence for
+    // 12.0.100.0, and it is the *reason* the read-back tolerance exists.
+    executions: [
+      SYNC_EXECUTIONS["issue-20-write-route"],
+      SYNC_EXECUTIONS["issue-115-both-routes"],
+      SYNC_EXECUTIONS["issue-120-rebase-102"],
+    ],
   },
   {
     id: "extension-metadata-verified-before-mutation",
@@ -297,14 +322,19 @@ export const SYNC_GUARANTEES: readonly SyncGuarantee[] = [
     caveat:
       "Locally, only the flow's shape is checkable: `assertMcpSyncFlowIsCoherent` proves the step exists, is a post-mutation step, and runs before the page is generated, and the executor's own tests assert the call order it performs against a stub port. Neither can prove a *real* project returned the count the run reports; only a real project can.",
     // #92 made the gate reachable on a run that wrote nothing, so the promise spans two routes.
-    // #20's run covered only the write route; #115's covered both, through the shipped adapter —
-    // and only on 12.0.101.0, so the `unchanged` cells on the pinned build stay open below.
+    // #20's run covered only the write route; #115's and #120's covered both, through the shipped
+    // adapter. #120's run is the one on the supported build, so no cell is open there; the
+    // `unchanged` cells on 12.0.100.0 remain historical gaps below.
     runtimeRoutes: ["write", "unchanged"],
-    // Both runs: #115's covers both routes on 12.0.101.0, #20's covers the write route on
-    // 12.0.100.0. Both are listed, so "the unchanged route is executed" and "the pinned build's
-    // write route is executed" are two facts a reader can get from here rather than one that
-    // displaces the other.
-    executions: [SYNC_EXECUTIONS["issue-20-write-route"], SYNC_EXECUTIONS["issue-115-both-routes"]],
+    // All three runs: #115's and #120's cover both routes on 12.0.101.0 and 12.0.102.0, #20's
+    // covers the write route on 12.0.100.0. All are listed, so "the unchanged route is executed"
+    // and "12.0.100.0's write route is executed" are two facts a reader can get from here rather
+    // than one that displaces the other.
+    executions: [
+      SYNC_EXECUTIONS["issue-20-write-route"],
+      SYNC_EXECUTIONS["issue-115-both-routes"],
+      SYNC_EXECUTIONS["issue-120-rebase-102"],
+    ],
   },
   {
     id: "runtime-locator-returned",
@@ -315,13 +345,17 @@ export const SYNC_GUARANTEES: readonly SyncGuarantee[] = [
     caveat:
       "The locator's *field name* is this contract's, not the platform's — #5 records the URL the flow produced, not the response object it arrived in — so the correspondence is the adapter's to get right and only a real project can confirm it.",
     // Same split as the error gate: #92 returns a locator from a run that wrote nothing, and
-    // that route is a different moment in the flow from the write route. #115's run returned a
-    // locator on both routes through the adapter, which is what the second entry rests on.
+    // that route is a different moment in the flow from the write route. #115's and #120's runs
+    // returned a locator on both routes through the adapter.
     runtimeRoutes: ["write", "unchanged"],
-    // #115's run covers both routes; #20's covers the write route on the pinned build. Both are
-    // listed, so "the unchanged route is executed" and "12.0.100.0's write route is executed"
+    // #115's and #120's runs cover both routes; #20's covers the write route on 12.0.100.0. All
+    // are listed, so "the unchanged route is executed" and "12.0.100.0's write route is executed"
     // are two facts a reader can get from here rather than one that displaces the other.
-    executions: [SYNC_EXECUTIONS["issue-20-write-route"], SYNC_EXECUTIONS["issue-115-both-routes"]],
+    executions: [
+      SYNC_EXECUTIONS["issue-20-write-route"],
+      SYNC_EXECUTIONS["issue-115-both-routes"],
+      SYNC_EXECUTIONS["issue-120-rebase-102"],
+    ],
   },
   {
     id: "sync-is-idempotent",
@@ -333,10 +367,14 @@ export const SYNC_GUARANTEES: readonly SyncGuarantee[] = [
     caveat:
       "Two halves are outside a local check, and #20 executed both: a second `setCells` with an identical payload left the Cell byte-identical, and a merged Cell kept its `rowSpan`/`colSpan` when the mutation omitted them. What a local check establishes is that sync asks for no change it does not need. #92 adds a third: on the `unchanged` route the run writes nothing but can still *persist the project* when the product reports it dirty, which is why that route reports `mutated` — a state #20's write-only execution never produced.",
     runtimeRoutes: ["write", "unchanged"],
-    // #115's run covers both routes; #20's covers the write route on the pinned build. Both are
-    // listed, so "the unchanged route is executed" and "12.0.100.0's write route is executed"
+    // #115's and #120's runs cover both routes; #20's covers the write route on 12.0.100.0. All
+    // are listed, so "the unchanged route is executed" and "12.0.100.0's write route is executed"
     // are two facts a reader can get from here rather than one that displaces the other.
-    executions: [SYNC_EXECUTIONS["issue-20-write-route"], SYNC_EXECUTIONS["issue-115-both-routes"]],
+    executions: [
+      SYNC_EXECUTIONS["issue-20-write-route"],
+      SYNC_EXECUTIONS["issue-115-both-routes"],
+      SYNC_EXECUTIONS["issue-120-rebase-102"],
+    ],
   },
   {
     id: "probable-designer-divergence-detected",
@@ -492,16 +530,17 @@ export interface UnexecutedCoverage {
  *
  * ## What is open, and what the historical evidence still covers
  *
- * Three cells on `12.0.100.0` are open as of #115: the **unchanged** route for the three promises
- * that span it. That route's work was executed only on `12.0.101.0`, so the pinned build owes it.
+ * Three cells on `12.0.100.0` are open: the **unchanged** route for the three promises that span
+ * it. That route's work was executed on `12.0.101.0` and `12.0.102.0` only, so the oldest build
+ * owes it. Nothing is open on the supported build.
  *
  * `12.0.100.0`'s **write**-route cells are counted as covered by #20's run, and that is a
  * deliberate position rather than an oversight — an earlier version of this comment claimed the
  * opposite while the report and tests counted them covered, which #116's second review caught.
- * The reasoning: #115 changed the read path and the generation negotiation, and #20's write-route
- * cells are about neither — they are the mutation payload landing, the error count being read, and
- * the write being byte-identical on a repeat, all measured on the write path whose calls this
- * change did not touch.
+ * The reasoning: #115 and #120 changed the read path and the generation negotiation, and #20's
+ * write-route cells are about neither — they are the mutation payload landing, the error count
+ * being read, and the write being byte-identical on a repeat, all measured on the write path
+ * whose calls this change did not touch.
  *
  * The one place that deserves a caveat is recorded on the execution itself rather than glossed
  * here — see `SYNC_EXECUTIONS["issue-20-write-route"].evidence`. What #20's run does **not**
@@ -570,7 +609,7 @@ export interface UnexecutedVersionCoverage {
  *
  * **Defaults to the versions support is claimed for** ({@link SYNC_SUPPORTED_VERSIONS}), so the
  * default report answers "is any version this repository claims still missing evidence?" — and
- * with #120's re-base that is 12.0.101.0 alone, which is complete. Passing
+ * with #120's `12.0.102.0` re-base that is `12.0.102.0` alone, which is complete. Passing
  * {@link SYNC_MEASURED_VERSIONS} instead asks the historical question, and *that* is where
  * `12.0.100.0`'s three open `unchanged` cells appear.
  *
@@ -629,8 +668,11 @@ export function unexecutedRuntimeVersionCoverage(
  */
 export const SYNC_MEASURED_VERSION_CONTEXT: Readonly<Record<SyncMeasuredVersion, string>> = {
   "12.0.100.0":
-    "A build this repository was measured against and no longer supports: it was the pinned target for #5 and #20, and was retired when the contract re-based on 12.0.101.0 (#120). #20's run predates the read-back recognition #115 corrected, and that build's read-back cell-type name was never measured — which is why the adapter recognises both spellings rather than narrowing to one.",
-  "12.0.101.0": "The build the repository targets, and the one #115 probed and drove both routes through.",
+    "A build this repository was measured against and no longer supports: it was the pinned target for #5 and #20, and was retired when the contract re-based past it (#120). #20's run predates the read-back recognition #115 corrected, and that build's read-back cell-type name was never measured — which is why the adapter recognises both spellings rather than narrowing to one.",
+  "12.0.101.0":
+    "A build #115 probed and drove both routes through; retired when the contract re-based on 12.0.102.0 (#120). Its evidence is kept, but nothing is claimed for it.",
+  "12.0.102.0":
+    "The build the repository targets: #120 re-ran both adapter scripts and the retry suite on it, and its React/ReactDOM/Babel versions were read from real generated pages.",
 };
 
 /** Why the given version's cells are open, and what would close them. */

@@ -705,9 +705,8 @@ describe("choosing the generation call the build actually has", () => {
   // #116's review finding, pinned. The first version hoisted the method to a local and called it
   // bare (`const call = …; await call({})`), which is an *unbound* call — a different call from
   // `api.app.generateProject({})`, and one a method reading its own `this` would break under.
-  // Measured on 12.0.101.0 every `api.app` method survives being detached, but 12.0.100.0 is the
-  // version this repository pins and the version this change did not re-validate, so the call
-  // shape must not depend on an unmeasured build's internals.
+  // Measured on 12.0.101.0 every `api.app` method survives being detached, but that is evidence
+  // about one build, so the call shape must not depend on a build's internals.
   it("calls each method on its receiver rather than through a hoisted function", async () => {
     const { callTool, calls } = recorder(() => ok({ url: "http://localhost:63982/Forguncy" }));
     const port = createDesignerSyncPort({ callTool });

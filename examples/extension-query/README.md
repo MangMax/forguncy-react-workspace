@@ -18,7 +18,7 @@ The committed record was measured and **validated on a real Forguncy page**:
 | host React | `19.2.7` |
 | probe fingerprint | `probe="inline-bundle";entry="@tanstack/react-query";analysis=14;config={};bundler={…}` |
 
-The repository's runtime contract now targets **`12.0.101.0`**
+The repository's runtime contract now targets **`12.0.102.0`**
 (`RUNTIME_CONTRACT_TARGET` in `packages/core/src/runtime-contract.ts`). The record therefore
 reports `stale`, and the deployment gate withholds it:
 

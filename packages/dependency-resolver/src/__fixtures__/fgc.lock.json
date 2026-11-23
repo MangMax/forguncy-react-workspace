@@ -15,8 +15,8 @@
       },
       "target": {
         "product": "Forguncy",
-        "productVersion": "12.0.101.0",
-        "productBuild": "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+        "productVersion": "12.0.102.0",
+        "productBuild": "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
         "hostReactVersion": "19.2.7"
       },
       "probedWith": {
@@ -59,8 +59,8 @@
       },
       "target": {
         "product": "Forguncy",
-        "productVersion": "12.0.101.0",
-        "productBuild": "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+        "productVersion": "12.0.102.0",
+        "productBuild": "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
         "hostReactVersion": "19.2.7"
       },
       "probedWith": {
@@ -100,8 +100,8 @@
       },
       "target": {
         "product": "Forguncy",
-        "productVersion": "12.0.101.0",
-        "productBuild": "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+        "productVersion": "12.0.102.0",
+        "productBuild": "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
         "hostReactVersion": "19.2.7"
       },
       "probedWith": {
@@ -142,8 +142,8 @@
       },
       "target": {
         "product": "Forguncy",
-        "productVersion": "12.0.101.0",
-        "productBuild": "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+        "productVersion": "12.0.102.0",
+        "productBuild": "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
         "hostReactVersion": "19.2.7"
       },
       "probedWith": {
@@ -221,8 +221,8 @@
       },
       "target": {
         "product": "Forguncy",
-        "productVersion": "12.0.101.0",
-        "productBuild": "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+        "productVersion": "12.0.102.0",
+        "productBuild": "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
         "hostReactVersion": "19.2.7"
       },
       "probedWith": {

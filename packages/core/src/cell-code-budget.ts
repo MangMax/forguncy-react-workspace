@@ -310,12 +310,12 @@ export const CELL_CODE_BUDGET_MEASUREMENT = {
   /**
    * Designer MCP identity the figures below were taken against.
    *
-   * `12.0.100.0`, and it stays that while the *contract* target has moved to `12.0.101.0`
-   * (#120): these numbers were measured on 100 and have not been replaced. See
+   * `12.0.100.0`, and it stays that while the *contract* target has moved past it (`12.0.101.0`,
+   * then `12.0.102.0`, #120): these numbers were measured on 100 and have not been replaced. See
    * {@link CELL_CODE_BUDGET_REBASE_101} for what a 101 re-measurement found and what it did
-   * not cover. Naming this field 101 while the figures came from 100 is the exact mislabelling
-   * #120 exists to prevent, so the two are kept apart rather than reconciled by editing a
-   * string.
+   * not cover. Naming this field 101 or 102 while the figures came from 100 is the exact
+   * mislabelling #120 exists to prevent, so the two are kept apart rather than reconciled by
+   * editing a string.
    */
   target: "Forguncy 12.0.100.0",
   /** The unit the product reports and these bands are expressed in. */

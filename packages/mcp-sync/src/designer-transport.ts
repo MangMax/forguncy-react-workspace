@@ -259,10 +259,9 @@ function stringField(record: Record<string, unknown>, field: string, operation: 
  * `api.app.generateProject({})` — it is an unbound call, and a method that reads its own `this`
  * would break. Measured on 12.0.101.0, every `api.app` and `api.page` method tried survives being
  * detached (they are arrow-function properties on a plain object, so `this` is lexical and
- * unused), but that is evidence about *one* build: 12.0.100.0 is the version this repository pins
- * and the version this change did **not** re-validate, so the safe shape is the one that changes
- * nothing about the call semantics on either. Restoring the receiver costs two duplicated call
- * sites and buys a compatibility surface that does not depend on an unmeasured build's internals.
+ * unused), but that is evidence about *one* build: the safe shape is the one that changes nothing
+ * about the call semantics on any build. Restoring the receiver costs two duplicated call sites
+ * and buys a compatibility surface that does not depend on an unmeasured build's internals.
  *
  * **The answer is relayed field by field, not passed through.** The cell's own code is arbitrary
  * generated source and travels to this script as data for exactly that reason (see

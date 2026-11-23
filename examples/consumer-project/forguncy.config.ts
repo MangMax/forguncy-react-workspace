@@ -35,7 +35,7 @@ export default defineForguncyConfig({
   runtime: {
     // The version this project targets. Recorded, not checked: nothing here talks to a Forguncy
     // project, and claiming otherwise would be the compatibility claim AGENTS.md rule 6 forbids.
-    forguncyVersion: "12.0.101",
+    forguncyVersion: "12.0.102",
     projectAlias: "consumer-example",
   },
   extensions: {

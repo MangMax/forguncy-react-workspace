@@ -165,6 +165,7 @@ export type {
 // a cell, which is what #116's review found.
 export {
   EXECUTED_AGAINST_DESIGNER,
+  EXECUTED_AGAINST_REBASE_102,
   EXECUTED_AGAINST_REPROBE,
   findSyncExecution,
   findSyncGuarantee,

@@ -76,6 +76,7 @@ export const SYNC_EVIDENCE_SOURCE_IDS = [
   "forguncy-library-guide",
   "issue-20-designer-execution",
   "issue-115-designer-probe",
+  "issue-120-rebase-102-probe",
 ] as const;
 
 export type SyncEvidenceSourceId = (typeof SYNC_EVIDENCE_SOURCE_IDS)[number];
@@ -199,6 +200,23 @@ export const SYNC_EVIDENCE_SOURCES: Readonly<Record<SyncEvidenceSourceId, SyncEv
       { version: "12.0.101.0", method: "api.app.saveProject" },
       { version: "12.0.101.0", method: "api.app.checkProjectErrors" },
       { version: "12.0.101.0", method: "api.app.generateProject" },
+    ],
+  },
+  "issue-120-rebase-102-probe": {
+    id: "issue-120-rebase-102-probe",
+    channel: "designer-api",
+    citation:
+      "#120's executed evidence against a live designer session on Forguncy 12.0.102.0 (https://github.com/Mang-X/forguncy-react-workspace/issues/120). Environment: MCP `http://localhost:11234/mcp`, `serverInfo = {\"name\":\"Forguncy\",\"version\":\"12.0.102.0\"}`, installed assembly `ProductVersion = 12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd`; project `前端拓展包集成示例.fgcc`; disposable page `fgc-rebase102-2026-11-23T01-22-46`; the product's own API reference served over MCP VFS at `/apis/**`.",
+    scope:
+      "The `12.0.102.0` re-run of the whole flow through the shipped adapter, on disposable pages: `validate-sync-against-designer.mjs` 20/20 (write route), `validate-unchanged-against-designer.mjs` 13/13 (unchanged route, #92) and `validate-retry-against-designer.mjs` 37/37 (#93). All seven port methods were driven — `api.app.listFrontendLibraries`, `api.page.getCells`, `api.page.setCells`, `api.app.getProjectSaveStatus`, `api.app.saveProject`, `api.app.checkProjectErrors` and `api.app.generateProject` — so this source establishes each of those calls on this build. It also verified that `setCells` preserves an existing Cell's host bindings (`dataSources`, `permissions`, `availableServerCommands`, #141) and that `api.page.getCells` still reports `ReactCellType` while `api.app.generateProject` is the generation call. What it does **not** record: any browser-side observation of the sync flow, any re-measurement of `12.0.100.0` or `12.0.101.0`, or the `api.app.generatePageAsync` name, which is absent here.",
+    establishedCalls: [
+      { version: "12.0.102.0", method: "api.app.listFrontendLibraries" },
+      { version: "12.0.102.0", method: "api.page.getCells" },
+      { version: "12.0.102.0", method: "api.page.setCells" },
+      { version: "12.0.102.0", method: "api.app.getProjectSaveStatus" },
+      { version: "12.0.102.0", method: "api.app.saveProject" },
+      { version: "12.0.102.0", method: "api.app.checkProjectErrors" },
+      { version: "12.0.102.0", method: "api.app.generateProject" },
     ],
   },
 };
@@ -371,11 +389,12 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "list-frontend-libraries",
     summary: "Read the project's installed frontend extensions, with their stable ids.",
-    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe"],
+    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.app.listFrontendLibraries", version: "12.0.100.0", evidenceSourceIds: ["issue-5-designer-probe", "forguncy-library-guide"] },
       { method: "api.app.listFrontendLibraries", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.app.listFrontendLibraries", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);
@@ -387,7 +406,7 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "read-cell-source",
     summary: "Read the source and library references a target Cell currently holds.",
-    evidenceSources: ["forguncy-library-guide", "issue-20-designer-execution", "issue-115-designer-probe"],
+    evidenceSources: ["forguncy-library-guide", "issue-20-designer-execution", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       {
@@ -402,6 +421,11 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
         version: "12.0.101.0",
         evidenceSourceIds: ["forguncy-library-guide", "issue-115-designer-probe"],
       },
+      {
+        method: "api.page.getCells",
+        version: "12.0.102.0",
+        evidenceSourceIds: ["issue-120-rebase-102-probe"],
+      },
     ],
     get method() {
       return preferredCallOf(this.calls);
@@ -413,11 +437,12 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "write-cell-source",
     summary: "Write one Cell's generated source and its `frontendLibraries` references.",
-    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe"],
+    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.page.setCells", version: "12.0.100.0", evidenceSourceIds: ["issue-5-designer-probe", "forguncy-library-guide"] },
       { method: "api.page.setCells", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.page.setCells", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);
@@ -429,11 +454,12 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "save-project",
     summary: "Persist the project after a mutation.",
-    evidenceSources: ["forguncy-library-guide", "issue-20-designer-execution", "issue-115-designer-probe"],
+    evidenceSources: ["forguncy-library-guide", "issue-20-designer-execution", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.app.saveProject", version: "12.0.100.0", evidenceSourceIds: ["forguncy-library-guide", "issue-20-designer-execution"] },
       { method: "api.app.saveProject", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.app.saveProject", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);
@@ -445,11 +471,12 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "check-project-errors",
     summary: "Read the project's error count after a mutation.",
-    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe"],
+    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.app.checkProjectErrors", version: "12.0.100.0", evidenceSourceIds: ["issue-5-designer-probe", "forguncy-library-guide"] },
       { method: "api.app.checkProjectErrors", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.app.checkProjectErrors", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);
@@ -461,27 +488,29 @@ export const SYNC_CAPABILITIES: readonly SyncCapability[] = [
   {
     id: "generate-page",
     summary: "Generate the target page and report the runtime locator a browser can open.",
-    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe"],
+    evidenceSources: ["issue-5-designer-probe", "forguncy-library-guide", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.app.generatePageAsync", version: "12.0.100.0", evidenceSourceIds: ["issue-5-designer-probe", "forguncy-library-guide"] },
       { method: "api.app.generateProject", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.app.generateProject", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);
     },
     portMethod: "generatePageAsync",
     usedByStepIds: ["generate-page"],
-    note: "Generation is project-wide and answers with the runtime *base*; the adapter turns that base into a page locator (`runtimePageUrl`), which is the mapping `port.ts`'s `GeneratedPage` leaves to it. **This is the one capability whose call name is version-split, and `calls` records both halves rather than promoting either to a cross-version fact.** `api.app.generatePageAsync` was executed on 12.0.100.0 (#5's probe, #20's flow) and `api.app.generateProject` on 12.0.101.0 (#115), where `generatePageAsync` is absent — same argument (`{}`, or `skipCheckProjectError`), same response shape, same base URL. So the *operation* is established on both builds and the *name* is not: `method` resolves to `generateProject` because it is the newest entry and the call the adapter asks for first, **not** because it is the only one. The adapter carries both names and picks by `typeof api.app.<name>` — a fact about the build rather than a version table — and **fails closed on the two shapes neither call establishes**: a build with neither, and a build with *both*. The second is not symmetry: the evidence is one call per build, so `both present` is unmeasured, and choosing a winner there (newest name first, say) would run an unverified call on a build whose verified call is the other one. Which spelling 12.0.100.0 *reports* is not claimed beyond `generatePageAsync` having been executed there.",
+    note: "Generation is project-wide and answers with the runtime *base*; the adapter turns that base into a page locator (`runtimePageUrl`), which is the mapping `port.ts`'s `GeneratedPage` leaves to it. **This is the one capability whose call name is version-split, and `calls` records both halves rather than promoting either to a cross-version fact.** `api.app.generatePageAsync` was executed on 12.0.100.0 (#5's probe, #20's flow) and `api.app.generateProject` on 12.0.101.0 (#115) and 12.0.102.0 (#120), where `generatePageAsync` is absent — same argument (`{}`, or `skipCheckProjectError`), same response shape, same base URL. So the *operation* is established on all three builds and the *name* is not: `method` resolves to `generateProject` because it is the newest supported entry and the call the adapter asks for first, **not** because it is the only one. The adapter carries both names and picks by `typeof api.app.<name>` — a fact about the build rather than a version table — and **fails closed on the two shapes neither call establishes**: a build with neither, and a build with *both*. The second is not symmetry: the evidence is one call per build, so `both present` is unmeasured, and choosing a winner there (newest name first, say) would run an unverified call on a build whose verified call is the other one. Which spelling 12.0.100.0 *reports* is not claimed beyond `generatePageAsync` having been executed there.",
   },
   {
     id: "project-save-status",
     summary: "Read whether the project has unsaved changes.",
-    evidenceSources: ["issue-5-designer-probe", "issue-20-designer-execution", "issue-115-designer-probe"],
+    evidenceSources: ["issue-5-designer-probe", "issue-20-designer-execution", "issue-115-designer-probe", "issue-120-rebase-102-probe"],
     confirmation: "established",
     calls: [
       { method: "api.app.getProjectSaveStatus", version: "12.0.100.0", evidenceSourceIds: ["issue-5-designer-probe", "issue-20-designer-execution"] },
       { method: "api.app.getProjectSaveStatus", version: "12.0.101.0", evidenceSourceIds: ["issue-115-designer-probe"] },
+      { method: "api.app.getProjectSaveStatus", version: "12.0.102.0", evidenceSourceIds: ["issue-120-rebase-102-probe"] },
     ],
     get method() {
       return preferredCallOf(this.calls);

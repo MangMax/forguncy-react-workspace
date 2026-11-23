@@ -30,10 +30,10 @@
  *    record's claim.
  * 3. **Historical real-runtime evidence is preserved, not re-labelled.** The
  *    `extension-query` record was validated on Forguncy `12.0.100.0`; the repository now
- *    targets `12.0.101.0`, and re-running that check needs a real designer. The record keeps
+ *    targets `12.0.102.0`, and re-running that check needs a real designer. The record keeps
  *    its target and its evidence, reports `stale` (`forguncy-target-changed`) against the
  *    current contract, and is *not* admitted by the deployment gate. That is the honest state,
- *    and this file is where it is pinned — re-recording on 12.0.101.0 would require changing
+ *    and this file is where it is pinned — re-recording on 12.0.102.0 would require changing
  *    the declared historical identity below, which is exactly the deliberate act it should be.
  *
  * ## What is deliberately not done here
@@ -138,7 +138,7 @@ const EXAMPLE_INVENTORY: Readonly<Record<string, ExampleEvidence>> = {
     kind: "recorded",
     status: "historical-real-runtime",
     rationale:
-      "The #13 `extension` PoC: @tanstack/react-query 5.102.8, validated on a real Forguncy 12.0.100.0 page. The repository now targets 12.0.101.0; re-validation needs a designer and is owed, so the record keeps its historical target and citations.",
+      "The #13 `extension` PoC: @tanstack/react-query 5.102.8, validated on a real Forguncy 12.0.100.0 page. The repository now targets 12.0.102.0; re-validation needs a designer and is owed, so the record keeps its historical target and citations.",
   },
   "host-antd": {
     kind: "none",
@@ -532,7 +532,7 @@ describe("historical real-runtime evidence is preserved, and not treated as curr
 
   it("states the owed validation instead of inventing one", () => {
     // The declaration this file can make offline. The record's build is 12.0.100.0 and the
-    // contract targets 12.0.101.0; with no executed real-design run against the latter, the
+    // contract targets 12.0.102.0; with no executed real-design run against the latter, the
     // owed step is a new page validation, not a new timestamp.
     expect(HISTORICAL_RECORD.target.productVersion).not.toBe(RUNTIME_CONTRACT_TARGET.productVersion);
     expect(HISTORICAL_RECORD.target.productBuild).not.toBe(RUNTIME_CONTRACT_TARGET.productBuild);
