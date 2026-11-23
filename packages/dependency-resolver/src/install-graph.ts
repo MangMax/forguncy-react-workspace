@@ -46,6 +46,8 @@
 import { realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
+
 import { locatePackage } from "./package-locator.ts";
 
 /** Why a package the lock records could not be resolved to a version. */
@@ -223,13 +225,6 @@ async function resolveManifest(
   return { outcome: "resolved", manifest: { name: found.name, version: found.version } };
 }
 
-function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}
-
 /**
  * The exact installed version of every requested package.
  *
@@ -260,7 +255,7 @@ export async function resolveInstalledVersions(
   // scope is wanted, and it does not have to exist for the scope to be correct —
   // the ancestor `node_modules` walk from its directory is what answers.
   const roots = projectResolutionRoots(canonicalRoot);
-  const requested = [...new Set(packageNames)].sort(compareStrings);
+  const requested = [...new Set(packageNames)].sort(compareCodeUnits);
 
   const versions: Record<string, string> = {};
   const unresolved: UnresolvedInstalledPackage[] = [];

@@ -42,6 +42,7 @@
  * being accepted, and that is the whole point.
  */
 
+import { isPlainRecord } from "./guards.ts";
 import type { FgcLockDocument } from "./lock.ts";
 import {
   assertFgcLockDocument,
@@ -250,10 +251,6 @@ export interface FgcLockMigrationResult {
   readonly fromVersion: number;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 /**
  * Reads a document's declared version, or explains why it cannot be read.
  *
@@ -264,7 +261,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * declared version — and everything else is checked on the far side.
  */
 function declaredSchemaVersion(input: unknown): number {
-  if (!isPlainObject(input)) {
+  if (!isPlainRecord(input)) {
     throw new FgcLockValidationError([`${FGC_LOCK_FILE_NAME} must contain a JSON object.`]);
   }
   const { schemaVersion } = input;
@@ -301,7 +298,7 @@ export function migrateFgcLockDocument(
   let current: Record<string, unknown> = input as Record<string, unknown>;
   for (const step of planned) {
     const migrated = step.migrate(current);
-    const producedVersion = isPlainObject(migrated) ? migrated.schemaVersion : undefined;
+    const producedVersion = isPlainRecord(migrated) ? migrated.schemaVersion : undefined;
     if (producedVersion !== step.to) {
       throw new FgcLockMigrationStepError(step.from, step.to, producedVersion);
     }

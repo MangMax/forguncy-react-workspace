@@ -44,10 +44,11 @@ import type {
   ProbeRisk,
   ProbeValidationEntry,
 } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import type { OutputAsset, OutputChunk } from "rolldown";
 
 import { sourceWithoutCommentsLenient } from "./module-source.ts";
-import { compareStrings, portableText } from "./scan-utils.ts";
+import { portableText } from "./scan-utils.ts";
 
 /** Marker patterns matched against emitted chunk code. Order does not matter; findings dedupe by signal. */
 const RISK_MARKERS: readonly { readonly signal: ProbeRisk["signal"]; readonly pattern: RegExp; readonly label: string }[] = [
@@ -131,7 +132,7 @@ function summarizeMarkerMatches(
     }
   }
   // Portable: fileNames are bundler-relative already; belt-and-braces relativize.
-  const portable = evidence.map(item => portableText(item, projectRoot)).sort(compareStrings);
+  const portable = evidence.map(item => portableText(item, projectRoot)).sort(compareCodeUnits);
   return { found: portable.length > 0, evidence: portable };
 }
 
@@ -171,12 +172,12 @@ export function observeArtifact(
     {
       step: "artifact-scan",
       name: "artifact.chunks",
-      value: chunks.map(chunk => chunk.fileName).sort(compareStrings),
+      value: chunks.map(chunk => chunk.fileName).sort(compareCodeUnits),
     },
     {
       step: "artifact-scan",
       name: "artifact.assets",
-      value: assets.map(asset => asset.fileName).sort(compareStrings),
+      value: assets.map(asset => asset.fileName).sort(compareCodeUnits),
     },
     {
       step: "artifact-scan",
@@ -197,7 +198,7 @@ export function observeArtifact(
       signal: "dynamic-module-loading-cannot-be-eliminated",
       step: "artifact-scan",
       summary: `The bundler could not eliminate ${String(structuredDynamicImports.length)} dynamic module load(s); a single-script cell artifact cannot resolve them at runtime.`,
-      evidence: structuredDynamicImports.map(id => portableText(`import:${id}`, projectRoot)).sort(compareStrings),
+      evidence: structuredDynamicImports.map(id => portableText(`import:${id}`, projectRoot)).sort(compareCodeUnits),
     });
   }
 
@@ -212,11 +213,11 @@ export function observeArtifact(
           : "The emitted code contains a dynamic import expression, which may cause a runtime module load.",
       evidence:
         chunks.length > 1
-          ? chunks.map(chunk => `chunk:${chunk.fileName}`).sort(compareStrings)
+          ? chunks.map(chunk => `chunk:${chunk.fileName}`).sort(compareCodeUnits)
           : chunks
               .filter(chunk => DYNAMIC_IMPORT_CALL_PATTERN.test(matchableCode(chunk)))
               .map(chunk => `chunk:${chunk.fileName}`)
-              .sort(compareStrings),
+              .sort(compareCodeUnits),
     });
   }
 

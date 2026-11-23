@@ -28,14 +28,6 @@
 
 import { sep } from "node:path";
 
-/** Code-unit comparison — never `localeCompare`, which would sort differently per machine. */
-export function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}
-
 /**
  * Removes colour and cursor codes.
  *

@@ -119,6 +119,7 @@ import type {
   DependencyDecision,
   FrontendLibraryReference,
 } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 
 import {
   dependencyDecisionsFor,
@@ -454,11 +455,6 @@ function isImportablePackageName(name: string): boolean {
   return !/\s/.test(trimmed);
 }
 
-function compareStrings(a: string, b: string): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
-}
-
 export interface WorkspaceGraphIndexResult {
   readonly index: WorkspaceGraphIndex;
   /** What is wrong with the graph itself, in a fixed order. */
@@ -520,7 +516,7 @@ export function indexWorkspaceGraph(graph: WorkspaceGraph): WorkspaceGraphIndexR
   // avoid the tie, and it is the wrong one here: it would make `["react", "react"]` and
   // `["react"]` the same key, so the retained record would again depend on which came
   // first, while the diagnostic below still has to tell them apart.
-  const ordered = [...candidates].sort((a, b) => compareStrings(recordSelectionKey(a), recordSelectionKey(b)));
+  const ordered = [...candidates].sort((a, b) => compareCodeUnits(recordSelectionKey(a), recordSelectionKey(b)));
 
   const byName = new Map<string, WorkspacePackageRecord>();
   for (const record of ordered) {
@@ -594,7 +590,7 @@ function recordSelectionKey(record: WorkspacePackageRecord): string {
  */
 function recordMeaning(record: WorkspacePackageRecord): string {
   const imports =
-    record.imports === undefined ? null : [...new Set(record.imports)].sort(compareStrings);
+    record.imports === undefined ? null : [...new Set(record.imports)].sort(compareCodeUnits);
   const identity =
     record.moduleIdentity === undefined || record.moduleIdentity.kind === "cell-local"
       ? "cell-local"
@@ -728,7 +724,7 @@ function workspaceEdgesOf(index: WorkspaceGraphIndex, name: string): readonly st
     const target = workspacePackageFor(index, moduleId);
     if (target !== undefined) reached.add(target.name);
   }
-  return [...reached].sort(compareStrings);
+  return [...reached].sort(compareCodeUnits);
 }
 
 /**
@@ -782,7 +778,7 @@ export function traceWorkspaceSourceClosure(
         .map(moduleId => workspacePackageFor(index, moduleId)?.name)
         .filter((name): name is string => name !== undefined),
     ),
-  ].sort(compareStrings);
+  ].sort(compareCodeUnits);
 
   // Reachability and the external-module map share one pass: both need every
   // package the entry reaches, and a second walk would be a second answer.
@@ -822,10 +818,10 @@ export function traceWorkspaceSourceClosure(
   }
 
   return {
-    packages: [...reached].sort(compareStrings),
-    externalModules: [...externalImports.keys()].sort(compareStrings).map(moduleId => ({
+    packages: [...reached].sort(compareCodeUnits),
+    externalModules: [...externalImports.keys()].sort(compareCodeUnits).map(moduleId => ({
       moduleId,
-      importedBy: [...(externalImports.get(moduleId) ?? [])].sort(compareStrings),
+      importedBy: [...(externalImports.get(moduleId) ?? [])].sort(compareCodeUnits),
     })),
     cycles: findWorkspaceCycles(index, roots, reached),
   };
@@ -855,7 +851,7 @@ function canonicalCycleChain(chain: readonly string[]): readonly string[] {
   const members = chain.slice(0, -1);
   let smallest = 0;
   for (let index = 1; index < members.length; index += 1) {
-    if (compareStrings(members[index] ?? "", members[smallest] ?? "") < 0) smallest = index;
+    if (compareCodeUnits(members[index] ?? "", members[smallest] ?? "") < 0) smallest = index;
   }
   const rotated = [...members.slice(smallest), ...members.slice(0, smallest)];
   return [...rotated, ...rotated.slice(0, 1)];
@@ -910,7 +906,7 @@ function findWorkspaceCycles(
   // of that invariant rather than a second check.
   return [...cycles.values()]
     .filter(cycle => cycle.chain.every(name => reached.has(name)))
-    .sort((a, b) => compareStrings(a.chain.join("\u0000"), b.chain.join("\u0000")));
+    .sort((a, b) => compareCodeUnits(a.chain.join("\u0000"), b.chain.join("\u0000")));
 }
 
 // ---------------------------------------------------------------------------
@@ -1245,7 +1241,7 @@ export function orderWorkspaceSourceDiagnostics(
 
   return [...WORKSPACE_SOURCE_VOCABULARY.dedupe(diagnostics)].sort(
     (a, b) =>
-      (rank.get(a.code) ?? 0) - (rank.get(b.code) ?? 0) || compareStrings(a.subject, b.subject),
+      (rank.get(a.code) ?? 0) - (rank.get(b.code) ?? 0) || compareCodeUnits(a.subject, b.subject),
   );
 }
 
@@ -1403,10 +1399,10 @@ function auditDecisions(
   }
 
   const diagnostics: WorkspaceSourceDiagnostic[] = [];
-  for (const name of [...strategiesByName.keys()].sort(compareStrings)) {
+  for (const name of [...strategiesByName.keys()].sort(compareCodeUnits)) {
     const entry = strategiesByName.get(name);
     if (entry === undefined) continue;
-    const strategies = [...entry.strategies].sort(compareStrings);
+    const strategies = [...entry.strategies].sort(compareCodeUnits);
     const lead =
       strategies.length === 1
         ? `The decision is \`${strategies[0] ?? ""}\``
@@ -1626,7 +1622,7 @@ function assessDelegations(
         diagnostics.push(
           createWorkspaceSourceDiagnostic("conflicting-module-identity-decisions", via, {
             detail: `${governing.length} decisions cover it (${[...new Set(governing.map(entry => entry.strategy))]
-              .sort(compareStrings)
+              .sort(compareCodeUnits)
               .map(strategy => `\`${strategy}\``)
               .join(", ")}), so which one provides the identity "${record.name}" delegates to is unresolved. The artifact audit (#6) refuses the same list as an unresolved dependency decision.`,
           }),

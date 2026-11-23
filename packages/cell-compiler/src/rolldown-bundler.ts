@@ -60,7 +60,7 @@ import type {
   ExtensionExternalDiagnostic,
   NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
+import { CELL_RUNTIME_BINDING_CONTRACT, compareCodeUnits } from "@forguncy-react-workspace/core";
 import {
   rolldown,
   type OutputAsset,
@@ -902,10 +902,8 @@ function inlinedPackageSizesOf(modules: Record<string, { readonly renderedLength
     entry.renderedCharacters += module.renderedLength;
     sizes.set(key, entry);
   }
-  return [...sizes.values()].sort((a, b) =>
-    a.packageName !== b.packageName
-      ? (a.packageName < b.packageName ? -1 : 1)
-      : ((a.exactSpecifier ?? "") < (b.exactSpecifier ?? "") ? -1 : (a.exactSpecifier ?? "") > (b.exactSpecifier ?? "") ? 1 : 0),
+  return [...sizes.values()].sort(
+    (a, b) => compareCodeUnits(a.packageName, b.packageName) || compareCodeUnits(a.exactSpecifier ?? "", b.exactSpecifier ?? ""),
   );
 }
 
@@ -1066,8 +1064,7 @@ function byCodeThenSubject(
   a: { readonly code: string; readonly subject: string },
   b: { readonly code: string; readonly subject: string },
 ): number {
-  if (a.code !== b.code) return a.code < b.code ? -1 : 1;
-  return a.subject === b.subject ? 0 : a.subject < b.subject ? -1 : 1;
+  return compareCodeUnits(a.code, b.code) || compareCodeUnits(a.subject, b.subject);
 }
 
 // ---------------------------------------------------------------------------

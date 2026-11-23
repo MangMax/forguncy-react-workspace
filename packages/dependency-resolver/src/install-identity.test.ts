@@ -2072,4 +2072,24 @@ describe("#94: an install state that cannot be established is explicitly unknown
       expect((await readInstallGraphIdentity(member)).lockfile).toBeNull();
     });
   });
+
+  // The identity's canonical JSON is core's canonicaliser (#155) with no listed keys, so the
+  // digest is over alphabetical keys at every depth. What that buys is asserted here as *behaviour*
+  // rather than by recomputing a digest: a workspace file whose keys are written in a different
+  // order declares the same configuration, so it must compose the same identity. Without the sort
+  // the digest would follow YAML insertion order and a reformatted file would report
+  // `install-graph-changed` for a project nothing moved in.
+  it("composes one configuration digest whatever order the workspace file's keys are written in", async () => {
+    const digestFor = async (workspaceFile: string): Promise<string | null> =>
+      withProject(async root => {
+        await project(root, { extra: { "pnpm-workspace.yaml": workspaceFile } });
+        return (await readInstallGraphIdentity(root)).configuration;
+      });
+
+    const forwards = await digestFor(["packages:", "  - packages/*", "overrides:", "  b: 3.0.0", ""].join("\n"));
+    const backwards = await digestFor(["overrides:", "  b: 3.0.0", "packages:", "  - packages/*", ""].join("\n"));
+
+    expect(forwards).not.toBeNull();
+    expect(backwards).toBe(forwards);
+  });
 });

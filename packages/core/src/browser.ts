@@ -99,5 +99,8 @@ export * from "./probe-protocol.ts";
 export * from "./selection-policy.ts";
 export * from "./forguncy-config.ts";
 export * from "./portability.ts";
+export * from "./code-units.ts";
+export * from "./guards.ts";
+export * from "./canonical.ts";
 export * from "./cell-code-budget.ts";
 export * from "./cell-assets.ts";

@@ -40,9 +40,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { ProbeFact, ProbeValidationEntry } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
 
-import { compareStrings, describeBuildFailureLines, portableText, safePathSegment } from "./scan-utils.ts";
+import { describeBuildFailureLines, portableText, safePathSegment } from "./scan-utils.ts";
 
 /**
  * The declared inputs of the build half of a probe — what `LockProbeEvidence.fingerprint`
@@ -126,7 +127,7 @@ export function entrySource(specifier: string, imports: readonly string[] = []):
   if (imports.length === 0) {
     return [`import * as candidate from ${JSON.stringify(specifier)};`, `export default candidate;`, ``].join("\n");
   }
-  const bindings = [...imports].sort(compareStrings);
+  const bindings = [...imports].sort(compareCodeUnits);
   return [
     `import { ${bindings.join(", ")} } from ${JSON.stringify(specifier)};`,
     `export default { ${bindings.join(", ")} };`,
@@ -136,7 +137,7 @@ export function entrySource(specifier: string, imports: readonly string[] = []):
 
 /** The surface as one stable string: the specifier, then the sorted bindings. */
 function surfaceKey(specifier: string, imports: readonly string[]): string {
-  return [specifier, ...[...imports].sort(compareStrings)].join("\u0000");
+  return [specifier, ...[...imports].sort(compareCodeUnits)].join("\u0000");
 }
 
 /**
@@ -280,7 +281,7 @@ export async function runCandidateBuild(options: CandidateBuildOptions): Promise
     {
       step: "build",
       name: "build.import-surface",
-      value: [...imports].sort(compareStrings),
+      value: [...imports].sort(compareCodeUnits),
     },
     {
       step: "build",

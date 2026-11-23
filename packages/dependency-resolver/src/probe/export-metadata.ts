@@ -30,10 +30,11 @@
  */
 
 import type { ProbeFact, ProbeRejectionFinding, ProbeRisk, ProbeValidationEntry } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 
 import { ACTIVE_EXPORT_CONDITIONS, isPortablePackagePath } from "./browser-entry.ts";
 import type { ResolvedPackageIdentity } from "./identity.ts";
-import { compareStrings } from "./scan-utils.ts";
+
 
 export interface ExportMetadataObservation {
   readonly facts: readonly ProbeFact[];
@@ -215,7 +216,7 @@ function peerRangesOf(manifest: Readonly<Record<string, unknown>>): readonly str
   return Object.entries(peers as Record<string, unknown>)
     .filter((entry): entry is [string, string] => typeof entry[1] === "string")
     .map(([name, range]) => `${name}@${range}`)
-    .sort(compareStrings);
+    .sort(compareCodeUnits);
 }
 
 /**
