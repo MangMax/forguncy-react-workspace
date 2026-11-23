@@ -54,7 +54,7 @@ import {
   findLockDecision,
   LOCK_EVIDENCE_POLICY,
   lockEvidenceProfileOf,
-  parseMigratedFgcLockDocument,
+  parseFgcLockDocument,
   resolveLockDecision,
   serializeFgcLock,
 } from "@forguncy-react-workspace/core";
@@ -65,19 +65,20 @@ export function fgcLockPath(projectRoot: string): string {
 }
 
 /**
- * Reads, migrates and validates the project lock.
+ * Reads and validates the project lock.
  *
  * Returns an empty lock when no file exists. A file that exists fails loudly
- * rather than becoming "no decisions": an older version is brought forward by a
- * declared migration step, and a version with no step — including a newer one —
- * throws.
+ * rather than becoming "no decisions": a version this toolchain does not
+ * understand throws, with the instruction to migrate the lock deliberately
+ * rather than read it on a best-effort basis.
  *
- * The two version directions are deliberately not symmetrical. Refusing a newer
- * document is the whole point of the schema-version check; refusing an older one
- * forever would mean the format could never change, so an older document is
- * migrated instead, and only a version nobody has written a step for is refused.
- * See `parseMigratedFgcLockDocument`, which also runs the full rules pass, so
- * migration is never a way past validation.
+ * The read path has one answer for every version that is not the current one,
+ * and that is the honest state rather than a gap: v1 is the only version this
+ * format has ever had, so there is no older shape to bring forward and no step
+ * anybody could write. What a reader must not do is treat an unreadable version
+ * as "no decisions" — the failure `parseFgcLockDocument`'s explicit refusal
+ * exists to prevent (#157 deleted the empty migration registry that stood in
+ * front of it).
  */
 export async function readFgcLock(projectRoot: string): Promise<FgcLockDocument> {
   let text: string;
@@ -89,7 +90,7 @@ export async function readFgcLock(projectRoot: string): Promise<FgcLockDocument>
     }
     throw error;
   }
-  return parseMigratedFgcLockDocument(text);
+  return parseFgcLockDocument(text);
 }
 
 /**

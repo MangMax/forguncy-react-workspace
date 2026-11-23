@@ -61,7 +61,7 @@ import {
   dependencyDecisionOf,
   findLockDecision,
   loadForguncyConfig,
-  parseMigratedFgcLockDocument,
+  parseFgcLockDocument,
   RUNTIME_CONTRACT_TARGET,
 } from "@forguncy-react-workspace/core";
 import type { DependencyDecision, LockedDependencyDecision } from "@forguncy-react-workspace/core";
@@ -401,7 +401,7 @@ function installPackage(root: string, name: string, version: string, source: str
 
 /** The record `record` wrote, by `(packageName, cellTarget)`. */
 function lockedRecord(root: string, cellTarget: string | null): LockedDependencyDecision {
-  const lock = parseMigratedFgcLockDocument(readFileSync(join(root, "fgc.lock.json"), "utf8"));
+  const lock = parseFgcLockDocument(readFileSync(join(root, "fgc.lock.json"), "utf8"));
   const record = findLockDecision(lock, { packageName: CHART_KIT.packageName, cellTarget });
   if (record === null) {
     throw new Error(`No record for ${CHART_KIT.packageName} at cellTarget ${String(cellTarget)}.`);

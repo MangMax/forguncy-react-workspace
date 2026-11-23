@@ -1231,8 +1231,8 @@ function inspectLockRecord(record: unknown, where: string): readonly string[] {
       // The **read-side** rule, deliberately weaker than the writer's (#77 revision 18). Revision
       // 16's own `record` persisted `{"strategy":"replace"}` through its normal writer, so a
       // schema-v1 lock carrying that value has to stay loadable — refusing it here would fail the
-      // parse and the record would never reach freshness, which is the migration failure
-      // `lock-migration.ts` exists to prevent. Freshness reports it unreplayable instead.
+      // parse and the record would never reach freshness — the failure the read contract exists to
+      // prevent. Freshness reports it unreplayable instead.
       if (!isReadableSubjectCompileDecision(evidence.subjectDecision)) {
         problems.push(
           `${where} must declare \`artifactEvidence.subjectDecision\` as \`{"strategy":"inline"}\` or a \`host\`/\`extension\` object with its \`globalName\` (and \`libraryId\`), or omit \`artifactEvidence\`.`,

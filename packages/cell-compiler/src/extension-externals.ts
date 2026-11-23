@@ -54,7 +54,6 @@ import {
   auditExtensionLibraryMetadata,
   createExtensionExternalDiagnostic,
   extensionExternalDiagnosticRule,
-  extensionInterceptedModuleIds,
   extensionMappingForPackage,
   extensionModuleIds,
   EXTENSION_EXTERNAL_MAPPINGS,
@@ -681,17 +680,4 @@ export function formatExtensionExternalsPlan(plan: ExtensionExternalsPlan): stri
       ? "No extension externals diagnostics."
       : `${plan.diagnostics.length} extension externals diagnostic(s):\n${formatExtensionExternalDiagnostics(plan.diagnostics)}`,
   ].join("\n");
-}
-
-/**
- * Every module id the mapping table intercepts.
- *
- * Takes the mapping list so a caller comparing a bundle against the table is
- * comparing against the same table it planned from, rather than against the shipped
- * default.
- */
-export function interceptedExtensionExternalModuleIds(
-  mappings: readonly ExtensionExternalMapping[] = EXTENSION_EXTERNAL_MAPPINGS,
-): readonly string[] {
-  return extensionInterceptedModuleIds(mappings);
 }

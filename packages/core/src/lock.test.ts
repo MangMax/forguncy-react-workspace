@@ -560,6 +560,18 @@ describe("schema versioning", () => {
     expect(() => parseFgcLockDocument(future)).toThrow(/unsupported schema version 99/i);
   });
 
+  it("refuses an older version with the same deliberate-migration instruction", () => {
+    // #157 removed `lock-migration.ts`: its step registry was empty, so the only thing it could do
+    // with a document from an older toolchain was refuse it — which `lock.ts` already does, in the
+    // one message that tells the reader what to do about it. Pinned here because the refusal is now
+    // the read path's own answer rather than a second module's, and it must stay a *refusal* rather
+    // than becoming a best-effort read.
+    const older = JSON.stringify({ schemaVersion: 0, decisions: [] });
+
+    expect(() => parseFgcLockDocument(older)).toThrow(FgcLockSchemaVersionError);
+    expect(() => parseFgcLockDocument(older)).toThrow(/Migrate the lock deliberately/i);
+  });
+
   it("fails explicitly on a document that declares no version at all", () => {
     expect(() => parseFgcLockDocument(JSON.stringify({ decisions: [] }))).toThrow(/numeric `schemaVersion`/);
   });
@@ -774,9 +786,8 @@ describe("lock metadata validation", () => {
   });
 
   it("keeps a pre-revision-14 budget rejection readable, so it can go stale instead of unreadable", () => {
-    // The migration contract in `lock-migration.ts`: a lock written by a previous toolchain must
-    // stay readable, and a migration must not silently delete or re-decide a record it cannot
-    // interpret. Round 3 refused this outright, which made such a lock fail to *parse* — the
+    // The read contract: a lock written by a previous toolchain must stay readable, and a read
+    // must not silently delete or re-decide a record it cannot interpret. Round 3 refused this outright, which made such a lock fail to *parse* — the
     // record never reached freshness, so the invalidation the revision bump exists to produce
     // never ran. It is accepted here; `lock-freshness.test.ts` asserts it reports stale.
     const legacy: LockedDependencyDecision = {
@@ -799,7 +810,7 @@ describe("lock metadata validation", () => {
   // measured in round 6), freshness would keep that impossible state fresh.
   it("refuses an illegal subject decision at the read boundary, except the one a prior toolchain wrote", () => {
     // Asserted on the **structural** pass, which is public API (`inspectFgcLockDocument`) and what
-    // `lock-migration.ts` runs on a document from an older toolchain.
+    // the read path runs on a document from an older toolchain.
     const inspect = (subjectDecision: unknown): string =>
       inspectFgcLockDocument({
         schemaVersion: 1,
@@ -842,7 +853,7 @@ describe("lock metadata validation", () => {
   it("keeps a lock written by the previous toolchain readable through the whole document path", () => {
     // The end-to-end half: a reader loads through `parseFgcLockDocument`, so the legacy shape has
     // to survive both passes. Failing here would mean the record never reaches freshness — the
-    // migration failure `lock-migration.ts` exists to prevent.
+    // read failure the contract above exists to prevent.
     const text = JSON.stringify(
       {
         schemaVersion: 1,

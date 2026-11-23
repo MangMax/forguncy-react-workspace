@@ -787,8 +787,8 @@ function bundledSourceFiles(
 
   const files = new Set<string>();
   for (const id of ids) {
-    // A virtual module id (` rolldown/runtime.js`) is not a file on disk.
-    if (id.startsWith(" ")) {
+    // A virtual module id (`\0rolldown/runtime.js`) is not a file on disk.
+    if (id.startsWith("\0")) {
       continue;
     }
     files.add(normalize(id));

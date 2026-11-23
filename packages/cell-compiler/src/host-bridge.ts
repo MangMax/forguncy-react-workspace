@@ -62,7 +62,6 @@ import {
   hostBridgeBindingFor,
   hostBridgeGlobalIsAlwaysAvailable,
   hostBridgeGlobalMappings,
-  hostBridgeInterceptedModuleIds,
   hostBridgeModuleIds,
   hostBridgeShapeFor,
   HOST_BRIDGE_DIAGNOSTIC_RULES,
@@ -1224,19 +1223,6 @@ export function formatHostBridgePlan(plan: HostBridgePlan): string {
       ? "No bridge diagnostics."
       : `${plan.diagnostics.length} bridge diagnostic(s):\n${formatHostBridgeDiagnostics(plan.diagnostics)}`,
   ].join("\n");
-}
-
-/**
- * Every module id the bridge intercepts.
- *
- * Takes the mapping list so a caller comparing a bundle against the bridge is
- * comparing against the same table it planned from, rather than against the
- * shipped default.
- */
-export function interceptedHostBridgeModuleIds(
-  mappings: readonly HostBridgeMapping[] = HOST_BRIDGE_MAPPINGS,
-): readonly string[] {
-  return hostBridgeInterceptedModuleIds(mappings);
 }
 
 /** The JSX runtime exports a generated adapter must define, re-exported for tests. */

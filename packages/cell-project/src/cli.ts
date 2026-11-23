@@ -41,6 +41,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { CellOverwritePolicy, ForguncySyncPort } from "@forguncy-react-workspace/mcp-sync";
+import { FORGUNCY_SYNC_PORT_METHODS } from "@forguncy-react-workspace/mcp-sync";
 
 import {
   buildProject,
@@ -154,9 +155,13 @@ function failurePolicy(options: ParsedArguments["options"], name: string): "stop
  * The port a `--port` module exports.
  *
  * Loaded through `pathToFileURL` rather than a bare import so a project-relative path works, and
- * checked for the seven methods the flow needs — a module that happens to export an object is not
- * a port, and letting the sync fail on the first missing method would report a transport error for
- * what is a wiring mistake.
+ * checked for the methods the flow needs — a module that happens to export an object is not a port,
+ * and letting the sync fail on the first missing method would report a transport error for what is
+ * a wiring mistake.
+ *
+ * The method list is `mcp-sync`'s (`FORGUNCY_SYNC_PORT_METHODS`, #157), not a copy: a hand-written
+ * list here would let a method added to the port contract go unchecked, and the first symptom would
+ * be a sync that fails deep in the flow instead of at the wiring.
  */
 async function loadPort(specifier: string, projectRoot: string): Promise<ForguncySyncPort> {
   const absolute = resolve(projectRoot, specifier);
@@ -165,15 +170,7 @@ async function loadPort(specifier: string, projectRoot: string): Promise<Forgunc
     readonly port?: unknown;
   };
   const candidate = module.port ?? module.default;
-  const required = [
-    "listFrontendLibraries",
-    "readCellSource",
-    "setCells",
-    "getProjectSaveStatus",
-    "saveProject",
-    "checkProjectErrors",
-    "generatePageAsync",
-  ] as const;
+  const required = FORGUNCY_SYNC_PORT_METHODS;
   if (typeof candidate !== "object" || candidate === null) {
     throw new UsageError(
       `The module at ${absolute} exports no port. Export a ForguncySyncPort as \`default\` or as \`port\`.`,
@@ -182,7 +179,7 @@ async function loadPort(specifier: string, projectRoot: string): Promise<Forgunc
   const missing = required.filter(method => typeof (candidate as Record<string, unknown>)[method] !== "function");
   if (missing.length > 0) {
     throw new UsageError(
-      `The module at ${absolute} is not a ForguncySyncPort: it has no ${missing.join(", ")}. The seven port methods are the sync's whole designer surface.`,
+      `The module at ${absolute} is not a ForguncySyncPort: it has no ${missing.join(", ")}. The ${String(required.length)} port methods are the sync's whole designer surface.`,
     );
   }
   return candidate as ForguncySyncPort;

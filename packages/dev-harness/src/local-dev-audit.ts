@@ -50,7 +50,7 @@
  * which holds `readFgcLock`, imports none of that — the cost is the barrel, not the reader.)
  *
  * So the reader below is `readFgcLock`'s three behaviours, and the shared half is *imported*
- * rather than reproduced: `parseMigratedFgcLockDocument` and `createEmptyFgcLock` come from
+ * rather than reproduced: `parseFgcLockDocument` and `createEmptyFgcLock` come from
  * `core`, which is already in this graph. What is duplicated is only the argument — this reads
  * the path `registry.runtime.dependencyLockPathAbsolute` names, while `readFgcLock` takes a
  * project root and always appends `fgc.lock.json`, so the two differ on a project that declared
@@ -70,7 +70,7 @@ import { readFile } from "node:fs/promises";
 import {
   createEmptyFgcLock,
   FGC_LOCK_FILE_NAME,
-  parseMigratedFgcLockDocument,
+  parseFgcLockDocument,
 } from "@forguncy-react-workspace/core";
 import { findLockDecision } from "@forguncy-react-workspace/core";
 import type { DependencyDecision, FgcLockDocument, LockedDependencyDecision } from "@forguncy-react-workspace/core";
@@ -158,7 +158,7 @@ export function effectiveDecisionsForCell(
 }
 
 /**
- * The project's `fgc.lock.json`, read, migrated and validated.
+ * The project's `fgc.lock.json`, read and validated.
  *
  * `readFgcLock`'s behaviour reproduced without `dependency-resolver`'s barrel — see the module
  * docstring for the measurement, and `local-dev-audit.test.ts` for the guard that keeps the two
@@ -166,10 +166,10 @@ export function effectiveDecisionsForCell(
  *
  * - **no file** is an empty lock rather than an error, because "no decision recorded yet" is a
  *   normal state for a project and failing here would force every first run to special-case it;
- * - **a file that exists** goes through the full migration-then-validation path, so an older
- *   document is brought forward and an illegal one is refused. Both halves matter: reading the
- *   JSON without `parseMigratedFgcLockDocument` would let this module act on a record the
- *   compiler would reject;
+ * - **a file that exists** goes through the full validation path, so an illegal document — or one
+ *   whose schema version this toolchain does not understand — is refused. That matters: reading
+ *   the JSON without `parseFgcLockDocument` would let this module act on a record the compiler
+ *   would reject;
  * - **anything else** — unreadable, malformed — propagates. A lock this process cannot read is
  *   not "no decisions", and treating it as one would be the silent pass this whole module exists
  *   to prevent.
@@ -188,7 +188,7 @@ export async function readProjectDependencyDecisions(
   }
 
   try {
-    return parseMigratedFgcLockDocument(text);
+    return parseFgcLockDocument(text);
   } catch (error) {
     throw new Error(
       `The project's ${FGC_LOCK_FILE_NAME} at ${lockPathAbsolute} is not a lock this toolchain accepts, so the local loop cannot say whether the Cell's dependencies are exercised locally: ${String(error)}`,

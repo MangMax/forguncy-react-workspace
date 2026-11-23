@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   EXTENSION_EXTERNAL_MAPPINGS,
+  extensionInterceptedModuleIds,
   normalizeExtensionMappings,
   type DependencyDecision,
   type ExtensionExternalMapping,
@@ -17,7 +18,6 @@ import { CELL_ENTRY_COMPONENT_BINDING } from "./entry.ts";
 import {
   extensionExternalModuleIds,
   formatExtensionExternalsPlan,
-  interceptedExtensionExternalModuleIds,
   planExtensionExternals,
   renderExtensionExternalModule,
   EXTENSION_EXTERNAL_GENERATED_BANNER,
@@ -449,7 +449,7 @@ describe("planning the extension externals", () => {
     expect(plan.catalog.map(entry => entry.moduleId)).toEqual(["@tanstack/react-query", "@tanstack/query-core"]);
     expect(plan.catalog.every(entry => entry.bundledForbidden)).toBe(true);
     expect(plan.catalog[1]?.source).toContain('"@tanstack/query-core"');
-    expect(interceptedExtensionExternalModuleIds()).toEqual(["@tanstack/react-query", "@tanstack/query-core"]);
+    expect(extensionInterceptedModuleIds()).toEqual(["@tanstack/react-query", "@tanstack/query-core"]);
   });
 
   it("says the activation is unstated rather than empty when nothing was supplied", () => {

@@ -258,32 +258,36 @@ export type {
 // surface without the fail-fast provider check, and the second hands out the raw
 // host bindings — the coupling #27's problem statement exists to remove. Both are
 // reachable inside the package, where the audit and the resolution need them.
+//
+// The audit and the surface declaration are `facade.ts`'s; the accessor and the two address tuples
+// it validates against are `cell-runtime.ts`'s. Each name is taken from the module that defines it
+// (#157), so `facade.ts` no longer re-exports `cell-runtime.ts`'s names on the barrel's behalf —
+// one hop from a definition to the entry, not two.
 export {
   assertRuntimeFacadeSurfaceIsExposed,
   auditRuntimeFacadeSurface,
   findRuntimeFacadeSurfaceMember,
-  RUNTIME_FACADE_CELL_PROP_ADDRESSES,
-  RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES,
   RUNTIME_FACADE_SURFACE,
   RUNTIME_FACADE_SURFACE_FINDING_IDS,
-  RUNTIME_FACADE_SURFACE_MEMBER_IDS,
   RUNTIME_FACADE_SURFACE_SIGNATURES,
-  runtimeFacade,
   runtimeFacadeExposedAddresses,
   runtimeFacadeExposedAddressNames,
   runtimeFacadeMemberCarriesBinding,
 } from "./facade.ts";
 export type {
-  ExposedCellPropKey,
-  ExposedForguncyMember,
-  RuntimeFacade,
   RuntimeFacadeSurfaceCarrier,
   RuntimeFacadeSurfaceFinding,
   RuntimeFacadeSurfaceFindingId,
   RuntimeFacadeSurfaceMember,
-  RuntimeFacadeSurfaceMemberId,
   RuntimeFacadeSurfaceSignature,
 } from "./facade.ts";
+export {
+  runtimeFacade,
+  RUNTIME_FACADE_CELL_PROP_ADDRESSES,
+  RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES,
+  RUNTIME_FACADE_SURFACE_MEMBER_IDS,
+} from "./cell-runtime.ts";
+export type { ExposedCellPropKey, ExposedForguncyMember, RuntimeFacade, RuntimeFacadeSurfaceMemberId } from "./cell-runtime.ts";
 
 // #29 — how the surface resolves, and every way of not resolving
 export {
