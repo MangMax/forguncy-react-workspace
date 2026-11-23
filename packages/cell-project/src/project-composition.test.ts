@@ -29,7 +29,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { ForguncySyncPort } from "@forguncy-react-workspace/mcp-sync";
 import { readToolchainIdentity } from "@forguncy-react-workspace/dependency-resolver/local";
@@ -43,6 +43,15 @@ import {
   syncProject,
 } from "./index.ts";
 import type { ProjectBuild } from "./index.ts";
+
+/**
+ * Every case here runs a real project build (registry, install-graph read, Rolldown compile), so
+ * Vitest's 5 s default is a budget for a unit test, not for this. Measured on Windows under the full
+ * parallel suite: the file took 20.8 s and one case timed out at exactly 5000 ms while passing in
+ * isolation, which is a budget that is too small rather than a behaviour that broke — the same
+ * reasoning as the dev-harness integration suites' `vi.setConfig`.
+ */
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = join(HERE, "..", "..", "..");
