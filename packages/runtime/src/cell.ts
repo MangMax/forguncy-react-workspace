@@ -7,8 +7,8 @@
  *
  * `index.ts` is the whole package because the package has three audiences: a Cell calls
  * `runtimeFacade()`, `dev-harness` reads `local-dev.ts`, and tests read `capabilities.ts`. A
- * compiled Cell needs the first and must not carry the other two — `local-dev.ts` alone is 2,392
- * lines of contract prose, and the capability registry is another 892. So the compiler's
+ * compiled Cell needs the first and must not carry the other two — the local-dev contract alone
+ * is about 2,600 lines of contract prose, and the capability registry is another 892. So the compiler's
  * generated binding imports *this* entry (`runtime-binding.ts` embeds its resolved id) and no
  * other. `index.ts` stays the complete surface, so nothing outside a Cell artifact changes.
  *

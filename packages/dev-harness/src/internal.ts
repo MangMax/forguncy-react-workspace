@@ -114,11 +114,11 @@ export {
   HARNESS_ENTRY_URL_PATH,
   HARNESS_MOUNT_ELEMENT_ID,
   harnessHostModulePlan,
-  projectAliasTarget,
   REACT_FAST_REFRESH_PLUGIN_NAME,
   reactFastRefresh,
 } from "./vite-plugin.ts";
 export type { DevHarnessOptions, DevHarnessVitePlugin } from "./vite-plugin.ts";
+export { projectAliasTarget } from "./alias-audit.ts";
 
 // The top-level Vite config helper (#125): the plugin, the host plan and Fast Refresh assembled
 // in the order the loop needs, with the project's own config preserved over the defaults.

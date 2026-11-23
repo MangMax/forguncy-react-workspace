@@ -77,10 +77,10 @@
 
 import type { Alias, AliasOptions, PluginOption, UserConfig } from "vite";
 
+import { normalizeAliasFind } from "./alias-audit.ts";
 import {
   devHarness,
   harnessHostModulePlan,
-  normalizeAliasFind,
   REACT_FAST_REFRESH_PLUGIN_NAME,
   reactFastRefresh,
 } from "./vite-plugin.ts";
