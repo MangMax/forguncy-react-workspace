@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import { createCellRegistry, ForguncyConfigError } from "./cell-registry.ts";
 import type { ConfigDiagnosticCode } from "./cell-registry.ts";
-import { FGC_LOCK_SCHEMA_VERSION, forguncyTargetIdentity, validateFgcLockDocument } from "./lock.ts";
-import type { FgcLockDocument, LockedDependencyDecision } from "./lock.ts";
+import { FGC_LOCK_SCHEMA_VERSION, forguncyTargetIdentity } from "./lock-types.ts";
+import type { FgcLockDocument, LockedDependencyDecision } from "./lock-types.ts";
+import { validateFgcLockDocument } from "./lock-validate.ts";
 import { machineSpecificPathProblem } from "./portability.ts";
 
 /**

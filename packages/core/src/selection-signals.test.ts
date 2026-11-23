@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { RUNTIME_CONFIRMED_TECHNICAL_REJECTION_CODES } from "./lock.ts";
+import { RUNTIME_CONFIRMED_TECHNICAL_REJECTION_CODES } from "./lock-types.ts";
 import { assessDependencyRole, isPlatformConflict, PLATFORM_CONFLICT_PACKAGE_NAMES } from "./platform-conflicts.ts";
 import { isTechnicalRejectionCode, TECHNICAL_REJECTION_CODES } from "./rejection.ts";
 import {

@@ -202,26 +202,30 @@ export {
   DECISION_EVIDENCE_KINDS,
   FGC_LOCK_FILE_NAME,
   FGC_LOCK_SCHEMA_VERSION,
-  FgcLockValidationError,
   LOCK_EVIDENCE_POLICY,
-  assertFgcLockDocument,
-  assertFgcLockDocumentShape,
+  createEmptyFgcLock,
+  dependencyDecisionOf,
+  forguncyTargetIdentity,
+  lockEvidenceProfileForDecision,
+  lockEvidenceProfileOf,
+  matchesForguncyTargetIdentity,
+} from "./lock-types.ts";
+export {
   canonicalizeFgcLock,
   canonicalizeImports,
   compareEvidenceLinks,
   compareLockDecisions,
-  createEmptyFgcLock,
-  dependencyDecisionOf,
-  findMachineSpecificPaths,
-  forguncyTargetIdentity,
-  isRepositoryRelativeReference,
-  lockEvidenceProfileForDecision,
-  lockEvidenceProfileOf,
-  matchesForguncyTargetIdentity,
-  parseFgcLockDocument,
   serializeFgcLock,
+} from "./lock-canonical.ts";
+export {
+  FgcLockValidationError,
+  assertFgcLockDocument,
+  assertFgcLockDocumentShape,
+  findMachineSpecificPaths,
+  isRepositoryRelativeReference,
+  parseFgcLockDocument,
   validateFgcLockDocument,
-} from "./lock.ts";
+} from "./lock-validate.ts";
 export type {
   DecisionEvidenceLink,
   ExtensionEvidence,
@@ -233,7 +237,7 @@ export type {
   ProbeStatus,
   RejectedCandidateEvidence,
   ToolchainIdentity,
-} from "./lock.ts";
+} from "./lock-types.ts";
 export {
   assessLockDecision,
   findLockDecision,

@@ -17,15 +17,17 @@ import {
 import {
   auditWorkspaceSource,
   classifyWorkspaceModule,
-  findWorkspaceSourceGuarantee,
-  findWorkspaceSourceReuseClass,
   formatWorkspaceSourceAudit,
   indexWorkspaceGraph,
   isWorkspaceSourceSpecifier,
-  locallyCheckableWorkspaceSourceGuarantees,
-  realRuntimeWorkspaceSourceGuarantees,
   traceWorkspaceSourceClosure,
   workspacePackageFor,
+} from "./workspace-source-audit.ts";
+import {
+  findWorkspaceSourceGuarantee,
+  findWorkspaceSourceReuseClass,
+  locallyCheckableWorkspaceSourceGuarantees,
+  realRuntimeWorkspaceSourceGuarantees,
   workspaceReuseClassesRequiringDelegation,
   WORKSPACE_CONTEXT_SEMANTICS,
   WORKSPACE_SOURCE_DIAGNOSTIC_CODES,

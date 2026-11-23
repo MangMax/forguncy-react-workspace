@@ -213,22 +213,24 @@ export {
 export {
   auditWorkspaceSource,
   classifyWorkspaceModule,
+  formatWorkspaceSourceAudit,
+  indexWorkspaceGraph,
+  isWorkspaceSourceSpecifier,
+  traceWorkspaceSourceClosure,
+  workspacePackageFor,
+} from "./workspace-source-audit.ts";
+export {
   createWorkspaceSourceDiagnostic,
   findWorkspaceSourceGuarantee,
   findWorkspaceSourceReuseClass,
-  formatWorkspaceSourceAudit,
   formatWorkspaceSourceDiagnostic,
   formatWorkspaceSourceDiagnostics,
-  indexWorkspaceGraph,
   isWorkspaceSourceDiagnosticCode,
-  isWorkspaceSourceSpecifier,
   locallyCheckableWorkspaceSourceGuarantees,
   orderWorkspaceSourceDiagnostics,
   realRuntimeWorkspaceSourceGuarantees,
-  traceWorkspaceSourceClosure,
   WORKSPACE_CONTEXT_SEMANTICS,
   WORKSPACE_MODULE_KINDS,
-  workspacePackageFor,
   workspaceReuseClassesRequiringDelegation,
   WORKSPACE_SOURCE_DIAGNOSTIC_CODES,
   WORKSPACE_SOURCE_DIAGNOSTIC_RULES,
@@ -273,16 +275,10 @@ export { loadPnpmWorkspaceGraph, PNPM_WORKSPACE_FILE } from "./workspace-graph.t
 export type { LoadedWorkspaceGraph, LoadWorkspaceGraphOptions } from "./workspace-graph.ts";
 
 // The boundary
-export {
-  assembleCellArtifact,
-  CELL_ARTIFACT_BANNER,
-  compileCell,
-  formatCompileCellOutcome,
-  serializeCompileCellResult,
-  verifyCellArtifact,
-} from "./artifact.ts";
+export { assembleCellArtifact, CELL_ARTIFACT_BANNER } from "./artifact-assembly.ts";
+export { compileCell, formatCompileCellOutcome, serializeCompileCellResult, verifyCellArtifact } from "./artifact.ts";
+export type { AssembleCellArtifactInput } from "./artifact-assembly.ts";
 export type {
-  AssembleCellArtifactInput,
   BundledCellModule,
   CellBundlerPort,
   CellBundlingRequest,

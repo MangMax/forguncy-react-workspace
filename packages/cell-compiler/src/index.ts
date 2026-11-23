@@ -15,7 +15,8 @@
 export { ARTIFACT_CONTRACT_DECISION } from "./provenance.ts";
 export { canonicalizeFrontendLibraries, frontendLibraryIds, frontendLibraryReference } from "./frontend-libraries.ts";
 export { planExtensionExternals } from "./extension-externals.ts";
-export { CELL_ARTIFACT_BANNER, compileCell, serializeCompileCellResult, verifyCellArtifact } from "./artifact.ts";
+export { CELL_ARTIFACT_BANNER } from "./artifact-assembly.ts";
+export { compileCell, serializeCompileCellResult, verifyCellArtifact } from "./artifact.ts";
 export type { CompileCellOutcome, CompileCellResult } from "./artifact.ts";
 export { packageNameOfSpecifier } from "./specifier.ts";
 export { resolveCellResource } from "./cell-resources.ts";

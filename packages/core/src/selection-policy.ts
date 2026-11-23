@@ -47,8 +47,8 @@ import {
   formatGoverningSpecReferenceLine,
   GOVERNING_ARCHITECTURE_DECISIONS,
 } from "./governance.ts";
-import type { LockProbeRequirement, ProbeStatus } from "./lock.ts";
-import { LOCK_EVIDENCE_POLICY, lockEvidenceProfileForDecision } from "./lock.ts";
+import type { LockProbeRequirement, ProbeStatus } from "./lock-types.ts";
+import { LOCK_EVIDENCE_POLICY, lockEvidenceProfileForDecision } from "./lock-types.ts";
 import type { PlatformConflictAssessment } from "./platform-conflicts.ts";
 import { isPlatformConflict } from "./platform-conflicts.ts";
 import type { ProbeAssessment, ProbeReport } from "./probe-protocol.ts";
