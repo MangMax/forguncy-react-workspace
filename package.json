@@ -13,10 +13,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "build": "vp run -r build"
   },
+  "//devDependencies": [
+    "`vite-plus` is the toolchain every `vp` command runs on, and `vitest` is here because the",
+    "root is where the test runner is declared. Its version is `vite-plus@1.7.0`'s own pin, not",
+    "the newest release: vite-plus depends on `vitest@5.1.0` **exactly** (as `0.3.2` did on",
+    "4.1.11), and declaring a newer one installs a second copy — `vp test` then runs 5.1.0 while",
+    "the test files import 5.1.1 — plus unmet peers against vite-plus's pinned `@vitest/*` set.",
+    "`pnpm peers check` is clean on this pin; that is the state this line is keeping."
+  ],
   "devDependencies": {
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
-    "vite-plus": "0.3.2",
-    "vitest": "4.1.11"
+    "vite-plus": "1.7.0",
+    "vitest": "5.1.0"
   }
 }

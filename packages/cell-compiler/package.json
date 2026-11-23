@@ -6,15 +6,18 @@
   "dependencies": {
     "@babel/parser": "7.29.8",
     "@forguncy-react-workspace/core": "workspace:*",
-    "rolldown": "1.2.9",
+    "rolldown": "1.3.3",
     "yaml": "2.9.1"
   },
   "//dependencies": [
     "`rolldown` is the bundler #6 mandates for the compiler's resolution and code",
-    "generation half, pinned to the version this toolchain actually installs",
-    "(`vite-plus@0.3.2`). It is a runtime dependency because `src/rolldown-bundler.ts`",
-    "implements `CellBundlerPort` with it — the port is the package's own code, not a",
-    "test fixture — while `compileCell` itself stays bundler-agnostic behind the port.",
+    "generation half, pinned to `1.3.3` — the version this repository installs as a",
+    "direct dependency, and therefore the exact module `src/rolldown-bundler.ts` imports.",
+    "(`vite-plus@1.7.0` bundles its own Rolldown inside `@voidzero-dev/vite-plus-core`",
+    "for `vp dev`; that copy is not what compiles a Cell.) It is a runtime dependency",
+    "because `src/rolldown-bundler.ts` implements `CellBundlerPort` with it — the port is",
+    "the package's own code, not a test fixture — while `compileCell` itself stays",
+    "bundler-agnostic behind the port.",
     "",
     "Two test-only facts ride on the same pin. #12's generated module is only correct",
     "with respect to the CommonJS-to-ESM interop this bundler applies to it, and that",

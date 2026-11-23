@@ -444,7 +444,7 @@ export const EXTENSION_EXTERNAL_INTEROP_BEHAVIOUR = {
   consequence:
     "A generated extension module must expose the page object's own member names while its own body runs. A module with a dynamic export surface — one whose names are knowable only after the global exists — yields a namespace that can never gain them, and it fails silently: an authored `import { useQuery }` reads `undefined` rather than throwing.",
   observedIn:
-    "rolldown 1.2.9, the version installed through `vite-plus@0.3.2` in this repository; exercised by the interop regression in `@forguncy-react-workspace/cell-compiler`'s test suite.",
+    "rolldown 1.3.3, the standalone bundler this repository installs alongside `vite-plus@1.7.0`; exercised by the interop regression in `@forguncy-react-workspace/cell-compiler`'s test suite.",
 } as const;
 
 export const EXTENSION_LOAD_ORDER_RULES: readonly ExtensionLoadOrderRule[] = [

@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 import type { UserConfig } from "vite";
 
@@ -34,6 +34,15 @@ import { DEV_HARNESS_PLUGIN_NAME, REACT_FAST_REFRESH_PLUGIN_NAME, reactFastRefre
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = join(here, "..", "tests", "fixtures", "html-injection", "ordinary");
+
+/**
+ * The alias cases below each build a **real Vite dev server**, so Vitest's 5 s unit-test default
+ * is the wrong budget for them (#150). The same file's eight cases took 3.1 s on CI's cold Windows
+ * runner at baseline and crossed 5 s after the toolchain upgrade, timing out two of them while the
+ * other six passed — a threshold the file was never written against rather than a defect in what
+ * it asserts. `asset-policy.test.ts` records the full measurement.
+ */
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /** A hand-written config, so the committed fixture needs no `forguncy.config.ts` of its own. */
 const config = {

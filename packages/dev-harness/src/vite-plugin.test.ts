@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createCellRegistry } from "@forguncy-react-workspace/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 
 import {
@@ -68,6 +68,19 @@ import { hostModuleAliases } from "./host-modules.ts";
  */
 
 const fixturesRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "tests", "fixtures", "html-injection");
+
+/**
+ * Every case here builds a **real Vite dev server**, so Vitest's 5 s unit-test default is the
+ * wrong budget and grades these tests against something they never claimed (#150).
+ *
+ * Measured on the toolchain upgrade: this file's 60 cases took 20.8 s on Linux CI at baseline and
+ * 93.4 s after it, and 18 of them timed out on Windows at exactly 5000 ms — all of them still
+ * passing wherever they completed, which is what distinguishes a budget that is too small from a
+ * behaviour that broke. The cost is `createServer` (≈0.9 s each, measured unchanged between the two
+ * toolchains) plus the harness `config()` hook's install-graph read; both are the integration cost
+ * this file exists to exercise. `asset-policy.test.ts` records the same measurement in full.
+ */
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /** A hand-written config, so the fixtures need no `forguncy.config.ts` of their own. */
 const config = {

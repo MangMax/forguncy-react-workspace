@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 import type { ViteDevServer } from "vite";
 
@@ -42,6 +42,23 @@ import { devHarness } from "./vite-plugin.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = join(here, "..", "tests", "fixtures", "resources");
 const cellRoot = join(fixtureRoot, "cells", "probe", "src");
+
+/**
+ * Every case here builds a **real Vite dev server**, so Vitest's 5 s unit-test default is the
+ * wrong budget and the tests are being graded against the wrong thing (#150).
+ *
+ * Measured on the toolchain upgrade: the same cases take 1–2 s on a developer machine but crossed
+ * 5 s on CI's cold runners — `vite-plugin.test.ts`'s 60 cases went from 20.8 s to 93.4 s on Linux
+ * and 18 of them timed out on Windows, while still passing wherever they finished. The cost is
+ * `createServer` (≈0.9 s each, unchanged between toolchains when measured directly) plus the
+ * harness `config()` hook's install-graph read, which is a real integration cost this file exists
+ * to exercise rather than overhead to delete.
+ *
+ * Set on the file rather than as a fifth argument on every case, because the subject is uniform:
+ * unlike the `CASE_TIMEOUT_MS` suites, there is no single expensive case to single out — the
+ * default is simply too small for any of them on a loaded runner.
+ */
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /** The bytes the committed PNG contains, so the data URI can be compared byte for byte. */
 const PIXEL_BYTES = readFileSync(join(cellRoot, "pixel.png"));
