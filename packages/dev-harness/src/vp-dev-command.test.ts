@@ -26,7 +26,7 @@ import { HARNESS_ENTRY_URL_PATH, HARNESS_MOUNT_ELEMENT_ID } from "./vite-plugin.
  * "bundle")` — it proves the config graph is loadable by *Vite's* bundle loader, but a regression
  * in Vite+'s own `vp dev` command, in how it picks a target package, or in what it forwards to
  * Vite would leave it green. Measured, that is not a hypothetical distinction: this test's
- * sibling imports `vite@8.3.0`, while `vp dev` resolves `vite` to `@voidzero-dev/vite-plus-core`.
+ * sibling imports `vite@8.3.8`, while `vp dev` resolves `vite` to `@voidzero-dev/vite-plus-core`.
  * They are **different packages**, so the config-level test cannot speak for the command.
  *
  * The division is therefore: `bare-vp-dev.test.ts` explains and pins the *mechanism* (which

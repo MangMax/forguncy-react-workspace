@@ -14,8 +14,8 @@
     "build": "vp run -r build"
   },
   "devDependencies": {
-    "@types/node": "24.13.5",
-    "typescript": "5.9.3",
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3",
     "vite-plus": "0.3.2",
     "vitest": "4.1.11"
   }

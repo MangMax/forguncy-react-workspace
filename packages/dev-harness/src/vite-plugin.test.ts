@@ -1545,7 +1545,8 @@ describe("an unknown key is absent, not an empty replacement", () => {
  * `resolve.alias[].customResolver` is a resolver **function**, and `find + replacement` cannot
  * describe it.
  *
- * Vite 8.3.0 (the version this repository pins) still honours it: its alias plugin reads the final
+ * Vite 8.3.0 (the version this behaviour was measured on; the repository pins the same 8.3 line)
+ * still honours it: its alias plugin reads the final
  * `config.resolve.alias`, and an entry carrying a `customResolver` is dispatched to that resolver
  * function instead of continuing through ordinary `replacement` resolution. So an entry is not
  * identified by its two string halves alone.

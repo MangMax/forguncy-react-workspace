@@ -34,6 +34,6 @@
   ],
   "dependencies": {
     "@embedpdf/pdfium": "2.15.1",
-    "es-toolkit": "1.52.0"
+    "es-toolkit": "1.53.2"
   }
 }
