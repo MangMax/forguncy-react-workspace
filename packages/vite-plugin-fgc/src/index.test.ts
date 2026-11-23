@@ -70,7 +70,7 @@ describe("Vite+ plugin registry wiring", () => {
     const plugin = forguncy();
 
     expect(plugin.name).toBe(FORGUNCY_PLUGIN_NAME);
-    expect(plugin.configResolved).toBeTypeOf("function");
+    expect(typeof plugin.configResolved).toBe("function");
     expect(plugin.api.registry()).toBeUndefined();
   });
 

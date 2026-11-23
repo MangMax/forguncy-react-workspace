@@ -368,7 +368,7 @@ describe("what an executor may send", () => {
     const dispatch = planSetCellsDispatch(plan);
     expect(dispatch.kind).toBe("issue");
     if (dispatch.kind !== "issue") return;
-    port.setCells(dispatch.request);
+    void port.setCells(dispatch.request);
 
     // Read at runtime so a passing compile is not the whole story: if `Assignable` were ever
     // widened to `boolean`, both assertions below would still have to hold.

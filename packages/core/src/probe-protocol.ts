@@ -809,7 +809,7 @@ export function inspectProbeReport(input: unknown): readonly string[] {
     problems.push("A probe report must declare a numeric `schemaVersion`.");
   } else if (!isSupportedProbeReportSchemaVersion(input.schemaVersion)) {
     problems.push(
-      `Unsupported schema version ${input.schemaVersion}; this toolchain supports ${SUPPORTED_PROBE_REPORT_SCHEMA_VERSIONS.join(", ")}.`,
+      `Unsupported schema version ${String(input.schemaVersion)}; this toolchain supports ${SUPPORTED_PROBE_REPORT_SCHEMA_VERSIONS.join(", ")}.`,
     );
   }
 
