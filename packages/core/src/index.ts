@@ -369,8 +369,9 @@ export type {
 } from "./extension-mappings-config.ts";
 
 // The portability predicates (#26), extracted to a leaf because `resolve-config` needs the
-// same rule for an alias target and may not import the registry that calls it.
-export { isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
+// same rule for an alias target and may not import the registry that calls it. `#154` made
+// `containsMachineSpecificPath` the one machine-path rule both committed documents ask.
+export { containsMachineSpecificPath, isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
 
 // The module-resolution aliases (#97): one declared alias set, resolved once for both the
 // dev server and the Cell build.
