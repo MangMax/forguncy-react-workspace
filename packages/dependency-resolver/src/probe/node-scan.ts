@@ -57,7 +57,9 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { packageNameOfSpecifier } from "@forguncy-react-workspace/core";
 import type { ProbeFact, ProbeRejectionFinding, ProbeRisk, ProbeValidationEntry } from "@forguncy-react-workspace/core";
+import { compareCodeUnits, isPlainRecord } from "@forguncy-react-workspace/core";
 
 import {
   applyBrowserField,
@@ -69,7 +71,7 @@ import type { ResolvedPackageIdentity } from "./identity.ts";
 import { locateManifest } from "./identity.ts";
 import type { PackageSourceFile } from "./module-source.ts";
 import { collectReachableSourceFiles, isInside, readSourceFile, sourceWithoutCommentsLenient } from "./module-source.ts";
-import { compareStrings } from "./scan-utils.ts";
+
 
 /**
  * Builtins with no browser environment and no ordinary polyfill path.
@@ -133,7 +135,9 @@ function isNodeOnlySpecifier(specifier: string): boolean {
   if (specifier.startsWith("node:")) {
     return true;
   }
-  const bare = specifier.split("/")[0] ?? specifier;
+  // The package half of the specifier, by `core`'s one rule (#156) rather than by a
+  // second first-segment split here.
+  const bare = packageNameOfSpecifier(specifier);
   // Scoped packages have no builtin form.
   if (bare.startsWith("@")) {
     return false;
@@ -206,7 +210,7 @@ function nodeOnlySpecifiersOf(
       found.add(reference.specifier);
     }
   }
-  return [...found].sort(compareStrings);
+  return [...found].sort(compareCodeUnits);
 }
 
 /** Native-addon indicators visible in source text (paths are found separately, from disk). */
@@ -239,8 +243,8 @@ function nativeIndicatorsFromManifest(manifest: Readonly<Record<string, unknown>
   const names = new Set<string>();
   for (const field of ["dependencies", "optionalDependencies"] as const) {
     const deps = manifest[field];
-    if (deps !== null && typeof deps === "object" && !Array.isArray(deps)) {
-      for (const name of Object.keys(deps as Record<string, unknown>)) {
+    if (isPlainRecord(deps)) {
+      for (const name of Object.keys(deps)) {
         names.add(name);
       }
     }
@@ -248,7 +252,7 @@ function nativeIndicatorsFromManifest(manifest: Readonly<Record<string, unknown>
   if (typeof manifest["name"] === "string") {
     names.add(manifest["name"]);
   }
-  for (const name of [...names].sort(compareStrings)) {
+  for (const name of [...names].sort(compareCodeUnits)) {
     if (NATIVE_TOOLING_PACKAGES.has(name)) {
       found.push(`manifest:native-tooling:${name}`);
     }
@@ -323,11 +327,11 @@ async function collectGraph(identity: ResolvedPackageIdentity): Promise<readonly
       const depNames: string[] = [];
       for (const field of ["dependencies", "optionalDependencies", "peerDependencies"] as const) {
         const deps = current.manifest[field];
-        if (deps !== null && typeof deps === "object" && !Array.isArray(deps)) {
-          depNames.push(...Object.keys(deps as Record<string, unknown>));
+        if (isPlainRecord(deps)) {
+          depNames.push(...Object.keys(deps));
         }
       }
-      for (const depName of [...new Set(depNames)].sort(compareStrings)) {
+      for (const depName of [...new Set(depNames)].sort(compareCodeUnits)) {
         // Identity, not entry resolution: `locateManifest` asks the host which
         // package a name names, so a dependency whose `exports` publishes only an
         // `import` branch is in the graph rather than silently dropped (#89).
@@ -355,7 +359,7 @@ async function collectGraph(identity: ResolvedPackageIdentity): Promise<readonly
   }
 
   return [...byDirectory.values()].sort(
-    (a, b) => a.depth - b.depth || compareStrings(a.name, b.name) || compareStrings(a.version ?? "", b.version ?? ""),
+    (a, b) => a.depth - b.depth || compareCodeUnits(a.name, b.name) || compareCodeUnits(a.version ?? "", b.version ?? ""),
   );
 }
 
@@ -429,7 +433,7 @@ async function filesToScan(
       fromArtifact.push(file);
     }
   }
-  return fromArtifact.sort((left, right) => compareStrings(left.relativePath, right.relativePath));
+  return fromArtifact.sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
 }
 
 /**
@@ -583,13 +587,13 @@ export async function observeNodeBuiltins(
     }
   }
 
-  const builtinSpecifiers = [...builtinHits.keys()].sort(compareStrings);
-  const nativeIndicators = [...nativeHits.keys()].sort(compareStrings);
+  const builtinSpecifiers = [...builtinHits.keys()].sort(compareCodeUnits);
+  const nativeIndicators = [...nativeHits.keys()].sort(compareCodeUnits);
 
   facts.push({
     step: "node-builtin-scan",
     name: "graph.packages-scanned",
-    value: scannedPackages.sort(compareStrings),
+    value: scannedPackages.sort(compareCodeUnits),
   });
   facts.push({
     step: "node-builtin-scan",
@@ -607,7 +611,7 @@ export async function observeNodeBuiltins(
   facts.push({
     step: "node-builtin-scan",
     name: "graph.entry-resolutions",
-    value: [...new Set(unreachableEntryHits)].sort(compareStrings),
+    value: [...new Set(unreachableEntryHits)].sort(compareCodeUnits),
   });
   facts.push({
     step: "node-builtin-scan",
@@ -697,7 +701,7 @@ export async function observeNodeBuiltins(
     const evidence: string[] = [
       ...builtinSpecifiers.map(portableEvidence),
       ...nativeIndicators.map(indicator => `native:${indicator}`),
-      ...[...contributingPackages].sort(compareStrings),
+      ...[...contributingPackages].sort(compareCodeUnits),
     ];
     rejectionFindings.push({
       signal: "node-filesystem-process-or-native-addon",

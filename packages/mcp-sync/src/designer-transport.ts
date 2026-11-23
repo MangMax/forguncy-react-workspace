@@ -59,7 +59,7 @@
  * including which version each claim is measured on.
  */
 
-import { EXTENSION_LIBRARY_REFERENCE_FIELD_NAME } from "@forguncy-react-workspace/core";
+import { EXTENSION_LIBRARY_REFERENCE_FIELD_NAME, isPlainRecord } from "@forguncy-react-workspace/core";
 import type { ExtensionLibraryListing } from "@forguncy-react-workspace/core";
 
 import { REACT_CELL_TYPE_READ_BACK_NAMES } from "./port.ts";
@@ -542,9 +542,7 @@ function mutationPayloadOf(
 function preservedCellTypePropsOf(cell: Record<string, unknown> | undefined): Record<string, unknown> {
   if (cell === undefined || !isReactCellTypeName(cell.cellType)) return {};
   const props = cell.cellTypeProps;
-  return typeof props === "object" && props !== null && !Array.isArray(props)
-    ? { ...(props as Record<string, unknown>) }
-    : {};
+  return isPlainRecord(props) ? { ...props } : {};
 }
 
 /**

@@ -15,19 +15,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  compareStrings,
   describeBuildFailureLines,
   portableText,
   safePathSegment,
   stripAnsi,
 } from "./scan-utils.ts";
-
-describe("compareStrings", () => {
-  it("sorts by code units, not locale", () => {
-    // localeCompare would order these differently across machines.
-    expect(["b", "A", "a", "B"].sort(compareStrings)).toEqual(["A", "B", "a", "b"]);
-  });
-});
 
 describe("stripAnsi", () => {
   it("removes colour sequences built from code points", () => {

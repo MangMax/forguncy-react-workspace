@@ -32,12 +32,7 @@
  * ever needs the workspace decision, that is the move to make, not a second copy.
  */
 
-import {
-  citationPatternsFor,
-  decisionReference,
-  formatGoverningSpecReferenceLine,
-  GOVERNING_ARCHITECTURE_DECISIONS,
-} from "@forguncy-react-workspace/core";
+import { defineDecisionProvenance, GOVERNING_ARCHITECTURE_DECISIONS } from "@forguncy-react-workspace/core";
 import type { ArchitectureDecisionSource } from "@forguncy-react-workspace/core";
 
 /** The artifact Spec this package is the executable projection of. */
@@ -47,13 +42,6 @@ export const ARTIFACT_CONTRACT_DECISION: ArchitectureDecisionSource = {
   title: "Spec: generated ReactCellType artifact and compiler boundary",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/6",
 };
-
-/** Short form, e.g. `#6`. */
-export const ARTIFACT_CONTRACT_DECISION_REFERENCE = decisionReference(ARTIFACT_CONTRACT_DECISION);
-
-/** Repo-qualified short form, for a reference that travels outside this repository. */
-export const ARTIFACT_CONTRACT_DECISION_QUALIFIED_REFERENCE =
-  `${ARTIFACT_CONTRACT_DECISION.repository}${ARTIFACT_CONTRACT_DECISION_REFERENCE}`;
 
 /**
  * Every Spec a change to this package has to cite: the architecture decisions
@@ -68,6 +56,15 @@ export const COMPILER_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[]
   ARTIFACT_CONTRACT_DECISION,
 ];
 
+/** The artifact record's derived constants, from the record and the governing list (#156). */
+const ARTIFACT_CONTRACT_PROVENANCE = defineDecisionProvenance(ARTIFACT_CONTRACT_DECISION, COMPILER_GOVERNING_DECISIONS);
+
+/** Short form, e.g. `#6`. */
+export const ARTIFACT_CONTRACT_DECISION_REFERENCE = ARTIFACT_CONTRACT_PROVENANCE.reference;
+
+/** Repo-qualified short form, for a reference that travels outside this repository. */
+export const ARTIFACT_CONTRACT_DECISION_QUALIFIED_REFERENCE = ARTIFACT_CONTRACT_PROVENANCE.qualifiedReference;
+
 /**
  * The line a PR body, plan or report describing this package's contract carries.
  *
@@ -76,11 +73,10 @@ export const COMPILER_GOVERNING_DECISIONS: readonly ArchitectureDecisionSource[]
  * `core`'s established wording; #6 is included because a compiler change is
  * bound by it as much as by #4 and #5.
  */
-export const COMPILER_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(COMPILER_GOVERNING_DECISIONS);
+export const COMPILER_GOVERNING_SPEC_REFERENCE_LINE = ARTIFACT_CONTRACT_PROVENANCE.governingSpecReferenceLine;
 
 /** Patterns a document must match to count as citing the artifact contract. */
-export const ARTIFACT_CONTRACT_CITATION_PATTERNS: readonly RegExp[] =
-  citationPatternsFor(ARTIFACT_CONTRACT_DECISION);
+export const ARTIFACT_CONTRACT_CITATION_PATTERNS = ARTIFACT_CONTRACT_PROVENANCE.citationPatterns;
 
 /** The workspace-source Spec: local workspace packages are source, and source is flattened. */
 export const WORKSPACE_SOURCE_DECISION: ArchitectureDecisionSource = {
@@ -89,13 +85,6 @@ export const WORKSPACE_SOURCE_DECISION: ArchitectureDecisionSource = {
   title: "Spec: local workspace packages are source dependencies and inline by default",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/14",
 };
-
-/** Short form, e.g. `#14`. */
-export const WORKSPACE_SOURCE_DECISION_REFERENCE = decisionReference(WORKSPACE_SOURCE_DECISION);
-
-/** Repo-qualified short form, for a reference that travels outside this repository. */
-export const WORKSPACE_SOURCE_DECISION_QUALIFIED_REFERENCE =
-  `${WORKSPACE_SOURCE_DECISION.repository}${WORKSPACE_SOURCE_DECISION_REFERENCE}`;
 
 /**
  * The workspace-graph implementation Issue: the PoC that supplies #14's argument.
@@ -113,9 +102,6 @@ export const WORKSPACE_GRAPH_IMPLEMENTATION: ArchitectureDecisionSource = {
   title: "Implement: workspace package flattening PoC",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/15",
 };
-
-/** Short form, e.g. `#15`. */
-export const WORKSPACE_GRAPH_IMPLEMENTATION_REFERENCE = decisionReference(WORKSPACE_GRAPH_IMPLEMENTATION);
 
 /**
  * Every Spec a change to the workspace-source contract has to cite.
@@ -135,15 +121,35 @@ export const WORKSPACE_SOURCE_GOVERNING_DECISIONS: readonly ArchitectureDecision
   WORKSPACE_GRAPH_IMPLEMENTATION,
 ];
 
-/** The line a PR body, plan or report describing the workspace-source contract carries. */
-export const WORKSPACE_SOURCE_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(
+/** The workspace-source record's derived constants, from the record and the governing list (#156). */
+const WORKSPACE_SOURCE_PROVENANCE = defineDecisionProvenance(
+  WORKSPACE_SOURCE_DECISION,
   WORKSPACE_SOURCE_GOVERNING_DECISIONS,
 );
 
-/** Patterns a document must match to count as citing the workspace-graph implementation Issue (#15). */
-export const WORKSPACE_GRAPH_CITATION_PATTERNS: readonly RegExp[] =
-  citationPatternsFor(WORKSPACE_GRAPH_IMPLEMENTATION);
+/** Short form, e.g. `#14`. */
+export const WORKSPACE_SOURCE_DECISION_REFERENCE = WORKSPACE_SOURCE_PROVENANCE.reference;
+
+/** Repo-qualified short form, for a reference that travels outside this repository. */
+export const WORKSPACE_SOURCE_DECISION_QUALIFIED_REFERENCE = WORKSPACE_SOURCE_PROVENANCE.qualifiedReference;
+
+/** The line a PR body, plan or report describing the workspace-source contract carries. */
+export const WORKSPACE_SOURCE_GOVERNING_SPEC_REFERENCE_LINE =
+  WORKSPACE_SOURCE_PROVENANCE.governingSpecReferenceLine;
 
 /** Patterns a document must match to count as citing the workspace-source contract. */
-export const WORKSPACE_SOURCE_CITATION_PATTERNS: readonly RegExp[] =
-  citationPatternsFor(WORKSPACE_SOURCE_DECISION);
+export const WORKSPACE_SOURCE_CITATION_PATTERNS = WORKSPACE_SOURCE_PROVENANCE.citationPatterns;
+
+/**
+ * The workspace-graph implementation record's derived constants.
+ *
+ * No governing line: #15 executes #14's contract rather than governing one, so it is
+ * cited and not composed into a reference line.
+ */
+const WORKSPACE_GRAPH_PROVENANCE = defineDecisionProvenance(WORKSPACE_GRAPH_IMPLEMENTATION);
+
+/** Short form, e.g. `#15`. */
+export const WORKSPACE_GRAPH_IMPLEMENTATION_REFERENCE = WORKSPACE_GRAPH_PROVENANCE.reference;
+
+/** Patterns a document must match to count as citing the workspace-graph implementation Issue (#15). */
+export const WORKSPACE_GRAPH_CITATION_PATTERNS = WORKSPACE_GRAPH_PROVENANCE.citationPatterns;

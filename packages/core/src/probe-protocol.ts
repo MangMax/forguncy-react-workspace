@@ -32,6 +32,9 @@
  *   that does not.
  */
 
+import { createCanonicalizer } from "./canonical.ts";
+import { compareCodeUnits } from "./code-units.ts";
+import { isPlainRecord } from "./guards.ts";
 import type { ForguncyTargetIdentity, ToolchainIdentity } from "./lock.ts";
 import { isEvidenceReference } from "./lock.ts";
 import type { SelectionSignalId } from "./selection-signals.ts";
@@ -688,12 +691,8 @@ export function assertSupportedProbeReportSchemaVersion(version: number): void {
 // Validation
 // ---------------------------------------------------------------------------
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function inspectFact(fact: unknown, where: string): readonly string[] {
-  if (!isPlainObject(fact)) {
+  if (!isPlainRecord(fact)) {
     return [`${where} must be an object.`];
   }
   const problems: string[] = [];
@@ -721,7 +720,7 @@ function inspectStep(step: unknown, where: string): readonly string[] {
 }
 
 function inspectValidationEntry(entry: unknown, where: string): readonly string[] {
-  if (!isPlainObject(entry)) {
+  if (!isPlainRecord(entry)) {
     return [`${where} must be an object.`];
   }
   const problems: string[] = [];
@@ -740,7 +739,7 @@ function inspectValidationEntry(entry: unknown, where: string): readonly string[
 
 /** Shared by risks and rejection findings — same shape, different family. */
 function inspectFinding(finding: unknown, where: string): readonly string[] {
-  if (!isPlainObject(finding)) {
+  if (!isPlainRecord(finding)) {
     return [`${where} must be an object.`];
   }
   const problems: string[] = [];
@@ -758,7 +757,7 @@ function inspectFinding(finding: unknown, where: string): readonly string[] {
 }
 
 function inspectEnvironment(environment: unknown, where: string): readonly string[] {
-  if (!isPlainObject(environment)) {
+  if (!isPlainRecord(environment)) {
     return [`${where} must be an object.`];
   }
   const problems: string[] = [];
@@ -773,13 +772,13 @@ function inspectEnvironment(environment: unknown, where: string): readonly strin
       problems.push(`${where} must declare \`${field}\` as a string or null.`);
     }
   }
-  if (!isPlainObject(environment.toolchain)) {
+  if (!isPlainRecord(environment.toolchain)) {
     problems.push(`${where} must record the toolchain the probe ran under.`);
   } else if (typeof environment.toolchain.vitePlus !== "string" && environment.toolchain.vitePlus !== null) {
     problems.push(`${where}.toolchain must declare \`vitePlus\` as a string or null.`);
   }
   if (environment.target !== null) {
-    if (!isPlainObject(environment.target)) {
+    if (!isPlainRecord(environment.target)) {
       problems.push(`${where} must declare \`target\` as an object or null.`);
     } else {
       for (const field of ["product", "productVersion", "productBuild", "hostReactVersion"]) {
@@ -800,7 +799,7 @@ function inspectEnvironment(environment: unknown, where: string): readonly strin
  * shape is how a `.trim()` on `undefined` escapes as a `TypeError`.
  */
 export function inspectProbeReport(input: unknown): readonly string[] {
-  if (!isPlainObject(input)) {
+  if (!isPlainRecord(input)) {
     return ["A probe report must contain a JSON object."];
   }
 
@@ -1016,18 +1015,6 @@ export function assertProbeReport(report: ProbeReport): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Code-unit comparison, deliberately not `localeCompare`: a report that sorts
- * differently depending on the reviewer's locale would serialize differently on
- * two machines, which defeats the determinism the report is cached on.
- */
-function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}
-
-/**
  * Field order for the serialized document, mirroring the lock's approach: the
  * listed keys come first so a report reads as environment → observations →
  * findings → what ran, and anything unlisted falls in afterwards alphabetically so
@@ -1061,32 +1048,13 @@ const PROBE_KEY_ORDER: readonly string[] = [
   "diagnostics",
 ];
 
-function compareCanonicalKeys(a: string, b: string): number {
-  const rankA = PROBE_KEY_ORDER.indexOf(a);
-  const rankB = PROBE_KEY_ORDER.indexOf(b);
-  if (rankA !== rankB) {
-    return (rankA === -1 ? PROBE_KEY_ORDER.length : rankA) - (rankB === -1 ? PROBE_KEY_ORDER.length : rankB);
-  }
-  return compareStrings(a, b);
-}
-
-function canonicalizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalizeValue);
-  }
-  if (value !== null && typeof value === "object") {
-    const source = value as Record<string, unknown>;
-    const result: Record<string, unknown> = {};
-    for (const key of Object.keys(source).sort(compareCanonicalKeys)) {
-      const child = canonicalizeValue(source[key]);
-      if (child !== undefined) {
-        result[key] = child;
-      }
-    }
-    return result;
-  }
-  return value;
-}
+/**
+ * The report's canonical walk, in the order above.
+ *
+ * The same factory the lock uses, with this document's key order: the two differ only in which
+ * keys they list, so one recursive walk keeps them from canonicalising differently by accident.
+ */
+const canonicalizeValue = createCanonicalizer(PROBE_KEY_ORDER);
 
 /**
  * Set-like arrays are sorted, because an inventory is a set.
@@ -1099,7 +1067,7 @@ function canonicalizeValue(value: unknown): unknown {
  * facts, where the order is expressed by the fact names.
  */
 function canonicalizeArrayValues(value: readonly string[]): readonly string[] {
-  return [...value].sort(compareStrings);
+  return [...value].sort(compareCodeUnits);
 }
 
 function canonicalizeFact(fact: ProbeFact): ProbeFact {
@@ -1134,21 +1102,21 @@ type AnyFinding = ProbeRisk | ProbeRejectionFinding;
 function compareFacts(a: ProbeFact, b: ProbeFact): number {
   return (
     probeStepOrder(a.step) - probeStepOrder(b.step) ||
-    compareStrings(a.name, b.name) ||
-    compareStrings(JSON.stringify(canonicalizeValue(a)), JSON.stringify(canonicalizeValue(b)))
+    compareCodeUnits(a.name, b.name) ||
+    compareCodeUnits(JSON.stringify(canonicalizeValue(a)), JSON.stringify(canonicalizeValue(b)))
   );
 }
 
 function compareFindings(a: AnyFinding, b: AnyFinding): number {
   return (
-    compareStrings(a.signal, b.signal) ||
+    compareCodeUnits(a.signal, b.signal) ||
     probeStepOrder(a.step) - probeStepOrder(b.step) ||
-    compareStrings(JSON.stringify(canonicalizeValue(a)), JSON.stringify(canonicalizeValue(b)))
+    compareCodeUnits(JSON.stringify(canonicalizeValue(a)), JSON.stringify(canonicalizeValue(b)))
   );
 }
 
 function compareValidationEntries(a: ProbeValidationEntry, b: ProbeValidationEntry): number {
-  return probeStepOrder(a.step) - probeStepOrder(b.step) || compareStrings(a.step, b.step);
+  return probeStepOrder(a.step) - probeStepOrder(b.step) || compareCodeUnits(a.step, b.step);
 }
 
 /**
@@ -1199,7 +1167,7 @@ export function parseProbeReport(text: string): ProbeReport {
     throw new ProbeReportValidationError([`Probe report is not valid JSON: ${(error as Error).message}`]);
   }
 
-  if (isPlainObject(parsed) && typeof parsed.schemaVersion === "number") {
+  if (isPlainRecord(parsed) && typeof parsed.schemaVersion === "number") {
     assertSupportedProbeReportSchemaVersion(parsed.schemaVersion);
   }
 

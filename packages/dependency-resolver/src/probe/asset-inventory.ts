@@ -27,9 +27,10 @@
  */
 
 import type { ProbeFact, ProbeRejectionFinding, ProbeRisk, ProbeValidationEntry } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import type { OutputAsset, OutputChunk } from "rolldown";
 
-import { compareStrings, portableText } from "./scan-utils.ts";
+import { portableText } from "./scan-utils.ts";
 
 interface AssetClass {
   readonly id: string;
@@ -108,7 +109,7 @@ export function observeAssets(
     list.push(portableText(`asset:${asset.fileName}`, projectRoot));
   }
   for (const [assetClass, list] of byClass) {
-    byClass.set(assetClass, [...new Set(list)].sort(compareStrings));
+    byClass.set(assetClass, [...new Set(list)].sort(compareCodeUnits));
   }
 
   const inlinedDataUrlCount = countInlineDataUrls(chunks);
@@ -120,7 +121,7 @@ export function observeAssets(
       // Flattened to `class:path` strings so one fact carries the whole
       // inventory in the report's canonical string-array form.
       value: [...byClass.entries()]
-        .sort(([a], [b]) => compareStrings(a, b))
+        .sort(([a], [b]) => compareCodeUnits(a, b))
         .flatMap(([assetClass, files]) => files.map(file => `${assetClass}:${file}`)),
     },
     {
@@ -142,7 +143,7 @@ export function observeAssets(
   // one finding carrying every file as evidence.
   const combinedFiles = ["stylesheet", "font", "image"]
     .flatMap(assetClass => byClass.get(assetClass) ?? [])
-    .sort(compareStrings);
+    .sort(compareCodeUnits);
   if (combinedFiles.length > 0) {
     risks.push({
       signal: "css-font-or-image-assets",
@@ -152,7 +153,7 @@ export function observeAssets(
     });
   }
 
-  const wasmFiles = (byClass.get("wasm") ?? []).sort(compareStrings);
+  const wasmFiles = (byClass.get("wasm") ?? []).sort(compareCodeUnits);
   if (wasmFiles.length > 0) {
     risks.push({
       signal: "wasm",

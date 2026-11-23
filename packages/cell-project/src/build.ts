@@ -35,6 +35,7 @@ import type {
   CellProjectWorkspace,
 } from "@forguncy-react-workspace/cell-compiler";
 import type { CellEntryKind, DependencyDecision } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import { fingerprintArtifact } from "@forguncy-react-workspace/mcp-sync";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -194,10 +195,14 @@ function manifestResources(cell: BuiltCell): readonly ManifestResource[] {
     // Sorted, because the compiler's ledger is a discovery order: the CSS `url(...)` asset and the
     // directly imported one are found by whichever module resolved first, and two builds of one
     // unchanged project must produce the same manifest (#97's determinism, applied to the report).
+    //
+    // Code units, not `localeCompare` (#155): a locale-sensitive order puts `a` before `B` and `Ä`
+    // among the `a`s, so the same project would write two manifests on two machines — the one thing
+    // a manifest exists to rule out.
     .sort((left, right) =>
       left.kind === right.kind
-        ? left.fileName.localeCompare(right.fileName)
-        : left.kind.localeCompare(right.kind),
+        ? compareCodeUnits(left.fileName, right.fileName)
+        : compareCodeUnits(left.kind, right.kind),
     );
 }
 

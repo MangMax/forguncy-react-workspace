@@ -46,11 +46,12 @@
  */
 
 import type { ProbeFact, ProbeRejectionFinding, ProbeRisk, ProbeValidationEntry } from "@forguncy-react-workspace/core";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 
 import { applyBrowserField, resolveBrowserEntryPaths, selfReferenceResolver } from "./browser-entry.ts";
 import type { ResolvedPackageIdentity } from "./identity.ts";
 import { collectReachableSourceFiles } from "./module-source.ts";
-import { compareStrings } from "./scan-utils.ts";
+
 
 /**
  * Patterns this step observes. `wasm` is intentionally absent — see the module
@@ -170,22 +171,22 @@ export async function observeRuntimePatterns(
     {
       step: "runtime-pattern-scan",
       name: "runtime.patterns",
-      value: [...hits.keys()].sort(compareStrings),
+      value: [...hits.keys()].sort(compareCodeUnits),
     },
     {
       step: "runtime-pattern-scan",
       name: "runtime.wasm-source-markers",
-      value: [...new Set(wasmEvidence)].sort(compareStrings),
+      value: [...new Set(wasmEvidence)].sort(compareCodeUnits),
     },
   ];
 
   const risks: ProbeRisk[] = [...hits.entries()]
-    .sort(([a], [b]) => compareStrings(a, b))
+    .sort(([a], [b]) => compareCodeUnits(a, b))
     .map(([signal, hit]) => ({
       signal,
       step: "runtime-pattern-scan" as const,
       summary: `Package source declares ${hit.label}; the deployment path has to be shown handling it.`,
-      evidence: [...hit.evidence].sort(compareStrings),
+      evidence: [...hit.evidence].sort(compareCodeUnits),
     }));
 
   return {

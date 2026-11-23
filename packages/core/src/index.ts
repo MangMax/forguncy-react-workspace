@@ -88,6 +88,27 @@ export type {
   PlatformConflictUnclassified,
 } from "./platform-conflicts.ts";
 
+// The shared leaf primitives (#156): each is one answer every package can import without
+// dragging a graph along, and each replaces copies that had already started to drift.
+export { packageNameOfSpecifier } from "./specifier.ts";
+
+export {
+  composeDiagnosticMessage,
+  createDiagnosticFields,
+  defineDiagnosticVocabulary,
+  diagnosticDedupeKey,
+} from "./diagnostics.ts";
+export type {
+  DefineDiagnosticVocabularyOptions,
+  DiagnosticFields,
+  DiagnosticInstanceInput,
+  DiagnosticRuleShape,
+  DiagnosticVocabulary,
+} from "./diagnostics.ts";
+
+export { defineDecisionProvenance } from "./provenance.ts";
+export type { DecisionProvenance } from "./provenance.ts";
+
 export {
   assertDependencyDecision,
   checksForLevel,
@@ -369,8 +390,16 @@ export type {
 } from "./extension-mappings-config.ts";
 
 // The portability predicates (#26), extracted to a leaf because `resolve-config` needs the
-// same rule for an alias target and may not import the registry that calls it.
-export { isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
+// same rule for an alias target and may not import the registry that calls it. `#154` made
+// `containsMachineSpecificPath` the one machine-path rule both committed documents ask.
+export { containsMachineSpecificPath, isSecretLikeKey, machineSpecificPathProblem } from "./portability.ts";
+
+// #155's shared primitives, each a leaf so a consumer can take one without the graph around it:
+// the code-unit comparator every ordered output uses, the plain-record guard every parser shares,
+// and the canonicaliser factory the lock and the probe report are both built from.
+export { compareCodeUnits } from "./code-units.ts";
+export { isPlainRecord } from "./guards.ts";
+export { createCanonicalizer } from "./canonical.ts";
 
 // The module-resolution aliases (#97): one declared alias set, resolved once for both the
 // dev server and the Cell build.
@@ -676,20 +705,26 @@ export type {
 // the two cannot answer "is this import supported" differently.
 export {
   CELL_ASSET_INLINE_LIMIT_BYTES,
+  CELL_CSS_SUPPORT_DIRECTION,
   CELL_REJECTED_BINARY_ASSET_EXTENSIONS,
   CELL_REJECTED_RESOURCE_QUERIES,
   CELL_RESOURCE_SUPPORT_MATRIX,
   CELL_STYLE_PREPROCESSOR_EXTENSIONS,
   CELL_SUPPORTED_STATIC_ASSET_EXTENSIONS,
   cellAssetExtensionOf,
+  cellResourceQueryRefusal,
   cellStaticAssetMediaType,
+  cellUnsupportedAssetRefusal,
+  classifyCellResource,
   effectiveCellResourceQuery,
   encodeBase64,
   findCellCssUnsupportedConstructs,
   findCellCssUrlReferences,
   formatCellAssetDataUri,
+  formatCellCssRefusalDetail,
   formatCellResourceSupportMatrix,
   hasCellResourceQuery,
+  isCellResourcePath,
   queryHasRejectedResourceParameter,
   isCellCssFile,
   isCellCssModuleFile,
@@ -709,6 +744,11 @@ export type {
   CellCssUrlReference,
   CellCssViolation,
   CellCssViolationKind,
+  CellResourceClassification,
+  CellResourceClassificationInput,
+  CellResourceFileProbe,
+  CellResourceRefusal,
+  CellResourceRefusalCode,
   CellResourceSupportRow,
   CellSpecifierQuery,
   CellSupportedStaticAssetExtension,

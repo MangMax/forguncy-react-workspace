@@ -48,6 +48,7 @@ import {
   assertFgcLockDocumentShape,
   assessLockDecision,
   canonicalizeFgcLock,
+  compareCodeUnits,
   createEmptyFgcLock,
   dependencyDecisionOf,
   FGC_LOCK_FILE_NAME,
@@ -172,7 +173,7 @@ export function findExactLockDecision(
  * for" has one answer instead of one per call site.
  */
 export function recordedPackageNames(lock: { readonly decisions: readonly LockedDependencyDecision[] }): readonly string[] {
-  return [...new Set(lock.decisions.map(record => record.packageName))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return [...new Set(lock.decisions.map(record => record.packageName))].sort(compareCodeUnits);
 }
 
 /**

@@ -70,6 +70,7 @@
 
 import { resolve } from "node:path";
 
+import { isPlainRecord } from "./guards.ts";
 import { hostBridgeInterceptedModuleIds } from "./host-bridge.ts";
 import { machineSpecificPathProblem } from "./portability.ts";
 
@@ -150,10 +151,6 @@ export type NormalizeResolveConfigResult =
 
 function diag(code: ResolveConfigDiagnosticCode, path: string, message: string): ResolveConfigDiagnostic {
   return { code, path, message };
-}
-
-function isConfigRecordValue(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -406,7 +403,7 @@ export function normalizeResolveConfig(
 ): NormalizeResolveConfigResult {
   const diagnostics: ResolveConfigDiagnostic[] = [];
 
-  if (!isConfigRecordValue(config) || !(RESOLVE_CONFIG_FIELD in config)) {
+  if (!isPlainRecord(config) || !(RESOLVE_CONFIG_FIELD in config)) {
     // No block at all. `EMPTY` rather than `undefined` so a consumer never has to test for
     // absence before reading `alias` — and so an absent block cannot be mistaken for an
     // unvalidated one.
@@ -416,7 +413,7 @@ export function normalizeResolveConfig(
   const raw = config[RESOLVE_CONFIG_FIELD];
   const path = RESOLVE_CONFIG_FIELD;
 
-  if (!isConfigRecordValue(raw)) {
+  if (!isPlainRecord(raw)) {
     diagnostics.push(
       diag(
         "invalid-resolve-config",
@@ -475,7 +472,7 @@ function normalizeAliasMap(
   if (Array.isArray(rawAlias)) {
     for (const [index, member] of rawAlias.entries()) {
       const memberPath = `${path}[${index}]`;
-      if (!isConfigRecordValue(member)) {
+      if (!isPlainRecord(member)) {
         diagnostics.push(
           diag("invalid-resolve-alias", memberPath, `An alias entry must be an object with "find" and "replacement".`),
         );
@@ -504,7 +501,7 @@ function normalizeAliasMap(
       const entry = readAliasEntry(member.find, member.replacement, { ...options, bridgedModuleIds }, memberPath, diagnostics);
       if (entry !== undefined) entries.push(entry);
     }
-  } else if (isConfigRecordValue(rawAlias)) {
+  } else if (isPlainRecord(rawAlias)) {
     for (const [key, value] of Object.entries(rawAlias)) {
       const entry = readAliasEntry(key, value, { ...options, bridgedModuleIds }, `${path}.${key}`, diagnostics);
       if (entry !== undefined) entries.push(entry);

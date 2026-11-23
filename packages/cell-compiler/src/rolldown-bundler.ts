@@ -60,7 +60,7 @@ import type {
   ExtensionExternalDiagnostic,
   NormalizedExtensionMappings,
 } from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT } from "@forguncy-react-workspace/core";
+import { CELL_RUNTIME_BINDING_CONTRACT, compareCodeUnits } from "@forguncy-react-workspace/core";
 import {
   rolldown,
   type OutputAsset,
@@ -96,7 +96,7 @@ import {
   resolveCellResource,
 } from "./cell-resources.ts";
 import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
-import { queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
+import { cellResourceQueryRefusal, queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -539,14 +539,11 @@ async function resolveResourceSpecifier(
   const { path: barePath, query } = splitCellSpecifierQuery(source);
   // A Vite resource query is refused for *any* file, not only a resource extension: `worker.js`
   // has an ordinary `.js` extension and is still a runtime asset the compiled Cell cannot serve.
-  if (query !== undefined && queryHasRejectedResourceParameter(query)) {
-    const refusal: CellResourceRefusal = {
-      subject: source,
-      ...(importer === undefined ? {} : { importer }),
-      detail: `"${source}"${importer === undefined ? "" : ` (imported from "${importer}")`} uses the Vite query "?${query}". v1 refuses ?raw, ?url, ?inline, ?worker and ?sharedworker — each selects a transform the single-file compiler does not implement, and a Worker or runtime asset has nowhere to be loaded from. Remove the query, or move the capability to a Forguncy frontend extension (extension).`,
-    };
-    state.refusals.push(refusal);
-    throwResourceRefusal([refusal]);
+  // The sentence is `core`'s (#153), so the same import refused locally reads identically here.
+  const queryRefusal = cellResourceQueryRefusal(source, query, importer);
+  if (queryRefusal !== undefined && query !== undefined && queryHasRejectedResourceParameter(query)) {
+    state.refusals.push(queryRefusal);
+    throwResourceRefusal([queryRefusal]);
   }
 
   // A `.svg` imported without a query is a resource; a `./data.json` is not, and must not pay for
@@ -849,18 +846,20 @@ const NODE_MODULES_MARKER = "node_modules/";
  * (`…/.pnpm/react@19.2.7/node_modules/react/index.js`) and a hoisted layout
  * (`…/node_modules/react/index.js`) answer the same, and what keeps a virtual
  * interception id (`\0cell-host:react/jsx-runtime`) from answering at all.
+ *
+ * The folding itself is `core`'s one package-name rule (#156); this function only
+ * finds where in the path the package name starts. Splitting on the marker and then
+ * folding keeps a scoped package (`@scope/pkg/sub`) and a bare one (`react/sub`) on the
+ * same rule the rest of the repository uses, rather than on a second one written here.
  */
 function packageNameOfModuleId(moduleId: string): string | undefined {
   const normalized = moduleId.replace(/\\/g, "/");
   const at = normalized.lastIndexOf(NODE_MODULES_MARKER);
   if (at < 0) return undefined;
-  const segments = normalized.slice(at + NODE_MODULES_MARKER.length).split("/");
-  const [first, second] = segments;
+  const rest = normalized.slice(at + NODE_MODULES_MARKER.length).replace(/\/$/, "");
+  const [first] = rest.split("/");
   if (first === undefined || first.length === 0) return undefined;
-  if (first.startsWith("@")) {
-    return second === undefined || second.length === 0 ? first : `${first}/${second}`;
-  }
-  return first;
+  return packageNameOfSpecifier(rest);
 }
 
 function inlinedPackageNames(moduleIds: readonly string[]): string[] {
@@ -903,10 +902,8 @@ function inlinedPackageSizesOf(modules: Record<string, { readonly renderedLength
     entry.renderedCharacters += module.renderedLength;
     sizes.set(key, entry);
   }
-  return [...sizes.values()].sort((a, b) =>
-    a.packageName !== b.packageName
-      ? (a.packageName < b.packageName ? -1 : 1)
-      : ((a.exactSpecifier ?? "") < (b.exactSpecifier ?? "") ? -1 : (a.exactSpecifier ?? "") > (b.exactSpecifier ?? "") ? 1 : 0),
+  return [...sizes.values()].sort(
+    (a, b) => compareCodeUnits(a.packageName, b.packageName) || compareCodeUnits(a.exactSpecifier ?? "", b.exactSpecifier ?? ""),
   );
 }
 
@@ -1067,8 +1064,7 @@ function byCodeThenSubject(
   a: { readonly code: string; readonly subject: string },
   b: { readonly code: string; readonly subject: string },
 ): number {
-  if (a.code !== b.code) return a.code < b.code ? -1 : 1;
-  return a.subject === b.subject ? 0 : a.subject < b.subject ? -1 : 1;
+  return compareCodeUnits(a.code, b.code) || compareCodeUnits(a.subject, b.subject);
 }
 
 // ---------------------------------------------------------------------------

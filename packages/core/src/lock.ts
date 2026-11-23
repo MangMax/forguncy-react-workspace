@@ -35,6 +35,10 @@ import {
   GOVERNING_ARCHITECTURE_DECISIONS,
   OWNERSHIP_AND_DEPENDENCY_DECISION,
 } from "./governance.ts";
+import { createCanonicalizer } from "./canonical.ts";
+import { compareCodeUnits } from "./code-units.ts";
+import { isPlainRecord } from "./guards.ts";
+import { containsMachineSpecificPath } from "./portability.ts";
 import type { RuntimeContractTarget } from "./runtime-contract.ts";
 import { RUNTIME_CONTRACT_TARGET } from "./runtime-contract.ts";
 import {
@@ -773,50 +777,20 @@ export class FgcLockValidationError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Patterns that identify an absolute, machine-specific path *occurrence*.
- *
- * Anchored on the character before the path rather than on the start of the
- * string, because the path that leaks is rarely the whole value: a fingerprint
- * like `entry=/Users/mang/project/App.tsx` starts with `entry=`, and an
- * `^`-anchored check reports it as portable.
- *
- * The leading guard on the POSIX pattern is what keeps URLs out: in
- * `https://github.com/...` the first slash follows `:` and the second follows
- * `/`, so neither is the start of a path.
- */
-const ABSOLUTE_PATH_OCCURRENCES: readonly RegExp[] = [
-  // A file URL is a filesystem path wearing a scheme, and it is what a Node/Vite
-  // probe produces from `import.meta.url` — so it is the shape a machine path
-  // most easily re-enters the lock in. `http(s)://` stays allowed; this one
-  // cannot be portable on any machine.
-  /(?:^|[^0-9A-Za-z])file:[\\/]/i,
-  // C:\Users\... or C:/Users/... — the guard keeps `https:` out (`s` is alphanumeric).
-  /(?:^|[^0-9A-Za-z])[A-Za-z]:[\\/]/,
-  // \\server\share
-  /(?:^|[^\\])\\\\[^\\/]/,
-  // ~/ or ~\ home-relative
-  /(?:^|[^0-9A-Za-z._~-])~[\\/]/,
-  // A slash that starts a path rather than continuing one, followed by a
-  // path-ish character so prose containing " / " is not a hit.
-  /(?:^|[^0-9A-Za-z._~:/#-])\/[0-9A-Za-z._~-]/,
-];
-
-function containsAbsolutePath(value: string): boolean {
-  return ABSOLUTE_PATH_OCCURRENCES.some(pattern => pattern.test(value));
-}
-
-/**
  * Every absolute or machine-specific path anywhere in the document.
  *
- * Exported as a document-wide scan rather than only as a field check so the
- * portability guarantee holds for the whole shape, including fields added later.
+ * The rule itself is `portability.ts`'s `containsMachineSpecificPath` (#154): the lock and a
+ * committed configuration must give one value one verdict, so the pattern set lives there and
+ * this scan is the lock's use of it. Exported as a document-wide scan rather than only as a
+ * field check so the portability guarantee holds for the whole shape, including fields added
+ * later.
  */
 export function findMachineSpecificPaths(value: unknown): readonly string[] {
   const found = new Set<string>();
 
   const visit = (node: unknown): void => {
     if (typeof node === "string") {
-      if (containsAbsolutePath(node)) {
+      if (containsMachineSpecificPath(node)) {
         found.add(node);
       }
       return;
@@ -835,7 +809,7 @@ export function findMachineSpecificPaths(value: unknown): readonly string[] {
   };
 
   visit(value);
-  return [...found].sort(compareStrings);
+  return [...found].sort(compareCodeUnits);
 }
 
 /**
@@ -852,7 +826,7 @@ export function isRepositoryRelativeReference(reference: string): boolean {
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
     return false;
   }
-  if (containsAbsolutePath(value)) {
+  if (containsMachineSpecificPath(value)) {
     return false;
   }
   return !value.split(/[\\/]/).includes("..");
@@ -871,25 +845,13 @@ export function isEvidenceReference(reference: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Code-unit comparison, deliberately not `localeCompare`: sorting that depends on
- * the reviewer's locale would make the same lock serialize differently on two
- * machines, which is exactly what the lock exists to prevent.
- */
-function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  return a > b ? 1 : 0;
-}
-
-/**
  * Canonical decision order: package name, then cell target.
  *
  * A null cell target sorts before any named target, so the target-independent
  * record for a package always reads first.
  */
 export function compareLockDecisions(a: LockedDependencyDecision, b: LockedDependencyDecision): number {
-  return compareStrings(a.packageName, b.packageName) || compareStrings(a.cellTarget ?? "", b.cellTarget ?? "");
+  return compareCodeUnits(a.packageName, b.packageName) || compareCodeUnits(a.cellTarget ?? "", b.cellTarget ?? "");
 }
 
 /**
@@ -902,7 +864,7 @@ export function compareLockDecisions(a: LockedDependencyDecision, b: LockedDepen
  * would only have to disagree once.
  */
 export function compareEvidenceLinks(a: DecisionEvidenceLink, b: DecisionEvidenceLink): number {
-  return compareStrings(a.kind, b.kind) || compareStrings(a.reference, b.reference);
+  return compareCodeUnits(a.kind, b.kind) || compareCodeUnits(a.reference, b.reference);
 }
 
 /**
@@ -958,32 +920,14 @@ const LOCK_KEY_ORDER: readonly string[] = [
   "reference",
 ];
 
-function compareCanonicalKeys(a: string, b: string): number {
-  const rankA = LOCK_KEY_ORDER.indexOf(a);
-  const rankB = LOCK_KEY_ORDER.indexOf(b);
-  if (rankA !== rankB) {
-    return (rankA === -1 ? LOCK_KEY_ORDER.length : rankA) - (rankB === -1 ? LOCK_KEY_ORDER.length : rankB);
-  }
-  return compareStrings(a, b);
-}
-
-function canonicalizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalizeValue);
-  }
-  if (value !== null && typeof value === "object") {
-    const source = value as Record<string, unknown>;
-    const result: Record<string, unknown> = {};
-    for (const key of Object.keys(source).sort(compareCanonicalKeys)) {
-      const child = canonicalizeValue(source[key]);
-      if (child !== undefined) {
-        result[key] = child;
-      }
-    }
-    return result;
-  }
-  return value;
-}
+/**
+ * The document's canonical walk, in the order above.
+ *
+ * Shared with the probe report through {@link createCanonicalizer} rather than copied: the two
+ * differ only in which keys they list, and a second copy of the recursive walk is a second
+ * definition of "canonical" that only has to disagree once.
+ */
+const canonicalizeValue = createCanonicalizer(LOCK_KEY_ORDER);
 
 export function isCanonicallyOrdered(decisions: readonly LockedDependencyDecision[]): boolean {
   for (let index = 1; index < decisions.length; index += 1) {
@@ -1052,10 +996,6 @@ export function serializeFgcLock(lock: FgcLockDocument, options: { readonly inde
 // Validation
 // ---------------------------------------------------------------------------
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function isKnownStrategy(value: unknown): value is DependencyStrategy {
   return value === "host" || value === "inline" || value === "extension" || value === "replace";
 }
@@ -1072,7 +1012,7 @@ function isKnownStrategy(value: unknown): value is DependencyStrategy {
  * is a better message than reading it as absent-and-fine.
  */
 export function inspectFgcLockDocument(input: unknown): readonly string[] {
-  if (!isPlainObject(input)) {
+  if (!isPlainRecord(input)) {
     return [`${FGC_LOCK_FILE_NAME} must contain a JSON object.`];
   }
 
@@ -1143,7 +1083,7 @@ function inspectOptionalObject(
   if (value === null) {
     return;
   }
-  if (!isPlainObject(value)) {
+  if (!isPlainRecord(value)) {
     problems.push(`${where} must declare \`${field}\` as an object or null.`);
     return;
   }
@@ -1151,7 +1091,7 @@ function inspectOptionalObject(
 }
 
 function inspectLockRecord(record: unknown, where: string): readonly string[] {
-  if (!isPlainObject(record)) {
+  if (!isPlainRecord(record)) {
     return [`${where} must be an object.`];
   }
 
@@ -1209,7 +1149,7 @@ function inspectLockRecord(record: unknown, where: string): readonly string[] {
   // the cited code, and whether its numbers state the rejection, is the semantic pass's job.
   if (record.artifactEvidence !== undefined) {
     const evidence: unknown = record.artifactEvidence;
-    if (!isPlainObject(evidence)) {
+    if (!isPlainRecord(evidence)) {
       problems.push(
         `${where} must declare \`artifactEvidence\` as an object describing the compiles it rests on, or omit it.`,
       );
@@ -1259,7 +1199,7 @@ function inspectLockRecord(record: unknown, where: string): readonly string[] {
     }
   }
 
-  if (!isPlainObject(record.probe)) {
+  if (!isPlainRecord(record.probe)) {
     problems.push(`${where} must record probe evidence, even when no probe has run.`);
   } else {
     problems.push(...inspectProbe(record.probe, `${where}.probe`));
@@ -1275,7 +1215,7 @@ function inspectLockRecord(record: unknown, where: string): readonly string[] {
   } else {
     record.evidence.forEach((link, index) => {
       const evidenceWhere = `${where}.evidence[${index}]`;
-      if (!isPlainObject(link)) {
+      if (!isPlainRecord(link)) {
         problems.push(`${evidenceWhere} must be an object.`);
         return;
       }
@@ -1302,7 +1242,7 @@ function inspectProbe(probe: Record<string, unknown>, where: string): readonly s
 }
 
 function inspectRejection(rejection: unknown, where: string): readonly string[] {
-  if (!isPlainObject(rejection)) {
+  if (!isPlainRecord(rejection)) {
     return [`${where} must be an object describing why the package was rejected.`];
   }
 
@@ -1362,7 +1302,7 @@ function inspectToolchain(toolchain: Record<string, unknown>, where: string): re
   if (installGraph === undefined || installGraph === null) {
     return problems;
   }
-  if (!isPlainObject(installGraph)) {
+  if (!isPlainRecord(installGraph)) {
     problems.push(`${where} must declare \`installGraph\` as an object or null.`);
     return problems;
   }
@@ -1773,7 +1713,7 @@ export function parseFgcLockDocument(text: string): FgcLockDocument {
 
   // A declared-but-unsupported version fails with its own error type, so a
   // migration path can catch it specifically and refuse to read on a guess.
-  if (isPlainObject(parsed) && typeof parsed.schemaVersion === "number") {
+  if (isPlainRecord(parsed) && typeof parsed.schemaVersion === "number") {
     assertSupportedFgcLockSchemaVersion(parsed.schemaVersion);
   }
 

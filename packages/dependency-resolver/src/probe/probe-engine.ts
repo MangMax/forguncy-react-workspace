@@ -71,6 +71,7 @@ import {
   assertCellCodeBudget,
   assertProbeReport,
   canonicalizeProbeReport,
+  compareCodeUnits,
   lockProbeStatusForAssessment,
   matchesForguncyTargetIdentity,
   PROBE_REPORT_SCHEMA_VERSION,
@@ -101,7 +102,6 @@ import {
 import { readToolchainIdentity } from "../install-identity.ts";
 import { observeNodeBuiltins } from "./node-scan.ts";
 import { observeRuntimePatterns } from "./runtime-pattern-scan.ts";
-import { compareStrings } from "./scan-utils.ts";
 import { observeSize } from "./size.ts";
 import { resolveInstalledVersions } from "../install-graph.ts";
 import { recordedPackageNames } from "../lock-store.ts";
@@ -912,7 +912,7 @@ export async function probeLockEnvironment(
       packageNames.add(name);
     }
   }
-  const { versions } = await resolveInstalledVersions(projectRoot, [...packageNames].sort(compareStrings));
+  const { versions } = await resolveInstalledVersions(projectRoot, [...packageNames].sort(compareCodeUnits));
 
   return {
     resolvedVersions: versions,

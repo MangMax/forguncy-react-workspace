@@ -32,11 +32,7 @@
  * relabel an implementation Issue as one of the contract's governing decisions.
  */
 
-import {
-  citationPatternsFor,
-  decisionReference,
-  formatGoverningSpecReferenceLine,
-} from "@forguncy-react-workspace/core";
+import { defineDecisionProvenance } from "@forguncy-react-workspace/core";
 import type { ArchitectureDecisionSource } from "@forguncy-react-workspace/core";
 import {
   LOCAL_DEV_GOVERNING_DECISIONS,
@@ -51,13 +47,6 @@ export const DEV_HARNESS_DECISION: ArchitectureDecisionSource = {
   title: "Implement: Vite+ local React Cell dev harness with HMR",
   url: "https://github.com/Mang-X/forguncy-react-workspace/issues/23",
 };
-
-/** Short form, e.g. `#23`. */
-export const DEV_HARNESS_DECISION_REFERENCE = decisionReference(DEV_HARNESS_DECISION);
-
-/** Repo-qualified short form, for a reference that travels outside this repository. */
-export const DEV_HARNESS_DECISION_QUALIFIED_REFERENCE =
-  `${DEV_HARNESS_DECISION.repository}${DEV_HARNESS_DECISION_REFERENCE}`;
 
 /**
  * Every Spec a change to this package has to cite.
@@ -74,13 +63,20 @@ export const DEV_HARNESS_GOVERNING_DECISIONS: readonly ArchitectureDecisionSourc
   DEV_HARNESS_DECISION,
 ];
 
+/** The record's derived constants, from the record and the governing list (#156). */
+const DEV_HARNESS_PROVENANCE = defineDecisionProvenance(DEV_HARNESS_DECISION, DEV_HARNESS_GOVERNING_DECISIONS);
+
+/** Short form, e.g. `#23`. */
+export const DEV_HARNESS_DECISION_REFERENCE = DEV_HARNESS_PROVENANCE.reference;
+
+/** Repo-qualified short form, for a reference that travels outside this repository. */
+export const DEV_HARNESS_DECISION_QUALIFIED_REFERENCE = DEV_HARNESS_PROVENANCE.qualifiedReference;
+
 /** The line a PR body, plan or report describing this package carries. */
-export const DEV_HARNESS_GOVERNING_SPEC_REFERENCE_LINE = formatGoverningSpecReferenceLine(
-  DEV_HARNESS_GOVERNING_DECISIONS,
-);
+export const DEV_HARNESS_GOVERNING_SPEC_REFERENCE_LINE = DEV_HARNESS_PROVENANCE.governingSpecReferenceLine;
 
 /** Patterns a document must match to count as citing this implementation. */
-export const DEV_HARNESS_CITATION_PATTERNS: readonly RegExp[] = citationPatternsFor(DEV_HARNESS_DECISION);
+export const DEV_HARNESS_CITATION_PATTERNS = DEV_HARNESS_PROVENANCE.citationPatterns;
 
 // Re-exported so a consumer of this package has one place to reach the two Specs the
 // harness is defined against, with no second import of `runtime` needed.

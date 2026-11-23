@@ -68,7 +68,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { parse } from "@babel/parser";
 
-import { compareStrings } from "./scan-utils.ts";
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -163,7 +163,7 @@ export function analyzeModuleSource(source: string): ModuleSourceAnalysis | unde
     collectNodeReferences(node, imports, nativeIndicators);
   });
 
-  return { commentRanges, imports, nativeIndicators: [...nativeIndicators].sort(compareStrings) };
+  return { commentRanges, imports, nativeIndicators: [...nativeIndicators].sort(compareCodeUnits) };
 }
 
 /** A literal string argument, or `undefined` for anything computed. */
@@ -877,7 +877,7 @@ export async function collectReachableSourceFiles(
   const byAbsolutePath = new Map<string, PackageSourceFile>();
   let frontier: string[] = [];
 
-  for (const entry of [...entries].sort(compareStrings)) {
+  for (const entry of [...entries].sort(compareCodeUnits)) {
     const resolvedEntry = await resolveFileLike(join(packageDirectory, entry));
     if (resolvedEntry === undefined) {
       missingEntries.push(entry);
@@ -951,17 +951,17 @@ export async function collectReachableSourceFiles(
         }
       }
     }
-    frontier = next.sort(compareStrings);
+    frontier = next.sort(compareCodeUnits);
   }
 
   return {
     files: [...byAbsolutePath.values()].sort((left, right) =>
-      compareStrings(left.relativePath, right.relativePath),
+      compareCodeUnits(left.relativePath, right.relativePath),
     ),
-    missingEntries: missingEntries.sort(compareStrings),
-    escapedSpecifiers: [...escaped].sort(compareStrings),
-    unresolvedSpecifiers: [...unresolved].sort(compareStrings),
-    unparseableFiles: unparseable.sort(compareStrings),
+    missingEntries: missingEntries.sort(compareCodeUnits),
+    escapedSpecifiers: [...escaped].sort(compareCodeUnits),
+    unresolvedSpecifiers: [...unresolved].sort(compareCodeUnits),
+    unparseableFiles: unparseable.sort(compareCodeUnits),
   };
 }
 
