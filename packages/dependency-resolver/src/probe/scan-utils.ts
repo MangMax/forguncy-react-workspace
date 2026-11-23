@@ -94,6 +94,17 @@ function hasReportedErrors(value: unknown): value is { readonly errors: readonly
  * it: the excerpt would carry an absolute path into a report that has to stay
  * portable, and the message plus `file:line:column` is what a reader acts on.
  */
+/**
+ * A reported field as diagnostic text: a string as itself, an absent value as nothing, and
+ * anything else in its JSON form. `String()` would print `[object Object]` for the last case,
+ * which tells the reader neither what the bundler said nor which value it said it about.
+ */
+function describeValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value) ?? "";
+}
+
 function describeReportedError(value: unknown, projectRoot: string): string {
   if (typeof value !== "object" || value === null) {
     return portableText(String(value), projectRoot);
@@ -102,7 +113,7 @@ function describeReportedError(value: unknown, projectRoot: string): string {
   const message =
     typeof error.message === "string"
       ? portableText(firstLine(stripAnsi(error.message)), projectRoot)
-      : portableText(String(error.message ?? ""), projectRoot);
+      : portableText(describeValue(error.message), projectRoot);
   const loc = error.loc ?? undefined;
   const file = typeof loc?.file === "string" ? loc.file : typeof error.id === "string" ? error.id : undefined;
   const line = typeof loc?.line === "number" ? loc.line : undefined;
@@ -132,7 +143,7 @@ export function describeBuildFailureLines(error: unknown, projectRoot: string): 
   } else if (error !== undefined && error !== null) {
     // Only a non-empty stringified value is evidence; `String(undefined)` is
     // the literal "undefined", which is noise rather than a diagnostic.
-    const text = portableText(String(error), projectRoot);
+    const text = portableText(describeValue(error), projectRoot);
     if (text.trim().length > 0) {
       raw.push(...text.split("\n"));
     }

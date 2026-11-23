@@ -150,7 +150,7 @@ export function inspectFgcLockDocument(input: unknown): readonly string[] {
     problems.push(`${FGC_LOCK_FILE_NAME} must declare a numeric \`schemaVersion\`.`);
   } else if (!isSupportedFgcLockSchemaVersion(schemaVersion)) {
     problems.push(
-      `Unsupported schema version ${schemaVersion}; this toolchain supports ${SUPPORTED_FGC_LOCK_SCHEMA_VERSIONS.join(", ")}.`,
+      `Unsupported schema version ${String(schemaVersion)}; this toolchain supports ${SUPPORTED_FGC_LOCK_SCHEMA_VERSIONS.join(", ")}.`,
     );
   }
 

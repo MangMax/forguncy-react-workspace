@@ -391,7 +391,7 @@ describe("the install graph as the staleness input", () => {
 
     const lock = await readFgcLock(root);
     expect(resolveLockDecision(lock, { packageName: "dayjs" }, await environmentFor(root)).state).toBe("verified");
-    expect((await compilationDependencies(lock, await environmentFor(root))).dependencies).toHaveLength(1);
+    expect(compilationDependencies(lock, await environmentFor(root)).dependencies).toHaveLength(1);
 
     await install(root, "dayjs", { name: "dayjs", version: "1.11.14" });
 
@@ -400,7 +400,7 @@ describe("the install graph as the staleness input", () => {
       freshness: "stale",
       stalenessReasons: ["package-version-changed"],
     });
-    expect((await compilationDependencies(lock, upgraded)).withheld).toContainEqual({
+    expect(compilationDependencies(lock, upgraded).withheld).toContainEqual({
       packageName: "dayjs",
       strategy: "inline",
       reason: "not-verified",

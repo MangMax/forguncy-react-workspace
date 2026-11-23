@@ -801,13 +801,24 @@ function hasReportedErrors(value: unknown): value is { readonly errors: readonly
  * the message and `file:line:column` are what a reader needs to act on, and the
  * excerpt would carry the entry's absolute path into a log artifact.
  */
+/**
+ * A reported field as diagnostic text: a string as itself, an absent value as nothing, and
+ * anything else in its JSON form. `String()` would print `[object Object]` for the last case,
+ * which tells the reader neither what the bundler said nor which value it said it about.
+ */
+function describeValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  return JSON.stringify(value) ?? "";
+}
+
 function describeReportedError(value: unknown): string {
   if (typeof value !== "object" || value === null) return stripAnsi(String(value));
   const error = value as ReportedBuildError;
   const message =
     typeof error.message === "string"
       ? firstLine(stripAnsi(error.message))
-      : stripAnsi(String(error.message ?? ""));
+      : stripAnsi(describeValue(error.message));
   const loc = error.loc ?? undefined;
   const file = typeof loc?.file === "string" ? loc.file : typeof error.id === "string" ? error.id : undefined;
   const line = typeof loc?.line === "number" ? loc.line : undefined;

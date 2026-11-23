@@ -671,10 +671,16 @@ async function injectedDepsDigest(
     if (!Array.isArray(copies)) {
       return null;
     }
-    for (const copy of [...copies].sort()) {
+    // Validated before ordering, so the sort is over strings and uses the repository's code-unit
+    // comparator rather than the stringified form a bare `.sort()` would compare.
+    const resolvedCopies: string[] = [];
+    for (const copy of copies) {
       if (typeof copy !== "string") {
         return null;
       }
+      resolvedCopies.push(copy);
+    }
+    for (const copy of resolvedCopies.sort(compareCodeUnits)) {
       const copyRoot = isAbsolute(copy) ? copy : join(installRoot, copy);
       // A relative path is already project-relative and portable. An absolute one names a slot in
       // *some* store, so it is recorded relative to the store this install uses — the same

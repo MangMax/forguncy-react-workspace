@@ -253,7 +253,13 @@ function localDevResolutionRowProblem(value: unknown): string | undefined {
       !isNonEmptyString(row.checkedVersionField) ||
       !(LOCAL_DEV_VERSION_FIELDS as readonly string[]).includes(row.checkedVersionField)
     ) {
-      return `its checkedVersionField "${String(row.checkedVersionField)}" is not one of ${LOCAL_DEV_VERSION_FIELDS.join(", ")}`;
+      // A string prints as itself so the message reads as a quotation of the row; anything else
+      // is shown in its JSON form rather than as `[object Object]`.
+      const declared =
+        typeof row.checkedVersionField === "string"
+          ? row.checkedVersionField
+          : (JSON.stringify(row.checkedVersionField) ?? "");
+      return `its checkedVersionField "${declared}" is not one of ${LOCAL_DEV_VERSION_FIELDS.join(", ")}`;
     }
   }
 

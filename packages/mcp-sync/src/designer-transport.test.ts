@@ -788,7 +788,7 @@ describe("choosing the generation call the build actually has", () => {
       const { callTool } = recorder(() => ok({ url }));
       const port = createDesignerSyncPort({ callTool });
 
-      expect((await port.generatePageAsync({ pageName: "P" })).pageUrl, String(url)).toBe("");
+      expect((await port.generatePageAsync({ pageName: "P" })).pageUrl, JSON.stringify(url) ?? "undefined").toBe("");
     }
   });
 });

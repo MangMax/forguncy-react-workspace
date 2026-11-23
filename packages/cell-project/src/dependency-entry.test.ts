@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { compareCodeUnits } from "@forguncy-react-workspace/core";
 import { composeProbeFingerprint as fromLocal } from "@forguncy-react-workspace/dependency-resolver/local";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,11 @@ describe("cell-project consumes the resolver's lightweight entry", () => {
     // committed evidence rather than against itself.
     const recordedBundler = /bundler=(\{.*\})$/.exec(record.probe.fingerprint)?.[1];
     expect(recordedBundler, "the committed fingerprint has no bundler segment").toBeDefined();
-    expect(JSON.stringify(Object.fromEntries(Object.entries(composed.bundlerInput).sort()))).toBe(recordedBundler);
+    // Ordered by key with the repository's code-unit rule, which is the order the fingerprint's
+    // own composer uses — a bare `.sort()` over entries compares their stringified form instead.
+    const sortedInput = Object.entries(composed.bundlerInput).sort(([left], [right]) =>
+      compareCodeUnits(left, right),
+    );
+    expect(JSON.stringify(Object.fromEntries(sortedInput))).toBe(recordedBundler);
   });
 });
