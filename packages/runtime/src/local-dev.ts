@@ -467,36 +467,38 @@ export type LocalDevLocalResolutionKind = (typeof LOCAL_DEV_LOCAL_RESOLUTION_KIN
 /**
  * The recorded version fields the local process may be checked against.
  *
- * Both are `#5`'s, read off the pinned target rather than stored again:
- * `localDevRecordedVersion` is the only way to obtain a value here, which means a
- * version cannot be typed into a resolution row and drift away from the contract
- * it is supposed to be equal to.
+ * Both are read off the pinned target rather than stored again: `localDevRecordedVersion` is the
+ * only way to obtain a value here, which means a version cannot be typed into a resolution row
+ * and drift away from the contract it is supposed to be equal to.
  *
- * **Every field here is one this build's evidence does not come from a browser
- * observation** — see `RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED`, asserted equal to
- * this list by a test in the runtime package. The values come from the plugin's shipped runtime
- * source, which establishes the version the product *ships* and is the right thing to compare a
- * locally installed package against. It is **not** an observation of what a page reports on load,
- * so a row may claim package alignment but must not present the value as a browser-verified fact
- * for this build. #116's review is what forced the list to be machine-readable: the rebase moved
- * the target to 12.0.101.0 and these fields kept the values #5 recorded on 12.0.100.0, and a
- * comment saying so would not stop a consumer from reading them as re-verified.
+ * **Whether a field was observed in a browser is the contract's answer, not this list's.**
+ * `localDevVersionFieldIsBrowserObserved` reads
+ * `RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED`, which is empty on `12.0.102.0`: the
+ * React, ReactDOM and Babel versions were read from real generated pages on that build, so a row
+ * comparing a locally installed package against these values is comparing against a
+ * browser-observed number. On `12.0.101.0` the same fields were established only from the shipped
+ * runtime source and that list named them; the helper, not a comment, is what told a consumer the
+ * difference then. #116's review is why the distinction is machine-readable: the re-base moved the
+ * target while these fields kept values recorded on an older build, and a comment saying so would
+ * not stop a consumer from reading them as re-verified.
  */
 export const LOCAL_DEV_VERSION_FIELDS = ["hostReactVersion", "hostReactDomVersion"] as const;
 
 export type LocalDevVersionField = (typeof LOCAL_DEV_VERSION_FIELDS)[number];
 
-/** The value #5 recorded for a version field. The only source of an expected version. */
+/** The value the pinned target records for a version field. The only source of an expected version. */
 export function localDevRecordedVersion(field: LocalDevVersionField): string {
   return RUNTIME_CONTRACT_TARGET[field];
 }
 
 /**
- * Whether a version field's value was observed on the target's own build, or carried forward.
+ * Whether a version field's value was observed in a real browser on the target's own build.
  *
  * The consumer-facing half of the contract's provenance: a row that wants to say "this number is
- * verified for the build we ship against" asks here, and gets `false` rather than having to know
- * that a re-base left it in place.
+ * verified for the build we ship against" asks here. On `12.0.102.0` it answers `true` for every
+ * field this package compares, because the page reported them; on a build where the browser
+ * observation is missing it answers `false` rather than the consumer having to know that a re-base
+ * left the value in place.
  */
 export function localDevVersionFieldIsBrowserObserved(field: LocalDevVersionField): boolean {
   return !RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED.includes(field);

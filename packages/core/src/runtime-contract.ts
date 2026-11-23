@@ -69,26 +69,27 @@ export const RUNTIME_EVIDENCE_CHANNELS = [
  * claim about "Forguncy" in the abstract, and Forguncy ships its own React and
  * transpiler per version.
  *
- * ## Which version, and what "re-based" did and did not re-measure
+ * ## Which version, and how the re-bases were measured
  *
- * The target was established against `12.0.100.0` and is now `12.0.101.0` — the version
- * actually in use. The rebase is **measured, not renamed**, and the measurements are on
- * #120; each field's basis is in {@link RUNTIME_CONTRACT_TARGET_FIELD_SOURCES}, which is data
- * a consumer can read rather than a paragraph it has to trust.
+ * The target was established against `12.0.100.0` (#5), re-based on `12.0.101.0` and then on
+ * `12.0.102.0` — the version actually in use. Each rebase is **measured, not renamed**, and the
+ * measurements are on #120; each field's basis is in
+ * {@link RUNTIME_CONTRACT_TARGET_FIELD_SOURCES}, which is data a consumer can read rather than a
+ * paragraph it has to trust.
  *
- * Re-measured on `12.0.101.0` (live designer session, 2026-09-27/28): `productVersion` and
- * `productBuild` from the installed assembly; the plugin GUID and its resource paths; the
- * designer operations this contract's flows make. The React and Babel versions were read from
- * the **shipped runtime source** the plugin serves.
+ * Re-measured on `12.0.102.0` (live designer session and real generated page, 2026-11-22/23):
+ * `productVersion` and `productBuild` from the installed assembly; the plugin GUID, its resource
+ * paths and its script size; the designer operations this contract's flows make; and — this time
+ * in a **real browser** against generated pages — `React.version`, `ReactDOM.version` and
+ * `Babel.version`. That closes the observation `12.0.101.0` left open: the versions were read
+ * from the shipped runtime source on that build, so `generated-runtime-browser` was removed from
+ * `evidence` there and carried as an open question rather than left over from #5's `12.0.100.0`
+ * run. On `12.0.102.0` the page itself reported the same three values, so that channel is back in
+ * `evidence` and {@link RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED} is empty.
  *
- * **What was not done, and is therefore absent from `evidence`:** no browser observation on
- * `12.0.101.0`. The measurement was simply not made — see {@link RUNTIME_CONTRACT_UNKNOWNS} for
- * the question that leaves open — so `generated-runtime-browser` was **removed from `evidence`**
- * rather than left over from #5's run on `12.0.100.0`. That matters because `evidence` is
- * machine-readable and this object is read as the *current* contract: leaving that channel there
- * would claim a browser observation of this build that nobody made. #5's browser observation is
- * where the version numbers *originate*; it is not evidence that they still read the same here,
- * and {@link RUNTIME_CONTRACT_UNKNOWNS} carries that as open.
+ * A build whose browser observation had *not* been made must keep `generated-runtime-browser` out
+ * of `evidence` and name its version fields in that list; `12.0.101.0` is the recorded example of
+ * that state, and `12.0.102.0` is the first re-base where it does not apply.
  */
 export interface RuntimeContractTarget {
   readonly product: string;
@@ -105,8 +106,8 @@ export interface RuntimeContractTarget {
 
 export const RUNTIME_CONTRACT_TARGET: RuntimeContractTarget = {
   product: "Forguncy",
-  productVersion: "12.0.101.0",
-  productBuild: "12.0.101.0+92cefba44ce06dc75c2633bf5f6c6771e4ee41f0",
+  productVersion: "12.0.102.0",
+  productBuild: "12.0.102.0+5fc2e42710b205ebfa26ce76403e2134810f04cd",
   hostReactVersion: "19.2.7",
   hostReactDomVersion: "19.2.7",
   browserTranspiler: "Babel standalone",
@@ -114,9 +115,11 @@ export const RUNTIME_CONTRACT_TARGET: RuntimeContractTarget = {
   reactCellTypePluginGuid: "96205a31-0c2e-4b98-9ce5-6555088e6cbd",
   decision: RUNTIME_CONTRACT_DECISION,
   // `product-runtime-source` because the plugin's shipped resources were read on this build;
-  // `designer-api` because the designer operations were executed against it. No
-  // `generated-runtime-browser` — see the doc comment. This is deliberately *not* #5's list.
-  evidence: ["product-runtime-source", "designer-api"],
+  // `designer-api` because the designer operations were executed against it;
+  // `generated-runtime-browser` because `React.version`, `ReactDOM.version` and `Babel.version`
+  // were read from real generated pages on it. Not #5's list: this one is #120's `12.0.102.0`
+  // re-measurement.
+  evidence: ["product-runtime-source", "designer-api", "generated-runtime-browser"],
 };
 
 /** A field of {@link RUNTIME_CONTRACT_TARGET} that states something about the product. */
@@ -158,21 +161,20 @@ export interface RuntimeContractTargetFieldSource {
 export const RUNTIME_CONTRACT_TARGET_FIELD_SOURCES: Readonly<
   Record<RuntimeContractTargetField, RuntimeContractTargetFieldSource>
 > = {
-  product: { observedOn: "12.0.101.0", evidence: ["designer-api"] },
-  productVersion: { observedOn: "12.0.101.0", evidence: ["designer-api"] },
-  productBuild: { observedOn: "12.0.101.0", evidence: ["designer-api"] },
-  // Read from the plugin's shipped `react-vendor.production.min.js` on this build, which
-  // reports one React version for the bundle. That is the version the target *ships*; it is not
-  // an observation of `React.version` on a running page — see the open question below, which is
-  // the same gap for both version fields, not a defect unique to ReactDOM.
-  hostReactVersion: { observedOn: "12.0.101.0", evidence: ["product-runtime-source"] },
-  hostReactDomVersion: { observedOn: "12.0.101.0", evidence: ["product-runtime-source"] },
-  // Read from the plugin's shipped `babel.min.js`, whose own version string is 7.29.4.
-  browserTranspiler: { observedOn: "12.0.101.0", evidence: ["product-runtime-source"] },
-  browserTranspilerVersion: { observedOn: "12.0.101.0", evidence: ["product-runtime-source"] },
+  product: { observedOn: "12.0.102.0", evidence: ["designer-api"] },
+  productVersion: { observedOn: "12.0.102.0", evidence: ["designer-api"] },
+  productBuild: { observedOn: "12.0.102.0", evidence: ["designer-api"] },
+  // Read from the plugin's shipped `react-vendor.production.min.js` **and** from a running page
+  // (`React.version` / `ReactDOM.version` in a real browser) on this build.
+  hostReactVersion: { observedOn: "12.0.102.0", evidence: ["product-runtime-source", "generated-runtime-browser"] },
+  hostReactDomVersion: { observedOn: "12.0.102.0", evidence: ["product-runtime-source", "generated-runtime-browser"] },
+  // Read from the plugin's shipped `babel.min.js` (version string 7.29.4) and from `Babel.version`
+  // in a running page on this build.
+  browserTranspiler: { observedOn: "12.0.102.0", evidence: ["product-runtime-source", "generated-runtime-browser"] },
+  browserTranspilerVersion: { observedOn: "12.0.102.0", evidence: ["product-runtime-source", "generated-runtime-browser"] },
   // The GUID the plugin's resources are served under — unchanged from 12.0.100.0, and re-read
   // on this build from the resource URLs themselves.
-  reactCellTypePluginGuid: { observedOn: "12.0.101.0", evidence: ["product-runtime-source", "designer-api"] },
+  reactCellTypePluginGuid: { observedOn: "12.0.102.0", evidence: ["product-runtime-source", "designer-api"] },
 };
 
 /**
@@ -180,15 +182,13 @@ export const RUNTIME_CONTRACT_TARGET_FIELD_SOURCES: Readonly<
  *
  * A separate list because these are the fields a machine consumer reads as "what the page
  * actually runs" (`LOCAL_DEV_VERSION_FIELDS` in the runtime package, and #5's React/ReactDOM
- * numbers). They were read from the shipped source on 12.0.101.0, which establishes the version
- * the product *ships*; whether the page reports the same on load was not observed here, and a
- * consumer that needs that distinction should read this rather than infer it.
+ * numbers). It is **empty on `12.0.102.0`**: `React.version`, `ReactDOM.version` and
+ * `Babel.version` were read from real generated pages on this build, so every version field the
+ * contract states is browser-observed here. The list stays exported rather than deleted because
+ * the distinction is a property of a *re-base*, not of this build: a future build whose browser
+ * observation is missing must name its fields here again, and consumers already branch on it.
  */
-export const RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED: readonly RuntimeContractTargetField[] = [
-  "hostReactVersion",
-  "hostReactDomVersion",
-  "browserTranspilerVersion",
-];
+export const RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED: readonly RuntimeContractTargetField[] = [];
 
 /** Short header for reports, PR bodies and diagnostics. */
 export function describeRuntimeContractTarget(target: RuntimeContractTarget = RUNTIME_CONTRACT_TARGET): string {
@@ -602,8 +602,8 @@ export const CELL_SOURCE_REJECTIONS: readonly CellSourceRejection[] = [
     message: "useActionState is not supported in ReactCellType user code.",
     messageVaries: false,
     rejected: true,
-    note: "Recorded from the runtime's message table; not separately executed.",
-    evidence: ["product-runtime-source"],
+    note: "Recorded from the runtime's message table, and rejected verbatim by a live designer on 12.0.102.0 (#120).",
+    evidence: ["product-runtime-source", "designer-api"],
   },
   {
     id: "use-optimistic",
@@ -611,8 +611,8 @@ export const CELL_SOURCE_REJECTIONS: readonly CellSourceRejection[] = [
     message: "useOptimistic is not supported in ReactCellType user code.",
     messageVaries: false,
     rejected: true,
-    note: "Recorded from the runtime's message table; not separately executed.",
-    evidence: ["product-runtime-source"],
+    note: "Recorded from the runtime's message table, and rejected verbatim by a live designer on 12.0.102.0 (#120).",
+    evidence: ["product-runtime-source", "designer-api"],
   },
   {
     id: "use-form-status",
@@ -620,8 +620,8 @@ export const CELL_SOURCE_REJECTIONS: readonly CellSourceRejection[] = [
     message: "useFormStatus is not supported in ReactCellType user code.",
     messageVaries: false,
     rejected: true,
-    note: "Recorded from the runtime's message table; not separately executed.",
-    evidence: ["product-runtime-source"],
+    note: "Recorded from the runtime's message table, and rejected verbatim by a live designer on 12.0.102.0 (#120).",
+    evidence: ["product-runtime-source", "designer-api"],
   },
   {
     id: "typescript-annotation",
@@ -680,14 +680,18 @@ export const CELL_SOURCE_REJECTIONS: readonly CellSourceRejection[] = [
  * ```text
  * 12.0.100.0: Invalid AI-generated object 'ReactCellTypeCellType': ReactCellType 代码验证失败 [<stage>]：<message>
  * 12.0.101.0: api.page.setCells 调用失败：校验失败：ReactCellType.code：代码验证失败 [<stage>]：<message>
+ * 12.0.102.0: api.page.setCells 调用失败：校验失败：ReactCellType.code：代码验证失败 [<stage>]：<message>
  * ```
  *
- * The **inner** wording is unchanged — every message below was produced verbatim on both
- * builds — and `<stage>` is still `preview` or `babel` with the same distribution. What moved
- * is the frame around it: the object-name form is gone, the call and the property are named
- * instead, and the rejection now arrives wrapped in the failing call's own error.
+ * The **inner** wording is unchanged — each message below was produced verbatim on the builds its
+ * own `evidence` names — and `<stage>` is still `preview` or `babel` with the same distribution.
+ * What moved
+ * between `12.0.100.0` and `12.0.101.0` is the frame around it: the object-name form is gone, the
+ * call and the property are named instead, and the rejection now arrives wrapped in the failing
+ * call's own error. `12.0.102.0` reproduces the `12.0.101.0` frame **verbatim**, so it joins that
+ * entry's `versions` rather than getting a template of its own.
  *
- * Both are recorded because both were measured, and because a consumer that hard-codes one
+ * Both frames are recorded because both were measured, and because a consumer that hard-codes one
  * frame silently stops matching on the other. {@link RUNTIME_CONTRACT_TARGET} names which build
  * is current, and {@link CELL_SOURCE_REJECTION_ENVELOPE.templates} keeps the older frame as
  * history rather than deleting it — a compiler matching only the current one is correct, and a
@@ -700,7 +704,7 @@ export const CELL_SOURCE_REJECTION_ENVELOPE = {
    */
   templates: [
     {
-      versions: ["12.0.101.0"],
+      versions: ["12.0.102.0", "12.0.101.0"],
       template: "api.page.setCells 调用失败：校验失败：ReactCellType.code：代码验证失败 [<stage>]：<message>",
     },
     {
@@ -1436,14 +1440,6 @@ export const RUNTIME_CONTRACT_UNKNOWNS: readonly RuntimeContractUnknown[] = [
     id: "permission-refresh-without-reload",
     question: "Does the permission snapshot refresh when the signed-in user's roles change?",
     whyOpen: "Not exercised.",
-  },
-  {
-    id: "host-versions-not-browser-observed-101",
-    question:
-      "Do `React.version` and `ReactDOM.version` still read 19.2.7 in a running page on 12.0.101.0?",
-    whyOpen:
-      "The rebase read the version from the plugin's shipped `react-vendor.production.min.js` on 12.0.101.0, which establishes the version the product ships, and did not observe a running page. No browser session was completed on this build, so what is missing is the observation itself; this record states that absence and does not attribute it to any page, service or account. `RUNTIME_CONTRACT_TARGET.evidence` therefore no longer lists `generated-runtime-browser`, and `RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED` names the fields so a machine consumer can tell the difference. Nothing observed disagrees with the carried values; nothing observed confirms them on this build.",
-    ownedBy: "#120",
   },
 ];
 

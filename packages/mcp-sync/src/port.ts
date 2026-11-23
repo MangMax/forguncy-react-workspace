@@ -175,7 +175,8 @@ export const REACT_CELL_TYPE_NAME: SetCellsCellType = "ReactCellTypeCellType";
  *   same `cellTypeProps.code` byte for byte. The product's own reference
  *   (`/apis/cellTypes/ReactCellType.md`) and cell-type index (`/apis/cellTypes/index.md`) also
  *   name this cell type `ReactCellType`; `ReactCellTypeCellType` appears in neither, which is
- *   consistent with it being an input alias the product normalizes away on the way out.
+ *   consistent with it being an input alias the product normalizes away on the way out. #120
+ *   re-confirmed the read-back on `12.0.102.0` through the shipped adapter.
  * - **`ReactCellTypeCellType` — the write alias, retained as tolerance for the build this
  *   repository *pins*.** #5 established the contract on `12.0.100.0` and #20 executed the flow
  *   there, but neither recorded which name that build *reported* — #20's read-back step recorded

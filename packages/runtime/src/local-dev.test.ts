@@ -498,26 +498,36 @@ describe("host module resolution in local mode", () => {
     expect([...LOCAL_DEV_VERSION_FIELDS]).toEqual(["hostReactVersion", "hostReactDomVersion"]);
   });
 
-  // #116's review: the re-base moved the target to 12.0.101.0 and left these fields holding the
-  // values #5 recorded on 12.0.100.0, and a comment saying so would not stop a consumer from
-  // reading them as re-verified. The provenance is therefore machine-readable on this side too,
-  // and the property asserted here is the one that makes it load-bearing: *every* field this
-  // module checks a local package against is declared as not browser-observed. A field added to
-  // `LOCAL_DEV_VERSION_FIELDS` without being declared either way fails, which is the half-edit
-  // the review's alternative would have allowed.
-  it("declares the browser-observation status of every field it checks against", () => {
-    expect([...LOCAL_DEV_VERSION_FIELDS].sort()).toEqual(
-      [...RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED]
-        .filter(field => (LOCAL_DEV_VERSION_FIELDS as readonly string[]).includes(field))
-        .sort(),
-    );
+  // #116's review: a re-base can move the target while leaving these fields holding values
+  // recorded on an older build, and a comment saying so would not stop a consumer from reading
+  // them as re-verified. The provenance is therefore machine-readable on this side too, and the
+  // property asserted here is the one that makes it load-bearing: *every* field this module checks
+  // a local package against has its observation status decided by the contract's own per-field
+  // evidence, so a field added to `LOCAL_DEV_VERSION_FIELDS` without a declared source fails.
+  //
+  // 12.0.102.0 is the build where the shape flips: its versions were read from a real page, so
+  // the "not browser observed" list is empty and the helper answers `true`. The assertions below
+  // are written against that relationship rather than against the 12.0.101.0 state, so the next
+  // re-base that loses the browser observation moves the expectation with the contract instead of
+  // requiring this test to be rewritten first.
+  it("decides every checked field's browser-observation status from the contract", () => {
     for (const field of LOCAL_DEV_VERSION_FIELDS) {
-      expect(localDevVersionFieldIsBrowserObserved(field), field).toBe(false);
+      const source = RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field];
+      expect(source, field).toBeDefined();
+      expect(source.observedOn, field).toBe(RUNTIME_CONTRACT_TARGET.productVersion);
+      expect(localDevVersionFieldIsBrowserObserved(field), field).toBe(
+        source.evidence.includes("generated-runtime-browser"),
+      );
+      expect(localDevVersionFieldIsBrowserObserved(field), field).toBe(
+        !RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED.includes(field),
+      );
     }
-    // Not vacuous: the list is non-empty and its entries are fields the contract *does* declare
-    // sources for, so a list that emptied itself would fail the equality above rather than
-    // passing the loop.
-    expect(RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED.length).toBeGreaterThan(0);
+    // And the current state, stated so a reader can tell which side of the distinction this build
+    // is on: every field this package checks was observed in the browser on 12.0.102.0.
+    expect(RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED).toEqual([]);
+    for (const field of LOCAL_DEV_VERSION_FIELDS) {
+      expect(localDevVersionFieldIsBrowserObserved(field), field).toBe(true);
+    }
     for (const field of RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED) {
       expect(RUNTIME_CONTRACT_TARGET_FIELD_SOURCES[field], field).toBeDefined();
     }

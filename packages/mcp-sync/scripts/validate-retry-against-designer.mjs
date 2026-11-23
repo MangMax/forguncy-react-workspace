@@ -383,7 +383,7 @@ console.log("\n### 8. a batch that stops on its second target");
 await settleProject();
 const registry = createCellRegistry(
   {
-    runtime: { forguncyVersion: "12.0.101", projectAlias: "issue93" },
+    runtime: { forguncyVersion: "12.0.102", projectAlias: "issue93" },
     cells: {
       probeH: { entry: "cells/probeH/App.tsx", target: { pageName: PAGE, cell: "H1" } },
       probeI: { entry: "cells/probeI/App.tsx", target: { pageName: PAGE, cell: "I1" } },

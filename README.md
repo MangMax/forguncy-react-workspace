@@ -13,14 +13,16 @@
 - 用 `pnpm sync -- --port ...` 显式同步；这是**唯一**会写设计器的命令。
 - 依赖选型由 Skill 驱动确定性 probe，并把决策记进 `fgc.lock.json`，不靠猜测。
 
-**当前阶段（如实说明）**：项目仍处于 **v0.1 架构验证阶段**，不是可直接用于生产的完整工具链。本地开发、构建、只读计划、mock-port 同步与 CI 已经接通；运行时契约的 pinned 目标仍是 **`12.0.101.0`**，针对 **`12.0.102.0`** 的重新测量与最终真机 gate **[#107]** 仍然欠着。**本地与 CI 全绿不是活字格运行时兼容证明**；在 [#107] 通过前，本仓库不宣称端到端真机验收。
+**当前阶段（如实说明）**：项目仍处于 **v0.1 架构验证阶段**，不是可直接用于生产的完整工具链。本地开发、构建、只读计划、mock-port 同步与 CI 已经接通；运行时契约的 pinned 目标是 **`12.0.102.0`**（`12.0.101.0` / `12.0.100.0` 作为历史证据保留，不再是目标），v0.1 Epic gate **[#25]** 与首个可用版本真机 gate **[#107]** 均已在 `12.0.102.0` 上完成端到端验收并关闭。**本地与 CI 全绿仍不是活字格运行时兼容证明**；任何后续改动都要在真实设计器与生成页面上重新验证，而不是继承这次验收。
 
 - 总路线与依赖关系：[#3]（v0.1 Epic）
 - 消费入口与本文示例：[#99]
-- 最终真机 gate：[#107]
+- v0.1 Epic gate（已关闭）：[#25]
+- 首个可用版本真机 gate（已关闭）：[#107]
 
 [#3]: https://github.com/MangMax/forguncy-react-workspace/issues/3
 [#99]: https://github.com/MangMax/forguncy-react-workspace/issues/99
+[#25]: https://github.com/MangMax/forguncy-react-workspace/issues/25
 [#106]: https://github.com/MangMax/forguncy-react-workspace/issues/106
 [#107]: https://github.com/MangMax/forguncy-react-workspace/issues/107
 
@@ -160,7 +162,7 @@ pnpm sync -- --port ./mcp-port.mjs
 pnpm plan -- --port ./mcp-port.mjs
 ```
 
-先确认计划仍然是预期的那一个，再打开 `sync` 打印的 locator 看页面。**真正的兼容性验收是 #107**：一个独立 Agent 在真实活字格设计器与生成页面上完成新业务 Cell、权限/数据/命令、跨 Cell 隔离与失败恢复。在它通过前：
+先确认计划仍然是预期的那一个，再打开 `sync` 打印的 locator 看页面。**真正的兼容性验收是 #107（已在 `12.0.102.0` 上通过）**：一个独立 Agent 在真实活字格设计器与生成页面上完成新业务 Cell、权限/数据/命令、跨 Cell 隔离与失败恢复。这次通过不继承给后续改动：
 
 - 本地 `vp dev`、`build`、offline `plan` 都是 `local` 证据；
 - `record` / probe 是构建输入证据；
@@ -177,7 +179,7 @@ pnpm plan -- --port ./mcp-port.mjs
 import { defineForguncyConfig } from "@forguncy-react-workspace/core";
 
 export default defineForguncyConfig({
-  runtime: { forguncyVersion: "12.0.101", projectAlias: "consumer-example" },
+  runtime: { forguncyVersion: "12.0.102", projectAlias: "consumer-example" },
   extensions: {
     mappings: [
       {

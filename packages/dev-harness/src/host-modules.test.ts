@@ -263,26 +263,22 @@ describe("the installed versions are checked against the recorded target", () =>
   });
 
   /**
-   * #122: the warning a developer actually reads must not present a carried-forward number as
-   * one this build observed. `runtime` went to the trouble of making that distinction
+   * #122: the warning a developer actually reads must not present a value as "carried forward"
+   * when this build did observe it — and must still mark it when it did not. The distinction is
    * machine-readable (`localDevVersionFieldIsBrowserObserved`, whose own doc comment says a
    * consumer asking "is this verified for the build we ship against" should call it), and the
-   * harness both owned it and never called it — so the warning read "the version #5 recorded for
-   * this target" about fields that `RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED` lists as
-   * *not* browser-observed on this build.
+   * harness both owned it and never called it until #122.
    *
-   * Asserted as a property of the message, not as its wording. The field list is
-   * `LOCAL_DEV_VERSION_FIELDS`, and on this build **both** of its members are unobserved, so the
-   * test states that relationship rather than assuming an observed control exists: if a future
-   * re-base observes one, the first assertion below stops holding and the message has to change
-   * with it. That is the guard — the hedge follows the predicate, so it cannot be applied
-   * blanket-wise without failing here.
+   * The predicate decides the wording per field, so this test follows the predicate rather than
+   * assuming a value. On `12.0.102.0` the versions were read from a real page, so the observed
+   * branch is the one this build takes: no hedge, no "#5 recorded" framing, and the
+   * local-vs-runtime half of the message unchanged. A re-base that drops the browser observation
+   * flips the predicate and the first assertion below, which forces the hedge back into the test.
    */
-  it("marks a carried-forward version as carried forward, on every field it is asked about", () => {
-    // The premise, stated so a future reader knows why there is no observed case below.
-    for (const field of LOCAL_DEV_VERSION_FIELDS) {
-      expect(localDevVersionFieldIsBrowserObserved(field), field).toBe(false);
-    }
+  it("marks a version as carried forward exactly when the contract says it was not observed", () => {
+    const observed = LOCAL_DEV_VERSION_FIELDS.every(field => localDevVersionFieldIsBrowserObserved(field));
+    // The premise this build takes, stated so a future reader knows which branch should run.
+    expect(observed, "12.0.102.0 observed both version fields in a browser").toBe(true);
 
     const warning = formatHostVersionWarning([
       { packageName: "react", expected: "19.2.7", installed: "19.1.0", field: "hostReactVersion" },
@@ -290,14 +286,14 @@ describe("the installed versions are checked against the recorded target", () =>
     ]);
 
     expect(warning, "a mismatch must produce a warning").toBeDefined();
-    // Every reported line carries its own provenance, so no row reads as an observation.
+    // Every reported line carries its own value, so no row is silently dropped.
     expect(warning).toContain("hostReactVersion = 19.2.7");
     expect(warning).toContain("hostReactDomVersion = 19.2.7");
-    expect(warning).toMatch(/not observed on this build/);
-    // And the message says what a mismatch against it actually means.
-    expect(warning).toMatch(/carried-forward number rather than a difference from an observation/);
-    expect(warning).toMatch(/hostReactVersion, hostReactDomVersion/);
-    // It must not claim the target "recorded" the value as this build's own finding.
+    // An observed value is reported as the target records it — no carried-forward hedge, because
+    // this build's page reported the same number.
+    expect(warning).not.toMatch(/not observed on this build/);
+    expect(warning).not.toMatch(/carried-forward number rather than a difference from an observation/);
+    // It must not claim the target "recorded" the value as #5's finding either.
     expect(warning).not.toMatch(/#5 recorded/);
     // And the local-vs-runtime half of the warning survives all of this.
     expect(warning).toMatch(/not evidence about this target/);

@@ -1129,7 +1129,7 @@ export function formatHostVersionWarning(
     "The dev harness's own install is not at the version recorded for this target:",
     ...mismatches.map(mismatch =>
       unobserved.has(mismatch.field)
-        ? `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, target records ${mismatch.field} = ${mismatch.expected} (carried from #5's 12.0.100.0 run; not observed on this build)`
+        ? `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, target records ${mismatch.field} = ${mismatch.expected} (read from the shipped runtime source; not observed in a browser on this build)`
         : `  - ${mismatch.packageName}: installed ${mismatch.installed ?? "(absent)"}, target records ${mismatch.field} = ${mismatch.expected}`,
     ),
     "",

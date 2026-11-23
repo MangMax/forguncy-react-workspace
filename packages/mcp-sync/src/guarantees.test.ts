@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   EXECUTED_AGAINST_DESIGNER,
+  EXECUTED_AGAINST_REBASE_102,
   EXECUTED_AGAINST_REPROBE,
   findSyncExecution,
   findSyncGuarantee,
@@ -132,13 +133,15 @@ describe("what has been executed against a real project", () => {
       "written-without-manual-copy",
     ]);
     for (const guarantee of executed) {
-      // Every discharged promise points at *both* runs, and that is the shape this file was
+      // Every discharged promise points at *all* runs, and that is the shape this file was
       // corrected to in #116's review: a promise does not "move" to the newer run, it accumulates
-      // them. #20's entry is the only evidence for the pinned build, so a later run covering the
-      // same route on a newer build must not displace it.
+      // them. #20's entry is the only evidence for 12.0.100.0 and #115's the only evidence for
+      // 12.0.101.0, so a later run covering the same route on a newer build must not displace
+      // either.
       expect(guarantee.executions?.map(execution => execution.id), guarantee.id).toEqual([
         "issue-20-write-route",
         "issue-115-both-routes",
+        "issue-120-rebase-102",
       ]);
     }
   });
@@ -163,22 +166,30 @@ describe("what has been executed against a real project", () => {
     }
   });
 
-  // The two environments stay distinguishable, so a reader cannot collapse them into "it was
-  // validated". They name different builds and different Issues, and the older record is still
-  // exported — and still referenced — for the claims that rest on it.
-  it("keeps the two executed environments apart", () => {
+  // The environments stay distinguishable, so a reader cannot collapse them into "it was
+  // validated". They name different builds and different Issues, and the older records are still
+  // exported — and still referenced — for the claims that rest on them.
+  it("keeps the executed environments apart", () => {
     expect(EXECUTED_AGAINST_DESIGNER).toMatch(/12\.0\.100\.0/);
     expect(EXECUTED_AGAINST_DESIGNER).toContain("#20");
     expect(EXECUTED_AGAINST_REPROBE).toMatch(/12\.0\.101\.0/);
     expect(EXECUTED_AGAINST_REPROBE).toContain("#115");
+    expect(EXECUTED_AGAINST_REBASE_102).toMatch(/12\.0\.102\.0/);
+    expect(EXECUTED_AGAINST_REBASE_102).toContain("#120");
     expect(EXECUTED_AGAINST_REPROBE).not.toBe(EXECUTED_AGAINST_DESIGNER);
+    expect(EXECUTED_AGAINST_REBASE_102).not.toBe(EXECUTED_AGAINST_REPROBE);
 
-    // And the older one is not merely still exported: it is what a promise's claim rests on for
-    // the pinned build, so it must still be *referenced* by the table.
+    // And the older ones are not merely still exported: each is what a promise's claim rests on
+    // for its build, so all three must still be *referenced* by the table.
     expect(SYNC_EXECUTIONS["issue-20-write-route"].environment).toBe(EXECUTED_AGAINST_DESIGNER);
     expect(SYNC_EXECUTIONS["issue-115-both-routes"].environment).toBe(EXECUTED_AGAINST_REPROBE);
+    expect(SYNC_EXECUTIONS["issue-120-rebase-102"].environment).toBe(EXECUTED_AGAINST_REBASE_102);
     const referenced = new Set(SYNC_GUARANTEES.flatMap(guarantee => (guarantee.executions ?? []).map(e => e.id)));
-    expect([...referenced].sort()).toEqual(["issue-115-both-routes", "issue-20-write-route"]);
+    expect([...referenced].sort()).toEqual([
+      "issue-115-both-routes",
+      "issue-120-rebase-102",
+      "issue-20-write-route",
+    ]);
   });
 
   it("leaves no real-runtime promise unexecuted", () => {
@@ -252,11 +263,11 @@ describe("what has been executed against a real project", () => {
 // build's read-back spelling was never measured. These tests hold the evidence and the support
 // claim apart, which is the whole reason the two lists exist separately.
 describe("what has been executed on each route through the flow", () => {
-  // The claim side: coverage is owed on the *supported* versions only, and on 101 it is complete
-  // — #115's run reached both routes through the shipped adapter.
+  // The claim side: coverage is owed on the *supported* versions only, and on 102 it is complete
+  // — #120's run reached both routes through the shipped adapter.
   it("reports no open cell on the versions the flow is claimed to support", () => {
     expect(unexecutedRuntimeCoverage()).toEqual([]);
-    expect(SYNC_SUPPORTED_VERSIONS).toContain("12.0.101.0");
+    expect(SYNC_SUPPORTED_VERSIONS).toContain("12.0.102.0");
     // Not vacuous: cells are owed on that version, so an empty report means they are covered
     // rather than that nothing was measured.
     expect(syncCoverageCells().length).toBeGreaterThan(0);
@@ -404,7 +415,7 @@ describe("what has been executed on each route through the flow", () => {
 describe("what has been executed on each product version", () => {
   it("owes nothing on the supported version, and says which one that is", () => {
     expect(unexecutedRuntimeVersionCoverage()).toEqual([]);
-    expect(SYNC_SUPPORTED_VERSIONS).toEqual(["12.0.101.0"]);
+    expect(SYNC_SUPPORTED_VERSIONS).toEqual(["12.0.102.0"]);
     // And the evidence vocabulary is wider than the support claim, deliberately.
     expect([...SYNC_MEASURED_VERSIONS].length).toBeGreaterThan(SYNC_SUPPORTED_VERSIONS.length);
   });
@@ -551,7 +562,9 @@ describe("what has been executed on each product version", () => {
 
     expect(retired).not.toMatch(/the version the repository pins/i);
     expect(retired).toMatch(/no longer supports|retired/i);
-    expect(retired).toMatch(/12\.0\.101\.0/);
+    // It names the re-base rather than a specific successor build: the repository moved past it
+    // twice, and a sentence that hard-codes the immediate successor goes stale on the next one.
+    expect(retired).toMatch(/#120/);
 
     // And the same words must not reappear by being generated: the note a caller gets for that
     // version has to carry the corrected context, not a hand-written variant of it.
