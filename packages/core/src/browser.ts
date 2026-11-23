@@ -328,3 +328,8 @@ export type {
   CellResourceRefusal,
   CellResourceRefusalCode,
 } from "./cell-assets.ts";
+export {
+  buildConfigurationFingerprintInput,
+  cellBundlerInputOptions,
+  cellBundlerOutputOptions,
+} from "./cell-bundler-options.ts";

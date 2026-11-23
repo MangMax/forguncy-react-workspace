@@ -799,3 +799,11 @@ export type {
 
 export { composeCellCompileFingerprint } from "./cell-compile-fingerprint.ts";
 export type { ComposeCellCompileFingerprintInput } from "./cell-compile-fingerprint.ts";
+
+export {
+  CELL_BUNDLER_BUILD_OPTIONS,
+  buildConfigurationFingerprintInput,
+  cellBundlerInputOptions,
+  cellBundlerOutputOptions,
+} from "./cell-bundler-options.ts";
+export type { CellBundlerBuildOptions } from "./cell-bundler-options.ts";
