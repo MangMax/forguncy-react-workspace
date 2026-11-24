@@ -35,7 +35,7 @@
  * | question | answered by | module |
  * | --- | --- | --- |
  * | which host packages does the dev server substitute, and at which version | #9's table via `runtime`'s projection | `host-modules.ts` |
- * | which source file is a Cell, and does it expose a component | `vite-plugin-fgc` (#28) | composed in `vite-plugin.ts` |
+ * | which source file is a Cell, and does it expose a component | `cell-plugin.ts` (#28) | composed in `vite-plugin.ts` |
  * | what shape a fixture has, and how a bad one fails | `runtime`'s fixture contract (#28) | `mount.ts` |
  * | which provider a Cell resolves through | `runtime`'s façade (#27) | `mount.ts` |
  * | what the loop is not allowed to claim | `runtime`'s `local-dev.ts` (#22) | consumed, never restated |
@@ -104,6 +104,11 @@ export type {
   HostPackageVersionExpectation,
   HostPackageVersionMismatch,
 } from "./host-modules.ts";
+
+// The Cell seam (#28): the registry-backed `virtual:forguncy/cell/<id>` plugin that
+// `vite-plugin.ts` composes. Folded in from the former `vite-plugin-fgc` package (#168).
+export { cellVirtualModuleId, FORGUNCY_PLUGIN_NAME, forguncy, virtualModuleCellId } from "./cell-plugin.ts";
+export type { ForguncyPluginApi, ForguncyPluginOptions, ForguncyVitePlugin } from "./cell-plugin.ts";
 
 // The Vite plugin (#23's steps 1, 2, 4, 5 and 6)
 export {

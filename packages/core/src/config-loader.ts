@@ -11,7 +11,8 @@
  * - **Vite+ / local dev (#23)** — the project's `vite.config.ts` imports
  *   `forguncy.config.ts` itself, so Vite+ bundles and loads it with the very same
  *   runtime it already uses for its own config. Nothing in this file runs, and
- *   `vite-plugin-fgc` receives the already-evaluated object.
+ *   the dev harness's Cell seam (`dev-harness`'s `cell-plugin.ts`) receives the
+ *   already-evaluated object.
  * - **MCP sync / CLI (#20)** — there is no Vite process, so the config has to be
  *   imported directly. That is what `loadForguncyConfig` is for: it resolves the
  *   file and hands it to the host's own ESM loader (`loadModule`), which defaults
