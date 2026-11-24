@@ -10,8 +10,7 @@
   "scripts": {
     "check": "vp check",
     "test": "vp test",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-    "build": "vp run -r build"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "//devDependencies": [
     "`vite-plus` is the toolchain every `vp` command runs on, and `vitest` is here because the",

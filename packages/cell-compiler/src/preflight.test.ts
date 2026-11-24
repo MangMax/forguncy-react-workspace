@@ -274,7 +274,7 @@ describe("the concrete bundler's preflight is an analysis pass", () => {
     const generateStages: string[] = [];
     const spy = (into: string[]) => ({
       name: "stage-spy",
-      resolveId(source: string) {
+      resolveId(_source: string) {
         into.push("resolve");
         return null;
       },
