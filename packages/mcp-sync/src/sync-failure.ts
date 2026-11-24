@@ -35,12 +35,12 @@
  * the response, or may never have received it. Two wrong answers are available and both are
  * common: assume success (report a locator for an unverified page) or assume failure (replay
  * the write over a Cell a designer may have edited in between). `unknown-write-state` names
- * the actual knowledge, and `confirmCellWriteOutcome` in `executor.ts` is the read-back that
+ * the actual knowledge, and `confirmCellWriteOutcome` in `sync-run.ts` is the read-back that
  * turns it into one of the two confirmed states before a caller retries.
  */
 
 import type { McpSyncStepId } from "./capability-surface.ts";
-import type { SyncRunStepStatus } from "./executor.ts";
+import type { SyncRunStepStatus } from "./sync-run-steps.ts";
 import type { ForguncySyncPortMethod } from "./port.ts";
 import { cellTargetLabel } from "./target.ts";
 import type { CellTarget } from "./target.ts";
