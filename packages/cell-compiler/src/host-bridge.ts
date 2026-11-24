@@ -14,8 +14,8 @@
  *
  * `core` owns *which* import is bound to which host identity and *why*. This
  * module owns what the compilation path does with that: the source handed to the
- * bundler in place of a dependency, the guard emitted once per artifact, and the
- * diagnostics the bridge reports about a decision list.
+ * bundler in place of a dependency, and the diagnostics the bridge reports about a
+ * decision list.
  *
  * Three things here are deliberate, and each is the answer to one of #9's
  * acceptance criteria:
@@ -37,12 +37,16 @@
  *    state. It is reported at build time, when the cell's own preset is known, and
  *    at runtime it stays `undefined` exactly as #5 says it will be.
  *
- * Scope note: this module generates the interposed modules and the guard, and
- * audits a decision list against the table. It does not drive a bundler, assemble
- * an artifact, or emit a diagnostic into #6's artifact report — wiring the bridge
- * into the compile boundary is the compiler MVP's job (#7), and asserting a
- * bridge diagnostic through `CellArtifactDiagnostic` would put two vocabularies in
- * one report before anyone has decided how they compose.
+ * Scope note: this module generates the interposed modules and audits a decision
+ * list against the table. Every runtime check lives inside the generated module for
+ * the id that needs it — there is deliberately no separate per-artifact entry guard
+ * (#164: the per-module checks already fail with `host-global-missing`, and an exact
+ * `React.version` comparison at cell entry would break deployed Cells on harmless
+ * host patch upgrades). It does not drive a bundler, assemble an artifact, or emit a
+ * diagnostic into #6's artifact report — wiring the bridge into the compile boundary
+ * is the compiler MVP's job (#7), and asserting a bridge diagnostic through
+ * `CellArtifactDiagnostic` would put two vocabularies in one report before anyone has
+ * decided how they compose.
  *
  * Two corrections to the plan's contract were made after #9 landed, and they are
  * Issue #52 — "host bridge plan — explicit-empty decisions, and whether the plan may
@@ -484,104 +488,6 @@ export function renderHostBridgeModule(mapping: HostBridgeMapping, moduleId: str
     return renderHostBridgeAdapterModule(mapping, moduleId);
   }
   return renderHostBridgeGlobalModule(mapping, moduleId);
-}
-
-// ---------------------------------------------------------------------------
-// The artifact guard
-// ---------------------------------------------------------------------------
-
-export interface RenderHostBridgeGuardOptions {
-  readonly mappings?: readonly HostBridgeMapping[];
-  /**
-   * The host React version recorded in the lock this build is verified against.
-   *
-   * Supplying it emits the identity check; omitting it means no identity check was
-   * performed for this build, which is a weaker validation and is the reason this
-   * is a required field rather than an optional one — a caller has to say which of
-   * the two it is doing.
-   */
-  readonly recordedHostReactVersion: string | undefined;
-  /** The specifiers the artifact actually references, when known. */
-  readonly referencedSpecifiers?: readonly string[];
-}
-
-/**
- * The guard emitted once per artifact, at cell entry.
- *
- * Why a guard *and* per-module checks: the module checks fire at whatever moment
- * the bundler evaluates the interposed module, which is a bundler decision, while
- * the guard fires where the cell begins. For the always-available globals that is
- * the difference between failing before a cell's first statement and failing
- * somewhere inside a generated module.
- *
- * What the guard deliberately does **not** do: report preset-conditional globals.
- * #5 records their absence as a supported per-cell state, so a guard that threw
- * would take a legal cell and break it. Those are build-time diagnostics, where
- * the cell's declared preset is known.
- *
- * `recordedHostReactVersion` is compared as an exact string. #5 measured the host
- * as `React.version === "19.2.7"`, so equality is what the evidence supports; a
- * semver-range comparison here would be a policy nobody has decided yet (#16's
- * territory).
- */
-export function renderHostBridgeGuard(options: RenderHostBridgeGuardOptions): string {
-  const mappings = options.mappings ?? HOST_BRIDGE_MAPPINGS;
-  const referenced =
-    options.referencedSpecifiers === undefined ? undefined : new Set(options.referencedSpecifiers);
-  const isReferenced = (mapping: HostBridgeMapping): boolean =>
-    referenced === undefined || hostBridgeModuleIds(mapping).some(id => referenced.has(id));
-
-  const alwaysAvailable = hostBridgeGlobalMappings(mappings)
-    .filter(mapping => hostBridgeGlobalIsAlwaysAvailable(mapping))
-    .filter(isReferenced);
-
-  const lines = [
-    HOST_BRIDGE_GENERATED_BANNER,
-    `// Emitted once per artifact, at cell entry. Required globals fail here; globals`,
-    `// whose absence #5 records as a supported state are reported at build time.`,
-    renderErrorFactories(["host-global-missing", "host-global-incompatible"]),
-    `(function __fgcHostBridgeGuard() {`,
-  ];
-
-  for (const mapping of alwaysAvailable) {
-    const globalName = JSON.stringify(mapping.globalName);
-    const specifier = JSON.stringify(mapping.specifier);
-    lines.push(
-      `  var __fgc${sanitizeBindingName(mapping.specifier)} = globalThis[${globalName}];`,
-      `  if (__fgc${sanitizeBindingName(mapping.specifier)} === undefined) {`,
-      `    throw __fgcHostBridgeErrorMissing(${specifier}, ${globalName}, undefined);`,
-      `  }`,
-    );
-
-    if (mapping.identityField === "hostReactVersion" && options.recordedHostReactVersion !== undefined) {
-      lines.push(
-        `  // The lock's recorded host identity, checked because #5 verified`,
-        `  // \`React.version\` on the injected object and this mapping names`,
-        `  // \`hostReactVersion\` as its identity field.`,
-        `  if (__fgc${sanitizeBindingName(mapping.specifier)}.version !== ${JSON.stringify(options.recordedHostReactVersion)}) {`,
-        `    throw __fgcHostBridgeErrorIncompatible(${specifier}, ${globalName}, "version");`,
-        `  }`,
-      );
-    }
-  }
-
-  lines.push(`})();`);
-  return `${lines.join("\n")}\n`;
-}
-
-/**
- * A specifier turned into something usable inside an identifier.
- *
- * Generated code has to name its locals, and a local named after `react-dom/client`
- * would not parse. Deterministic rather than random so two builds of one plan
- * produce identical source.
- */
-function sanitizeBindingName(specifier: string): string {
-  return specifier
-    .split(/[^0-9A-Za-z]+/)
-    .filter(segment => segment.length > 0)
-    .map(segment => `${segment[0]?.toUpperCase() ?? ""}${segment.slice(1)}`)
-    .join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,8 +1096,9 @@ function auditHostBridgeDecisions(
  *   {@link HostBridgeUsage.presetDependent} defines it — which excludes, in
  *   particular, a module some other decision deliberately bundles.
  *
- * Only the preset-conditional rows. A global recorded as `always` is the guard's
- * business, and its absence is not a per-cell configuration fact.
+ * Only the preset-conditional rows. A global recorded as `always` is the generated
+ * module's business — it refuses at the point the import is evaluated — and its
+ * absence is not a per-cell configuration fact.
  */
 function auditHostBridgePresetReadiness(
   mappings: readonly HostBridgeMapping[],
