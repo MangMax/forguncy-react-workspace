@@ -53,24 +53,33 @@
  * the subset whose statement is literally about the produced artifact is
  * translated, arm by arm, in {@link translateHostFinding} and
  * {@link translateExtensionFinding}.
+ *
+ * ## The split (#170)
+ *
+ * This file is the port's runner and states the contract above; the two cohesive
+ * halves it was split along are siblings:
+ *
+ * - `rolldown-bundler-hooks.ts` — the virtual modules, the interception resolver and
+ *   the v1 resource/asset inlining hooks, shared by both passes;
+ * - `rolldown-bundler-report.ts` — installed-package attribution and the translation of
+ *   plan findings into #6's vocabulary.
+ *
+ * Both passes live here because the preflight's claim is about the build: keeping them
+ * in one file is what makes "the same resolver, no code generation" visible in one
+ * place. The dependency runs one way (this file → hooks and report), so nothing is
+ * circular.
  */
 
-import { realpathSync } from "node:fs";
 import path from "node:path";
 
-import type {
-  DependencyDecision,
-  ExtensionExternalDiagnostic,
-  NormalizedExtensionMappings,
-} from "@forguncy-react-workspace/core";
-import { CELL_RUNTIME_BINDING_CONTRACT, cellBundlerInputOptions, cellBundlerOutputOptions, compareCodeUnits, describeReportedError, hasReportedErrors, stripAnsi } from "@forguncy-react-workspace/core";
 import {
-  rolldown,
-  type OutputAsset,
-  type OutputChunk,
-  type PluginContext,
-  type ResolveIdExtraOptions,
-} from "rolldown";
+  cellBundlerInputOptions,
+  cellBundlerOutputOptions,
+  describeReportedError,
+  hasReportedErrors,
+  stripAnsi,
+} from "@forguncy-react-workspace/core";
+import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
 // `scan` is Rolldown's analysis-only entry: it runs the resolve and transform
 // stages and stops, with no `renderChunk` and no `generateBundle`. That is the
 // whole point of using it here rather than `rolldown()` + `generate()` — see
@@ -82,25 +91,22 @@ import type {
   CellBundlerPort,
   CellBundlingRequest,
   CellResolveRequest,
-  InlinedPackageSize,
 } from "./artifact.ts";
 import { findDependencyDecision, packageNameOfSpecifier } from "./specifier.ts";
 import type { CellArtifactDiagnostic } from "./diagnostics.ts";
 import { createCellArtifactDiagnostic, dedupeCellArtifactDiagnostics } from "./diagnostics.ts";
-import type { ExtensionExternalsPlan } from "./extension-externals.ts";
-import { planExtensionExternals } from "./extension-externals.ts";
-import type { HostBridgeDiagnostic, HostBridgePlan } from "./host-bridge.ts";
-import { planHostBridge } from "./host-bridge.ts";
-import { CELL_RUNTIME_BINDING_ID, renderRuntimeBindingModule } from "./runtime-binding.ts";
+import { CELL_RUNTIME_BINDING_ID } from "./runtime-binding.ts";
+import { CELL_ASSET_INLINE_LIMIT_BYTES, CellResourcePolicyError, isRegularFile } from "./cell-resources.ts";
+import { createInterceptionResolver, createResourceState, resolveCellSpecifier, resolveResourceModule } from "./rolldown-bundler-hooks.ts";
+import type { ResourceResolutionState } from "./rolldown-bundler-hooks.ts";
 import {
-  CELL_ASSET_INLINE_LIMIT_BYTES,
-  CellResourcePolicyError,
-  isCellResourceFile,
-  isRegularFile,
-  resolveCellResource,
-} from "./cell-resources.ts";
-import type { CellInlinedResource, CellResourceRefusal, CellResourceResolution } from "./cell-resources.ts";
-import { cellResourceQueryRefusal, queryHasRejectedResourceParameter, splitCellSpecifierQuery } from "@forguncy-react-workspace/core";
+  byCodeThenSubject,
+  inlinedPackageNames,
+  inlinedPackageSizesOf,
+  resolvesIntoNodeModules,
+  translateExtensionFinding,
+  translateHostFinding,
+} from "./rolldown-bundler-report.ts";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -148,470 +154,9 @@ export function createRolldownCellBundler(options: CreateRolldownCellBundlerOpti
   };
 }
 
-/**
- * One intercepted specifier, as the pair (virtual module id, source to load).
- *
- * Two shapes rather than one, because the runtime binding is the first interception whose
- * source is not a pure function of the mapping: it has to carry the *resolved* façade
- * specifier, which only a plugin hook can obtain. `runtime-binding` names the bare
- * specifier to resolve; `source` carries text that is already final.
- */
-type Interception =
-  | { readonly kind: "source"; readonly id: string; readonly source: string; readonly moduleType: "commonjs" }
-  | {
-      readonly kind: "runtime-binding";
-      readonly id: string;
-      /** What authored source wrote, and what the interception matched. */
-      readonly facadeSpecifier: string;
-      /** The entry the generated module imports (#124); resolved separately below. */
-      readonly bindingSpecifier: string;
-      readonly moduleType: "esm";
-    };
-
-interface InterceptionResolver {
-  readonly interceptionFor: (specifier: string, importer: string | undefined) => Interception | undefined;
-  readonly referencedSpecifiers: Set<string>;
-  readonly referencedPackages: Set<string>;
-  readonly fallThroughResolutions: Map<string, string>;
-  readonly hostFindings: Map<string, HostBridgeDiagnostic>;
-  readonly extensionFindings: Map<string, ExtensionExternalDiagnostic>;
-  /** Consulted once with no references, so a plan-level finding cannot hide. */
-  readonly primeDiagnostics: () => void;
-}
-
-/**
- * The interception machinery, shared by the pre-bundle pass and the build.
- *
- * Extracted rather than duplicated because the two must agree exactly: the
- * preflight's whole claim is that the specifiers it audits are the specifiers the
- * build resolves. Two copies of this logic would eventually disagree — and the
- * disagreement would be invisible, because each copy is self-consistent.
- *
- * The plan caches and finding maps are per-call state, so one build cannot see
- * another's interceptions. `referencedSpecifiers` is the set the report needs; the
- * caller reads it after the pass that populated it.
- *
- * ## The three branches, and why the third needs the importer
- *
- * The host bridge and the extension externals are keyed on the specifier alone: an
- * authored `import ... from "react"` means the page object wherever it appears. The
- * runtime binding (#82) is the first interception that is **not** keyed on the specifier
- * alone, because the module it generates imports the very package it replaces. Without
- * the `importer` argument the generated module would be intercepted by its own branch —
- * a cycle that resolves to a module importing itself — so the binding is skipped for
- * importers that are generated (`\0`-prefixed), and the binding's own import is resolved
- * by the caller to the real façade.
- *
- * That resolution cannot happen here: it needs Rolldown's `this.resolve`, which exists
- * only inside a plugin hook. So the branch reports the specifier it needs resolved and the
- * *callers* do it, through {@link resolveCellSpecifier} — one implementation, two call
- * sites, which is the same rule this function exists to enforce.
- */
-function createInterceptionResolver(
-  decisions: readonly DependencyDecision[],
-  extensionMappings: NormalizedExtensionMappings | undefined,
-): InterceptionResolver {
-  // Every bare specifier resolved at all, intercepted or not. This is the set #14's
-  // workspace audit traces its closure from, so it must include the ones the plans
-  // *did* intercept — a workspace package the host bridge claimed is still a module
-  // the cell imports, and omitting it would make the closure smaller than reality.
-  const referencedSpecifiers = new Set<string>();
-  // Every bare specifier that fell through interception, paired with the resolved
-  // module id Rolldown would have used anyway. Provenance so the report can name
-  // the real bare specifier (`sneaky-dep/subpath`) instead of the folded package
-  // root (`sneaky-dep`), preserving exact-subpath decision precedence.
-  const fallThroughResolutions = new Map<string, string>();
-  const referencedPackages = new Set<string>();
-  const hostFindings = new Map<string, HostBridgeDiagnostic>();
-  const extensionFindings = new Map<string, ExtensionExternalDiagnostic>();
-  const hostPlans = new Map<string, HostBridgePlan>();
-  const extensionPlans = new Map<string, ExtensionExternalsPlan>();
-
-  function consultHostPlan(referencedSpecifiers: readonly string[]): HostBridgePlan {
-    const plan = planHostBridge({ decisions, referencedSpecifiers });
-    for (const finding of plan.diagnostics) hostFindings.set(`${finding.code} ${finding.specifier}`, finding);
-    return plan;
-  }
-
-  function consultExtensionPlan(referencedSpecifiers: readonly string[]): ExtensionExternalsPlan {
-    // The project's own set, passed through exactly as #85 normalized it. Never
-    // re-read or re-merged here: a bundler that fell back to `core`'s table while the
-    // caller had project rows would answer a mapped import from the wrong catalog —
-    // and, when the package happened to be installed, silently inline the npm copy
-    // instead. `undefined` is "the caller stated no set", which is the built-in
-    // default, not a licence to skip the plan.
-    const plan = planExtensionExternals({
-      decisions,
-      referencedSpecifiers,
-      ...(extensionMappings === undefined ? {} : { mappings: extensionMappings.mappings }),
-    });
-    for (const finding of plan.diagnostics) extensionFindings.set(`${finding.code} ${finding.subject}`, finding);
-    return plan;
-  }
-
-  function interceptionFor(specifier: string, importer: string | undefined): Interception | undefined {
-    referencedPackages.add(packageNameOfSpecifier(specifier));
-    referencedSpecifiers.add(specifier);
-
-    // The runtime binding (#82), and the one branch that is skipped rather than taken for
-    // a generated importer. Its own module imports this same specifier, so intercepting
-    // that import would make the binding import itself; the skip is what leaves the
-    // binding's own import to ordinary resolution — to the façade's real source, in the
-    // same place the authored import lands.
-    //
-    // Deliberately before the two plan branches, and that ordering is not arbitrary: the
-    // façade is workspace source (#14) with no dependency decision, so neither plan claims
-    // it. Putting the branch last would still work today and would silently stop working
-    // the day a table row named the façade — which is exactly the kind of latent ordering
-    // dependence the two branches below document themselves for.
-    if (specifier === CELL_RUNTIME_BINDING_CONTRACT.facadeSpecifier) {
-      if (importer !== undefined && isGeneratedModuleId(importer)) return undefined;
-      return {
-        kind: "runtime-binding",
-        id: CELL_RUNTIME_BINDING_ID,
-        facadeSpecifier: specifier,
-        bindingSpecifier: CELL_RUNTIME_BINDING_CONTRACT.bindingSpecifier,
-        moduleType: "esm",
-      };
-    }
-
-    let hostPlan = hostPlans.get(specifier);
-    if (hostPlan === undefined) {
-      hostPlan = consultHostPlan([specifier]);
-      hostPlans.set(specifier, hostPlan);
-    }
-    // The page's own modules first: a host row and an extension row naming the same
-    // specifier must resolve to the page object, never to a second copy behind an
-    // extension global.
-    //
-    // `wireable` as well as `stated`, matching the extension branch below: a table
-    // whose mappings contradict themselves yields an empty interception list either
-    // way, so this is not a behaviour change — but stating the rule here is what keeps
-    // the two branches from drifting into looking like they answer different questions.
-    if (hostPlan.activation === "stated" && hostPlan.wireable) {
-      const host = hostPlan.interceptions.find(candidate => candidate.moduleId === specifier);
-      if (host !== undefined) {
-        return {
-          kind: "source",
-          id: `${HOST_VIRTUAL_PREFIX}${specifier}`,
-          source: host.source,
-          moduleType: "commonjs",
-        };
-      }
-    }
-
-    let extensionPlan = extensionPlans.get(specifier);
-    if (extensionPlan === undefined) {
-      extensionPlan = consultExtensionPlan([specifier]);
-      extensionPlans.set(specifier, extensionPlan);
-    }
-    // `wireable` rather than merely `stated`: a decision that contradicts the mapping
-    // row must not be interposed behind a global the row does not agree on — the
-    // import stays ordinary, the plan's finding travels through `diagnostics`, and
-    // the artifact is refused in the same vocabulary an unwired extension import is.
-    if (extensionPlan.activation === "stated" && extensionPlan.wireable) {
-      const extension = extensionPlan.interceptions.find(candidate => candidate.moduleId === specifier);
-      if (extension !== undefined) {
-        return {
-          kind: "source",
-          id: `${EXTENSION_VIRTUAL_PREFIX}${specifier}`,
-          source: extension.source,
-          moduleType: "commonjs",
-        };
-      }
-    }
-    return undefined;
-  }
-
-  return {
-    interceptionFor,
-    referencedSpecifiers,
-    referencedPackages,
-    fallThroughResolutions,
-    hostFindings,
-    extensionFindings,
-    primeDiagnostics: () => {
-      // Consulted once with no references: decision-vs-mapping contradictions are
-      // reported even when the entry imports nothing bare, so a broken decision
-      // cannot hide behind an entry that never exercises it.
-      consultHostPlan([]);
-      consultExtensionPlan([]);
-    },
-  };
-}
-
-/**
- * Whether a module id names a virtual module rather than a file on disk.
- *
- * The three interposed modules this package registers are `\0`-prefixed — the host bridge,
- * the extension externals and the runtime binding — which is the convention that
- * distinguishes "a module we composed" from "a module that exists" without a list of ids to
- * keep in step. `runtime-binding.ts`'s header relies on the same prefix, so the two modules
- * agree about it by convention rather than by importing a shared constant.
- *
- * The entry shim is deliberately *not* in this set: its id is a plain `cell-entry-shim.js`,
- * and it is never an importer of the façade, so the one decision this predicate serves does
- * not arise for it. Widening the predicate to cover it would mean the shim's id could no
- * longer be the stable, path-free string `assertEntryComponentBinding` matches warnings
- * against.
- */
-function isGeneratedModuleId(id: string): boolean {
-  return id.startsWith("\0");
-}
-
-/**
- * What {@link resolveCellSpecifier} hands back: an interception to load, or nothing.
- *
- * A named type rather than `ResolveIdResult`, because `moduleType` is the one field this
- * compiler needs and Rolldown's `PartialResolvedId` does not declare it — it is a
- * `SourceDescription` field. Naming the shape keeps the two facts visible: the id and the
- * module type travel together, and the module type is either `"commonjs"` for the two
- * plans' `module.exports` modules or `"esm"` for the runtime binding, which is genuinely
- * ESM. The assignability to Rolldown's own result type is the hook's business, not this
- * function's, and is what it was before this extraction.
- */
-type CellSpecifierResolution = { readonly id: string; readonly moduleType: "commonjs" | "esm" };
-
-/**
- * The `resolveId` half of both passes' plugin, so the two cannot drift.
- *
- * Extracted for the reason {@link createInterceptionResolver} is: the preflight's claim is
- * that the specifiers it audits are the ones the build resolves, and a fix applied to one
- * hook and not the other is exactly how that stops being true. The runtime binding is where
- * it nearly happened — its own façade import has to be resolved with `this.resolve`, which
- * exists only inside a hook, so writing that resolution in one hook and not the other would
- * have left the preflight auditing a specifier set the build does not produce.
- *
- * `this.resolve` is passed in rather than reached for, because it exists only on a plugin
- * context and this function is not a hook. Everything else the hook needs is closed over.
- *
- * `moduleType` is set per interception rather than uniformly, and the values describe what
- * each generated source *is*: the host bridge's and the extension externals' are
- * `module.exports = …`, so `"commonjs"` — the interop the extension unit tests exercise
- * through a real build, so an authored `import { x }` and a namespace import each enumerate
- * the interposed module correctly — while the runtime binding's is `import` / `export *`.
- *
- * Scope note on that field, because it is easy to read as more than it is: the value was
- * measured not to change this build's output — the binding compiles and runs identically
- * with `"commonjs"` — so `"esm"` is a truthful label rather than a load-bearing setting.
- * It is stated per interception anyway, because a label that happens not to matter today is
- * exactly the kind that becomes wrong without anyone noticing once a Rolldown version
- * starts honouring it.
- */
-async function resolveCellSpecifier(
-  context: PluginContext,
-  resolver: InterceptionResolver,
-  virtualModules: Map<string, string>,
-  source: string,
-  importer: string | undefined,
-  options: ResolveIdExtraOptions,
-  resources?: ResourceResolutionState,
-): Promise<CellSpecifierResolution | null> {
-  if (!isBareSpecifier(source)) {
-    // A relative/absolute resource import (#98) is resolved by the bundler exactly as any other
-    // file — this branch only *asks* the bundler where it landed, then decides whether the
-    // resolved file is a resource this compiler inlines. Doing it here rather than in a second
-    // `resolveId` plugin is what keeps "which file is this import" answered once.
-    if (resources !== undefined) {
-      const resource = await resolveResourceSpecifier(context, resources, virtualModules, source, importer, options);
-      if (resource !== undefined) return resource;
-    }
-    return null;
-  }
-  const interception = resolver.interceptionFor(source, importer);
-  if (interception === undefined) {
-    // A **bare** resource import — `import "antd/dist/reset.css"` or a package's own
-    // `pkg/logo.svg` — is a file like any other once resolved, so it takes the same path the
-    // relative branch above does. Checked before the fall-through bookkeeping because a resource
-    // is inlined by this compiler and has no package decision to audit.
-    if (resources !== undefined) {
-      const resource = await resolveResourceSpecifier(context, resources, virtualModules, source, importer, options);
-      if (resource !== undefined) return resource;
-    }
-    // Record where Rolldown's own resolution lands, so a specifier that simply is not
-    // installed is still reported as referenced rather than dropped — the audit decides
-    // what that means, not this pass.
-    const resolved = await context.resolve(source, importer, { ...options, skipSelf: true });
-    if (resolved !== null && resolved.external !== true) {
-      resolver.fallThroughResolutions.set(source, resolved.id);
-    }
-    return null;
-  }
-
-  if (interception.kind === "runtime-binding") {
-    // The binding's own import of the façade must resolve to the façade's real source,
-    // which means resolving it *here*, against the importer that asked for it — the
-    // authored module — rather than against the `\0` id that has no directory. Resolving
-    // it against the binding's id is the bug this arm exists to prevent: Rolldown then
-    // falls back to the process cwd, and from a directory that has no link to the façade
-    // the import goes external, which ships an artifact naming an undefined IIFE
-    // parameter.
-    // Two resolutions, because the generated module imports a different entry than the one the
-    // Cell wrote (#124): the authored specifier is the package barrel, and the module this
-    // binding *is* must import the package's production entry. Resolving the barrel and then
-    // importing it is what shipped the local-dev contract into every artifact, so both are
-    // resolved here and the one the binding embeds is `bindingSpecifier`'s.
-    const resolvedFacade = await context.resolve(interception.facadeSpecifier, importer, {
-      ...options,
-      skipSelf: true,
-    });
-    if (resolvedFacade === null || resolvedFacade.external === true) {
-      // Thrown rather than left to fall through, and the distinction matters: falling
-      // through would resolve the authored import by ordinary means — the façade's source
-      // is inlined, no binding is generated — and produce an artifact that compiles and
-      // then fails at its first façade call with `provider-not-installed`. That is the
-      // exact defect #82 exists to remove, so an unresolvable façade must not be able to
-      // reproduce it silently. Both passes convert a thrown error into a
-      // `bundler-failure` diagnostic, which names this message.
-      throw new Error(
-        `The Cell imports "${interception.facadeSpecifier}", which could not be resolved from "${importer ?? "the entry"}", so the generated runtime binding has nothing to install from. Install the façade as a dependency of the project the Cell is compiled in.`,
-      );
-    }
-    const resolvedBinding = await context.resolve(interception.bindingSpecifier, importer, {
-      ...options,
-      skipSelf: true,
-    });
-    if (resolvedBinding === null || resolvedBinding.external === true) {
-      throw new Error(
-        `The Cell imports "${interception.facadeSpecifier}", whose generated runtime binding needs its production entry "${interception.bindingSpecifier}", which could not be resolved from "${importer ?? "the entry"}". The package declares that subpath; a link that does not provide it cannot produce a production Cell artifact.`,
-      );
-    }
-    virtualModules.set(interception.id, renderRuntimeBindingModule(resolvedBinding.id));
-    return { id: interception.id, moduleType: interception.moduleType };
-  }
-
-  virtualModules.set(interception.id, interception.source);
-  return { id: interception.id, moduleType: interception.moduleType };
-}
-
-/**
- * The resources one pass inlined, plus the refusals it accumulated (#98).
- *
- * Per-pass rather than per-bundler for the same reason the interception resolver is: a build must
- * not see a previous build's ledger, so the object is created by whichever pass is running and
- * read by that same pass.
- */
-interface ResourceResolutionState {
-  /** The directory report paths are relative to, so the ledger is portable across machines. */
-  readonly dir: string;
-  readonly inlineLimitBytes: number;
-  readonly resources: CellInlinedResource[];
-  readonly refusals: CellResourceRefusal[];
-  /** One resource per resolved module id, so a CSS file imported twice is inlined once. */
-  readonly byModuleId: Map<string, CellResourceResolution>;
-}
-
-function createResourceState(dir: string, inlineLimitBytes: number): ResourceResolutionState {
-  return {
-    dir,
-    inlineLimitBytes,
-    resources: [],
-    refusals: [],
-    byModuleId: new Map(),
-  };
-}
-
-/**
- * Resolves a relative/absolute import and, when it is a resource, compiles it inline.
- *
- * ## Why the bundler resolves first
- *
- * A resource `import "./x.css"` is an ordinary file import with an unusual payload. Asking
- * `context.resolve` first is what keeps this module out of the resolution business: extensions,
- * directory indexes, aliases and package `exports` are all answered by the bundler, and this
- * function only inspects the *resolved file* it is handed. A compiler that resolved `./x` to
- * `./x.css` itself would be the second resolver #6 forbids.
- *
- * ## Why a refusal throws
- *
- * Rolldown has no "resolve, but with a structured finding" return. A refusal has to leave the
- * hook somehow, and the two options are (a) return nothing, which falls through to ordinary
- * resolution and produces an artifact with a broken import, or (b) throw. (b) is chosen and the
- * throw travels as {@link CellResourcePolicyError}, which both passes catch and reduce to their
- * own diagnostics — the same error-into-diagnostic conversion `compileCell` already performs for
- * `bundler-failure`, but preserving the actionable code.
- */
-async function resolveResourceSpecifier(
-  context: PluginContext,
-  state: ResourceResolutionState,
-  virtualModules: Map<string, string>,
-  source: string,
-  importer: string | undefined,
-  options: ResolveIdExtraOptions,
-): Promise<CellSpecifierResolution | undefined> {
-  if (source.startsWith("\0")) return undefined;
-  const { path: barePath, query } = splitCellSpecifierQuery(source);
-  // A Vite resource query is refused for *any* file, not only a resource extension: `worker.js`
-  // has an ordinary `.js` extension and is still a runtime asset the compiled Cell cannot serve.
-  // The sentence is `core`'s (#153), so the same import refused locally reads identically here.
-  const queryRefusal = cellResourceQueryRefusal(source, query, importer);
-  if (queryRefusal !== undefined && query !== undefined && queryHasRejectedResourceParameter(query)) {
-    state.refusals.push(queryRefusal);
-    throwResourceRefusal([queryRefusal]);
-  }
-
-  // A `.svg` imported without a query is a resource; a `./data.json` is not, and must not pay for
-  // an extra `this.resolve` on every relative import in hot bundles.
-  if (!isCellResourceFile(barePath)) return undefined;
-
-  const resolved = await context.resolve(source, importer, { ...options, skipSelf: true });
-  if (resolved === null || resolved.external === true) return undefined;
-
-  const cached = state.byModuleId.get(resolved.id);
-  if (cached !== undefined) {
-    if (!cached.ok) throwResourceRefusal([cached.refusal]);
-    virtualModules.set(cached.moduleId, cached.source);
-    return { id: cached.moduleId, moduleType: "esm" };
-  }
-
-  const outcome = await resolveCellResource({
-    importer,
-    fileId: resolved.id,
-    inlineLimitBytes: state.inlineLimitBytes,
-  });
-  state.byModuleId.set(resolved.id, outcome);
-
-  if (!outcome.ok) {
-    state.refusals.push(outcome.refusal);
-    throwResourceRefusal([outcome.refusal]);
-  }
-
-  // The ledger's path is project-relative: an absolute path would make the same build's report
-  // differ between machines, which is a determinism claim the artifact contract makes.
-  state.resources.push({ ...outcome.resource, fileId: portableResourcePath(state.dir, outcome.resource.fileId) });
-  virtualModules.set(outcome.moduleId, outcome.source);
-  return { id: outcome.moduleId, moduleType: "esm" };
-}
-
-/**
- * The module text for a resource id, or `undefined` when the id is not one this pass inlined.
- *
- * `moduleType: "js"` is not decoration. Rolldown infers a module's type from its *file extension*
- * before the load hook runs, and 1.3.x removed CSS bundling outright — so a `.css` module whose
- * `load` returns JavaScript is still handed to the CSS pipeline and fails with `[UNSUPPORTED_FEATURE]
- * Bundling CSS is no longer supported`. The generated module is JavaScript, so it says so.
- */
-function resolveResourceModule(
-  state: ResourceResolutionState,
-  moduleId: string,
-): { readonly code: string; readonly moduleType: "js"; readonly moduleSideEffects: "no-treeshake" } | undefined {
-  for (const outcome of state.byModuleId.values()) {
-    if (outcome.ok && outcome.moduleId === moduleId) {
-      return { code: outcome.source, moduleType: "js", moduleSideEffects: "no-treeshake" };
-    }
-  }
-  return undefined;
-}
-
-function throwResourceRefusal(refusals: readonly CellResourceRefusal[]): never {
-  throw new CellResourcePolicyError(refusals);
-}
-
-/** A resource's report path: relative to the build root, with `/` separators. */
-function portableResourcePath(dir: string, fileId: string): string {
-  const relative = path.relative(dir, fileId);
-  return (relative.length === 0 ? path.basename(fileId) : relative).split(path.sep).join("/");
-}
+// ---------------------------------------------------------------------------
+// The preflight
+// ---------------------------------------------------------------------------
 
 /**
  * The entry's bare specifiers, analysed through the same resolver the build uses
@@ -710,9 +255,6 @@ async function resolveEntrySpecifiersWithRolldown(
  */
 const CELL_ENTRY_SHIM_ID = "cell-entry-shim.js";
 
-const HOST_VIRTUAL_PREFIX = "\0cell-host:";
-const EXTENSION_VIRTUAL_PREFIX = "\0cell-ext:";
-
 /**
  * The shim source: default-export-first, else the named `App` #5's resolution
  * order falls back to.
@@ -736,25 +278,6 @@ function renderEntryShim(resolvedEntry: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Specifier classification
-// ---------------------------------------------------------------------------
-
-/**
- * Whether a specifier names a package the mapping tables could know.
- *
- * Path-like specifiers are never consulted against the plans: a table row is a
- * package name, so the answer for `./App` is already decided by ordinary
- * resolution, and asking the plans would only collect findings about decisions
- * the specifier cannot have.
- */
-function isBareSpecifier(source: string): boolean {
-  if (source.startsWith("\0")) return false;
-  if (source.startsWith(".") || source.startsWith("/")) return false;
-  if (source.startsWith("data:") || source.startsWith("file:")) return false;
-  return !path.isAbsolute(source);
-}
-
-// ---------------------------------------------------------------------------
 // Failure descriptions
 // ---------------------------------------------------------------------------
 
@@ -775,269 +298,8 @@ function describeBuildFailure(error: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// The report
+// Alias options
 // ---------------------------------------------------------------------------
-
-const NODE_MODULES_MARKER = "node_modules/";
-
-/**
- * The package a module id was flattened from, or `undefined` for anything that
- * did not come from an installed dependency.
- *
- * The *last* `node_modules/` segment wins, which is what makes pnpm's layout
- * (`…/.pnpm/react@19.2.7/node_modules/react/index.js`) and a hoisted layout
- * (`…/node_modules/react/index.js`) answer the same, and what keeps a virtual
- * interception id (`\0cell-host:react/jsx-runtime`) from answering at all.
- *
- * The folding itself is `core`'s one package-name rule (#156); this function only
- * finds where in the path the package name starts. Splitting on the marker and then
- * folding keeps a scoped package (`@scope/pkg/sub`) and a bare one (`react/sub`) on the
- * same rule the rest of the repository uses, rather than on a second one written here.
- */
-function packageNameOfModuleId(moduleId: string): string | undefined {
-  const normalized = moduleId.replace(/\\/g, "/");
-  const at = normalized.lastIndexOf(NODE_MODULES_MARKER);
-  if (at < 0) return undefined;
-  const rest = normalized.slice(at + NODE_MODULES_MARKER.length).replace(/\/$/, "");
-  const [first] = rest.split("/");
-  if (first === undefined || first.length === 0) return undefined;
-  return packageNameOfSpecifier(rest);
-}
-
-function inlinedPackageNames(moduleIds: readonly string[]): string[] {
-  const packages = new Set<string>();
-  for (const moduleId of moduleIds) {
-    const packageName = packageNameOfModuleId(moduleId);
-    if (packageName !== undefined) packages.add(packageName);
-  }
-  // Sorted so the report is byte-stable like the code is: #7's determinism
-  // criterion covers the whole compile result, not only its largest field.
-  return [...packages].sort();
-}
-
-/**
- * Rendered characters contributed by each installed package that landed in this chunk.
- *
- * The bundler already accounts per module (`renderedLength`), so this is a grouping of what it
- * reported rather than a second measurement — and it is the only sound basis for attribution. #77
- * round 6 initially tried to obtain it by recompiling the Cell *without* the subject's decision and
- * subtracting, which is **degenerate**: dropping a decision does not remove the package's code,
- * because the bundler still resolves the bare import from `node_modules` (measured: 14971
- * characters either way). Measuring what a package actually contributes requires asking the module
- * graph, which is exactly this.
- *
- * Sorted by name so the report is byte-stable, like the code and `inlinedPackages`.
- */
-function inlinedPackageSizesOf(modules: Record<string, { readonly renderedLength: number }>): readonly InlinedPackageSize[] {
-  const sizes = new Map<string, { packageName: string; exactSpecifier: string | null; renderedCharacters: number }>();
-  for (const [moduleId, module] of Object.entries(modules)) {
-    const packageName = packageNameOfModuleId(moduleId);
-    if (packageName === undefined) continue;
-    // Attributed by the specifier that *resolved* to this module, not only by its package root.
-    // The compiler preserves exact-subpath precedence everywhere else — `findDependencyDecision`
-    // checks the exact specifier before the package root, and `inlinedSpecifiers` exists so
-    // `pkg/subpath` is not folded into `pkg` — so reporting a subpath's bytes under the root would
-    // credit a decision that did not govern them (#77 round 7).
-    const exactSpecifier = exactSubpathOf(moduleId, packageName);
-    const key = `${packageName}\u0000${exactSpecifier ?? ""}`;
-    const entry = sizes.get(key) ?? { packageName, exactSpecifier, renderedCharacters: 0 };
-    entry.renderedCharacters += module.renderedLength;
-    sizes.set(key, entry);
-  }
-  return [...sizes.values()].sort(
-    (a, b) => compareCodeUnits(a.packageName, b.packageName) || compareCodeUnits(a.exactSpecifier ?? "", b.exactSpecifier ?? ""),
-  );
-}
-
-/**
- * The subpath a module under `node_modules/<packageName>` came from, or null for the package root.
- *
- * Derived from the module's own path rather than from the specifier that imported it, because the
- * specifier is not available at this level: the module graph reports resolved ids, and two
- * different specifiers can resolve into one package. So this answers "which subpath does this file
- * belong to", which is enough for the *subpath* half of the split and deliberately not offered as
- * a claim about which import reached it.
- */
-function exactSubpathOf(moduleId: string, packageName: string): string | null {
-  const normalized = moduleId.replace(/\\/g, "/");
-  const marker = `${NODE_MODULES_MARKER}${packageName}/`;
-  const at = normalized.lastIndexOf(marker);
-  if (at < 0) return null;
-  const rest = normalized.slice(at + marker.length);
-  const segments = rest.split("/").filter(segment => segment.length > 0);
-  // A file directly inside the package directory is the package root; anything under a
-  // subdirectory is a subpath. `dist/index.js` is the root's build output, not an imported
-  // `dist` subpath, which is why the entry file's own directory is not treated as a subpath.
-  if (segments.length === 0) return null;
-  const [first] = segments;
-  if (first === "dist" || first === "lib" || first === "src" || first === "esm" || first === "cjs") {
-    return null;
-  }
-  return segments.length > 1 ? first! : null;
-}
-
-/**
- * Whether a module id resolves, after following symlinks, to a real path under
- * `node_modules`.
- *
- * The line between "installed package" and "workspace source reached through a
- * `node_modules` symlink": #14's workspace packages are source and need no
- * `DependencyDecision`, while an installed package without one must be refused
- * (#4). Rolldown normally resolves symlinks to real paths — so workspace source
- * already answers `false` here — but the `realpathSync` call is deliberate
- * defence against a `preserveSymlinks` configuration that would leave the
- * module id under `node_modules` while the real file lives elsewhere.
- */
-function resolvesIntoNodeModules(moduleId: string): boolean {
-  try {
-    return realpathSync(moduleId).split(path.sep).join("/").includes(NODE_MODULES_MARKER);
-  } catch {
-    // A module id that cannot be resolved to a real path is judged on its own
-    // text: if it says `node_modules`, treat it as installed rather than
-    // silently accepting a package the decision layer never saw.
-    return moduleId.split(path.sep).join("/").includes(NODE_MODULES_MARKER);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Plan consultation and translation
-// ---------------------------------------------------------------------------
-
-interface CapturedLog {
-  readonly code: string;
-  readonly id: string;
-  readonly message: string;
-}
-
-/**
- * The bridge's findings, translated into the artifact's vocabulary — or
- * dropped, with the reason written at the arm.
- *
- * The split core insists on is visible here: a bridge diagnostic is about a
- * mapping, and `duplicate-host-mapping` is about a produced artifact, so an arm
- * may only translate when the finding's statement is literally true of the
- * artifact. `host-module-duplicated` is the clearest case — "the decision
- * contradicts the table" is the mapping's finding, but "this artifact carries a
- * second copy of an identity-sensitive module" is the artifact's, and it is
- * only reportable when the copy is actually in `inlinedPackages`.
- */
-function translateHostFinding(
-  finding: HostBridgeDiagnostic,
-  inlinedPackages: readonly string[],
-  referencedPackages: ReadonlySet<string>,
-): CellArtifactDiagnostic | undefined {
-  // Whether the artifact actually carries the package the finding names —
-  // imported (and so bound into the artifact) or inlined. This is the line
-  // between an artifact-true statement and a decision-layer one for the arms
-  // below: a conflict between decisions the entry never imports binds none of
-  // this artifact's globals, so reporting it here would claim a guarantee
-  // break the artifact does not commit.
-  const packageInArtifact =
-    referencedPackages.has(packageNameOfSpecifier(finding.specifier)) ||
-    inlinedPackages.includes(finding.specifier);
-  switch (finding.code) {
-    case "host-module-duplicated":
-      if (!inlinedPackages.includes(finding.specifier)) return undefined;
-      return createCellArtifactDiagnostic("duplicate-host-mapping", finding.specifier, {
-        detail: finding.detail,
-      });
-    case "host-mapping-conflict":
-      // An incoherent table cannot vouch for any identity it binds — but only
-      // for the identities this artifact binds: see `packageInArtifact` above
-      // and the vocabulary rule in this function's header comment.
-      if (!packageInArtifact) return undefined;
-      return createCellArtifactDiagnostic("duplicate-host-mapping", finding.specifier, {
-        detail: finding.detail,
-      });
-    case "host-mapping-missing":
-    case "host-adapter-not-used":
-      // Mapping-level findings whose artifact-visible consequences — a
-      // surviving import, an inlined copy — #6's report-field audits already
-      // report when they occur. Translating them here as well would state one
-      // condition twice under two codes, which is the confusion core's
-      // vocabulary comment warns about; an *unused* bad decision breaks no
-      // guarantee of the artifact.
-      return undefined;
-    case "host-global-missing":
-    case "host-global-incompatible":
-    case "host-member-not-verified":
-      // Runtime codes: they describe a page evaluated without the global, not
-      // a built artifact, and no plan emits them for a build. The arms exist
-      // so a future code cannot silently fall through an implicit `undefined`.
-      return undefined;
-  }
-}
-
-/**
- * The extension plan's findings, translated the same way and by the same rule.
- *
- * `extension-mapping-missing` and `extension-mapping-conflict` are both
- * artifact-level statements of "this `extension` decision has no usable
- * mapping" — the artifact would reference a library identity the table does
- * not verify — which is exactly #12's `missing-extension-mapping`.
- * `extension-not-declared` is the artifact reading a mapped extension module
- * that no decision declares: the generated module would read a global
- * `frontendLibraries` never names, so from the artifact's side the dependency
- * arrived without a usable decision.
- */
-function translateExtensionFinding(finding: ExtensionExternalDiagnostic): CellArtifactDiagnostic | undefined {
-  switch (finding.code) {
-    case "extension-mapping-missing":
-    case "extension-mapping-conflict":
-    case "extension-library-unverified":
-    case "extension-global-mismatch":
-      return createCellArtifactDiagnostic("missing-extension-mapping", finding.subject, {
-        detail: finding.detail,
-      });
-    case "extension-not-declared":
-      return createCellArtifactDiagnostic("unresolved-dependency-decision", finding.subject, {
-        detail: finding.detail,
-      });
-    case "extension-bundle-missing":
-    case "extension-types-missing":
-    case "extension-global-missing":
-      // Runtime codes about a page that did not load the extension; no plan
-      // emits them for a build. Kept explicit so the switch stays exhaustive.
-      return undefined;
-  }
-}
-
-function byCodeThenSubject(
-  a: { readonly code: string; readonly subject: string },
-  b: { readonly code: string; readonly subject: string },
-): number {
-  return compareCodeUnits(a.code, b.code) || compareCodeUnits(a.subject, b.subject);
-}
-
-// ---------------------------------------------------------------------------
-// The build
-// ---------------------------------------------------------------------------
-
-/**
- * Refuses an entry that offers no component for the shim to bind.
- *
- * Detection runs on the shim's own warnings rather than on parsed exports: the
- * two `IMPORT_IS_UNDEFINED` warnings are rolldown telling us it evaluated both
- * `default` and `App` against the entry's namespace and found nothing — the
- * authoritative answer to "does a component exist", from the same resolution
- * the artifact will run at, with no second parser to disagree with it. One
- * warning is normal (entries legitimately use either export style); both mean
- * the build would succeed and hand the cell a binding of `void 0`, which #6's
- * error model asks to refuse structurally instead.
- */
-function assertEntryComponentBinding(logs: readonly CapturedLog[], entry: string): void {
-  const missing = new Set<string>();
-  for (const log of logs) {
-    if (log.code !== "IMPORT_IS_UNDEFINED" || log.id !== CELL_ENTRY_SHIM_ID) continue;
-    const match = /Import `([^`]+)`/.exec(stripAnsi(log.message));
-    if (match?.[1] !== undefined) missing.add(match[1]);
-  }
-  if (missing.has("default") && missing.has("App")) {
-    throw new Error(
-      `The entry "${entry}" exports neither a default export nor a named "App" export, so there is no component for the ReactCellType entry to bind.`,
-    );
-  }
-}
 
 /**
  * The `resolve.alias` half of the Rolldown options, or nothing when the project declared none.
@@ -1077,6 +339,42 @@ function rolldownAliasOptions(
   return alias === undefined ? {} : { resolve: { alias } };
 }
 
+// ---------------------------------------------------------------------------
+// The build
+// ---------------------------------------------------------------------------
+
+interface CapturedLog {
+  readonly code: string;
+  readonly id: string;
+  readonly message: string;
+}
+
+/**
+ * Refuses an entry that offers no component for the shim to bind.
+ *
+ * Detection runs on the shim's own warnings rather than on parsed exports: the
+ * two `IMPORT_IS_UNDEFINED` warnings are rolldown telling us it evaluated both
+ * `default` and `App` against the entry's namespace and found nothing — the
+ * authoritative answer to "does a component exist", from the same resolution
+ * the artifact will run at, with no second parser to disagree with it. One
+ * warning is normal (entries legitimately use either export style); both mean
+ * the build would succeed and hand the cell a binding of `void 0`, which #6's
+ * error model asks to refuse structurally instead.
+ */
+function assertEntryComponentBinding(logs: readonly CapturedLog[], entry: string): void {
+  const missing = new Set<string>();
+  for (const log of logs) {
+    if (log.code !== "IMPORT_IS_UNDEFINED" || log.id !== CELL_ENTRY_SHIM_ID) continue;
+    const match = /Import `([^`]+)`/.exec(stripAnsi(log.message));
+    if (match?.[1] !== undefined) missing.add(match[1]);
+  }
+  if (missing.has("default") && missing.has("App")) {
+    throw new Error(
+      `The entry "${entry}" exports neither a default export nor a named "App" export, so there is no component for the ReactCellType entry to bind.`,
+    );
+  }
+}
+
 async function bundleWithRolldown(
   dir: string,
   request: CellBundlingRequest,
@@ -1106,7 +404,10 @@ async function bundleWithRolldown(
   resolver.primeDiagnostics();
   // The resource ledger (#98). One per build, read below; the modules it registers load from
   // `virtualModules` like every other generated module, so the bundler has nothing extra to know.
-  const resources = createResourceState(dir, request.assetInlineLimitBytes ?? CELL_ASSET_INLINE_LIMIT_BYTES);
+  const resources: ResourceResolutionState = createResourceState(
+    dir,
+    request.assetInlineLimitBytes ?? CELL_ASSET_INLINE_LIMIT_BYTES,
+  );
 
   let build: Awaited<ReturnType<typeof rolldown>> | undefined;
   let output: (OutputChunk | OutputAsset)[];
