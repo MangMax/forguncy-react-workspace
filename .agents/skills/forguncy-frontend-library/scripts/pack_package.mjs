@@ -102,7 +102,7 @@ for (const name of requiredNames) {
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("不是文件");
     files.push({ name, data: await readFile(filePath) });
-  } catch (error) {
+  } catch {
     failures.push("缺少标准文件 " + filePath);
   }
 }
