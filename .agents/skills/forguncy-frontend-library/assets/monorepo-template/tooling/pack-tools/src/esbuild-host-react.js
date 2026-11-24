@@ -26,7 +26,7 @@ const defaultHostModules = {
 const FILTER = /^(react|react-dom|react-dom\/client|react\/jsx-runtime|react\/jsx-dev-runtime)$/;
 
 export function createHostReactPlugin(options = {}) {
-  const hostModules = { ...defaultHostModules, ...(options.hostModules || {}) };
+  const hostModules = { ...defaultHostModules, ...options.hostModules };
   return {
     name: "react-cell-type-host-react",
     setup(buildContext) {

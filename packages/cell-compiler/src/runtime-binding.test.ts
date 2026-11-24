@@ -436,7 +436,10 @@ describe("a compiled Cell that calls the runtime façade", () => {
       flattenText(element.props.children).includes("导出"),
     );
     expect(button).toBeDefined();
-    (button?.props.onClick as () => void)();
+    if (button === undefined) {
+      throw new Error("the 导出 command button was not found");
+    }
+    (button.props.onClick as () => void)();
     // The handler fires the call without awaiting it, so the assertion has to wait for the
     // promise chain to drain rather than assume a turn count: the path is
     // `refreshOrders` -> `invokeServerCommand` -> the host's command function, and each hop
