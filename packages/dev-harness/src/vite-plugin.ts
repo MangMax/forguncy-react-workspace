@@ -17,7 +17,7 @@
  *
  * Everything it needs already exists and is reused rather than re-derived:
  *
- * - the **Cell** comes from `virtual:forguncy/cell/<id>` (`vite-plugin-fgc`, #28), which
+ * - the **Cell** comes from `virtual:forguncy/cell/<id>` (`cell-plugin.ts`, #28), which
  *   honours `cells.<id>.entry` and refuses an entry that exposes no component, naming the
  *   exports it does have. This plugin never resolves an entry path itself — that would be a
  *   second answer to "which file is this Cell", and the two would come apart the first time
@@ -59,7 +59,7 @@ import { ForguncyConfigError } from "@forguncy-react-workspace/core";
 import type { CellRegistry, ForguncyConfig, RegisteredCell } from "@forguncy-react-workspace/core";
 import type { LocalDevExtensionChoice } from "@forguncy-react-workspace/runtime";
 import { localDevVersionFieldIsBrowserObserved } from "@forguncy-react-workspace/runtime";
-import { cellVirtualModuleId, forguncy } from "@forguncy-react-workspace/vite-plugin-fgc";
+import { cellVirtualModuleId, forguncy } from "./cell-plugin.ts";
 
 import {
   auditProjectAliases,
@@ -148,11 +148,11 @@ export interface DevHarnessOptions {
 }
 
 /**
- * The plugin's own view of itself, typed structurally like `vite-plugin-fgc`'s.
+ * The plugin's own view of itself, typed structurally like `cell-plugin.ts`'s.
  *
  * Structural rather than Vite's `Plugin` type so this package does not pin the toolchain
  * version: any host accepting the Vite plugin shape (`name` plus lifecycle hooks) can load it,
- * which is what `vite-plugin-fgc` does for the same reason and what lets a test drive the hooks
+ * which is what `cell-plugin.ts` does for the same reason and what lets a test drive the hooks
  * directly. The members are exactly the hooks this harness implements and no more — a wider
  * interface would be a claim about hooks nothing here defines.
  */

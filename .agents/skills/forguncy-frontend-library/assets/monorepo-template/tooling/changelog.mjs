@@ -2,7 +2,7 @@
 // 变更日志：根目录一份全量 changelog，每个包一份按路径过滤的 changelog。
 // 依赖 git-cliff（brew install git-cliff）。
 import { existsSync } from "node:fs";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";

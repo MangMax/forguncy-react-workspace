@@ -4,7 +4,10 @@
  * Governing Spec Issues: #22 (local Vite+ dev runtime) and #26 (project
  * configuration); implementation Issue: #28 wires the registry and exposes the
  * guarded `virtual:forguncy/cell/<cellId>` seam a dev harness resolves Cell
- * modules through, #23 owns the dev harness itself.
+ * modules through, #23 owns the dev harness itself. This module is the Cell seam
+ * half of the harness, composed by `vite-plugin.ts`; it was its own package
+ * (`vite-plugin-fgc`) until #168 folded it in, because `dev-harness` was its only
+ * consumer and the two always shipped and changed together.
  *
  * Why the plugin takes a *config object* and not a config file path: under Vite+
  * the project's `vite.config.ts` imports `forguncy.config.ts` directly, so Vite+
@@ -14,7 +17,7 @@
  * was in effect.
  *
  * The plugin is typed structurally instead of importing Vite's `Plugin` type so
- * this package does not pin the toolchain version: any host that accepts the Vite
+ * the seam does not pin the toolchain version: any host that accepts the Vite
  * plugin shape (`name` plus lifecycle hooks) can load it. The same rule governs
  * the virtual-module seam: `resolveId`/`load` implement the Vite convention
  * (`\0` marks a resolved virtual id so nothing tries to read it from disk), but

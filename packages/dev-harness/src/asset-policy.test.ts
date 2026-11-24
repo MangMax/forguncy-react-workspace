@@ -7,10 +7,9 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 import type { ViteDevServer } from "vite";
 
-import { cellVirtualModuleId } from "@forguncy-react-workspace/vite-plugin-fgc";
-
 import type { ForguncyConfig } from "@forguncy-react-workspace/core";
 
+import { cellVirtualModuleId } from "./cell-plugin.ts";
 import { createDevCellResourcePolicy } from "./cell-assets.ts";
 import { canonicalTempProject, removeTempProject } from "./temp-project.ts";
 import { devHarness } from "./vite-plugin.ts";

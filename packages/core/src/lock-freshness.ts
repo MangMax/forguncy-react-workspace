@@ -185,7 +185,7 @@ export function assessLockDecision(
   const reasons: LockStalenessReason[] = [];
 
   reasons.push(...assessProbeFreshness(record, environment, policy));
-  reasons.push(...assessPackageVersionFreshness(record, environment, policy));
+  reasons.push(...assessPackageVersionFreshness(record, environment));
   reasons.push(...assessTargetFreshness(record, environment, policy));
   reasons.push(...assessToolchainFreshness(record, environment));
   reasons.push(...assessInstallGraphFreshness(record, environment, policy));
@@ -239,7 +239,6 @@ function assessProbeFreshness(
 function assessPackageVersionFreshness(
   record: LockedDependencyDecision,
   environment: LockEnvironment,
-  policy: LockEvidencePolicy,
 ): readonly LockStalenessReason[] {
   if (record.probe.versionIndependent) {
     return [];

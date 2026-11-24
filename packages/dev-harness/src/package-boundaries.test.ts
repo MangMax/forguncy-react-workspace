@@ -210,7 +210,6 @@ const SURFACE_PACKAGES = [
   "@forguncy-react-workspace/dev-harness",
   "@forguncy-react-workspace/mcp-sync",
   "@forguncy-react-workspace/runtime",
-  "@forguncy-react-workspace/vite-plugin-fgc",
 ] as const;
 
 interface PinnedSurface {
@@ -605,13 +604,7 @@ const PINNED_SURFACE: Readonly<Record<(typeof SURFACE_PACKAGES)[number], PinnedS
       "RuntimeFacadeProvider",
     ],
   },
-  "@forguncy-react-workspace/vite-plugin-fgc": {
-    values: [
-      "cellVirtualModuleId",
-      "forguncy",
-    ],
-    types: [],
-  },};
+};
 
 /** The exported names of a barrel, following `export *` re-exports. */
 function exportedNames(file: string, seen = new Set<string>()): readonly string[] {
