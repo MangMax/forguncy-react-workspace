@@ -27,7 +27,7 @@
  * (https://github.com/Mang-X/forguncy-react-workspace/issues/9), which decides
  * what a `host` dependency compiles *to*. The mapping table itself is `core`'s —
  * the dependency resolver audits locks against the same table and may not depend
- * on this package — so what lives here is the generated source and the guard.
+ * on this package — so what lives here is the generated source and the plan.
  *
  * A fourth Spec is projected here: #12 "`extension` dependencies as external modules
  * + `frontendLibraries` metadata"
@@ -154,7 +154,7 @@ export type {
   CellSourceScanOmission,
 } from "./source-guard.ts";
 
-// The host module bridge (#9): the interposed modules and the artifact guard
+// The host module bridge (#9): the interposed modules and the plan
 export {
   createHostBridgeDiagnostic,
   formatHostBridgeDiagnostic,
@@ -165,7 +165,6 @@ export {
   planHostBridge,
   renderHostBridgeAdapterModule,
   renderHostBridgeGlobalModule,
-  renderHostBridgeGuard,
   renderHostBridgeModule,
 } from "./host-bridge.ts";
 export type {
@@ -177,7 +176,6 @@ export type {
   HostBridgePlan,
   HostBridgeUsage,
   PlanHostBridgeOptions,
-  RenderHostBridgeGuardOptions,
 } from "./host-bridge.ts";
 
 // The extension externals (#12): the interposed modules that answer an authored

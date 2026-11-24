@@ -288,7 +288,7 @@ export const HOST_BRIDGE_MAPPINGS: readonly HostBridgeMapping[] = [
     identitySensitive: true,
     binds: [{ moduleId: "react", shape: "host-identity" }],
     identityRule:
-      "#5 measured `React.version === \"19.2.7\"` on the injected object and verified `single-react-instance-per-page`, so the recording `ForguncyTargetIdentity.hostReactVersion` is a real check: the bridge compares the page's `React.version` against it and refuses on a mismatch. The version check is the *second* line of defence; the first is that nothing else in the artifact may carry a React implementation at all.",
+      "#5 measured `React.version === \"19.2.7\"` on the injected object and verified `single-react-instance-per-page`, so the recorded `ForguncyTargetIdentity.hostReactVersion` is a real field to check: the decision-conformance audit refuses a `host` decision whose recorded version differs from the target's, and this mapping is identity-sensitive, so a bundled React duplicate is a diagnostic. Nothing re-compares `React.version` inside a generated artifact — an exact-match check at cell entry would break already-deployed Cells on a harmless host patch upgrade (#164), and the first line of defence is that nothing else in the artifact may carry a React implementation at all.",
     verifiedMembers: ["version", "createElement", "useState", "useEffect", "useMemo", "useRef", "useCallback"],
     evidence: ["product-runtime-source", "generated-runtime-browser"],
     note:

@@ -26,7 +26,6 @@ import {
   planHostBridge,
   renderHostBridgeAdapterModule,
   renderHostBridgeGlobalModule,
-  renderHostBridgeGuard,
   renderHostBridgeModule,
   HOST_BRIDGE_GENERATED_BANNER,
 } from "./host-bridge.ts";
@@ -78,17 +77,6 @@ function evaluateModule(source: string, options: SandboxOptions = {}): Record<st
   const context = createContext(sandbox);
   new Script(source, { filename: "generated host bridge module" }).runInContext(context);
   return (sandbox.module as { exports: Record<string, unknown> }).exports;
-}
-
-function evaluateScript(source: string, options: SandboxOptions = {}): void {
-  const sandbox: Record<string, unknown> = {
-    module: { exports: {} },
-    ...(options.React === undefined ? {} : { React: options.React }),
-    ...(options.ReactDOM === undefined ? {} : { ReactDOM: options.ReactDOM }),
-    ...options.extraGlobals,
-  };
-  sandbox.globalThis = sandbox;
-  new Script(source, { filename: "generated host bridge guard" }).runInContext(createContext(sandbox));
 }
 
 function globalMapping(specifier: string): HostBridgeGlobalMapping {
@@ -527,9 +515,9 @@ describe("generated JSX runtime adapter", () => {
     expect(warnings.some(message => /unique "key" prop/.test(message))).toBe(false);
   });
 
-  // #9's React identity rule list: a required global missing is what the guard is
-  // for, and evaluating the module before the host is there must not be the moment
-  // it fails — module evaluation order belongs to the bundler.
+  // #9's React identity rule list: a required global missing is what the generated
+  // module refuses on, and evaluating the module before the host is there must not be
+  // the moment it fails — module evaluation order belongs to the bundler.
   it("evaluates without the host React, and fails with a structured error on first use", () => {
     const runtime = evaluateModule(source());
     const jsx = runtime.jsx as (type: unknown, props: unknown) => unknown;
@@ -559,57 +547,6 @@ describe("generated JSX runtime adapter", () => {
     expect(codeOf(error)).toBe("host-global-incompatible");
     expect(error.member).toBe("Fragment");
     expect(error.fixOwner).toBe("dependency-decision");
-  });
-});
-
-describe("the artifact guard", () => {
-  it("passes on a host matching the recorded identity", () => {
-    expect(() =>
-      evaluateScript(renderHostBridgeGuard({ recordedHostReactVersion: "19.2.7" }), { React, ReactDOM }),
-    ).not.toThrow();
-  });
-
-  // The version strategy #9 asks for: the lock records the host build a decision was
-  // verified against, and a page running a different build is a decision whose
-  // evidence no longer applies.
-  it("refuses a host whose recorded identity does not match", () => {
-    const olderReact = { ...React, version: "18.3.1" };
-    const error = caught(() =>
-      evaluateScript(renderHostBridgeGuard({ recordedHostReactVersion: "19.2.7" }), {
-        React: olderReact,
-        ReactDOM,
-      }),
-    );
-
-    expect(codeOf(error)).toBe("host-global-incompatible");
-    expect(error.member).toBe("version");
-  });
-
-  it("checks every always-available global, not just the identity-sensitive ones", () => {
-    expect(() =>
-      evaluateScript(renderHostBridgeGuard({ recordedHostReactVersion: "19.2.7" }), { React }),
-    ).toThrowError(/host-global-missing/);
-  });
-
-  it("refuses when a required global is absent", () => {
-    expect(() =>
-      evaluateScript(renderHostBridgeGuard({ recordedHostReactVersion: "19.2.7" }), { ReactDOM }),
-    ).toThrowError(/host-global-missing/);
-  });
-
-  it("emits no identity check when no recorded version was supplied", () => {
-    const differentReact = { ...React, version: "18.3.1" };
-    const guard = renderHostBridgeGuard({ recordedHostReactVersion: undefined });
-    expect(guard).not.toContain("18.3.1");
-    expect(() => evaluateScript(guard, { React: differentReact, ReactDOM })).not.toThrow();
-  });
-
-  // Preset-conditional globals are reported at build time, where the cell's declared
-  // preset is known, and never thrown — #5 records their absence as a supported
-  // state.
-  it("never throws for a preset-conditional global", () => {
-    const guard = renderHostBridgeGuard({ recordedHostReactVersion: "19.2.7" });
-    expect(guard).not.toContain("antd");
   });
 });
 
