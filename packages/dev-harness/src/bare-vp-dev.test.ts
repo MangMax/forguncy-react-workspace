@@ -66,7 +66,7 @@ import { DEV_HARNESS_PLUGIN_NAME } from "./vite-plugin.ts";
  *
  * That is also why the assertion is on the *evaluated* config rather than on "did not throw".
  * Evaluating this config imports `forguncy.config.ts` (which imports `core`) and
- * `@forguncy-react-workspace/dev-harness` (which imports `runtime` and `vite-plugin-fgc`), so the
+ * `@forguncy-react-workspace/dev-harness` (which imports `runtime` and its own Cell seam), so the
  * harness plugin appearing in the result with its host substitution plan filled in is evidence
  * that four workspace packages of TypeScript *ran*. A config that resolved to an empty object
  * would satisfy an absence-of-error assertion and prove nothing.

@@ -18,8 +18,7 @@ import { describe, expect, it } from "vitest";
  * A review of this PR found the AGENTS.md rule ("every relative import in `packages/**` and
  * `examples/**` names its file with an extension") was documented but not guarded at the scope it
  * claims, and that finding was correct. `bare-vp-dev.test.ts` and `vp-dev-command.test.ts` both
- * exercise `examples/dev-harness`, whose config reaches `core`, `runtime`, `vite-plugin-fgc` and
- * `dev-harness`. An extensionless import added to `cell-compiler`, `dependency-resolver` or
+ * exercise `examples/dev-harness`, whose config reaches `core`, `runtime` and `dev-harness`. An extensionless import added to `cell-compiler`, `dependency-resolver` or
  * `mcp-sync` would violate the stated invariant and leave both of them green. Measured rather
  * than assumed: adding one to `mcp-sync/src/index.ts` left the dev-harness guard passing 3/3, and
  * plain Node could no longer load that package (`ERR_MODULE_NOT_FOUND`).

@@ -7,7 +7,7 @@ import { createServer } from "vite";
 import type { ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { cellVirtualModuleId, forguncy } from "./index.ts";
+import { cellVirtualModuleId, forguncy } from "./cell-plugin.ts";
 
 /**
  * The execution-level proof of Issue #28's dev seam: not "the generator emits
@@ -19,9 +19,9 @@ import { cellVirtualModuleId, forguncy } from "./index.ts";
  * pipeline without needing a browser. Green here is a local check of this seam,
  * not a claim about Forguncy runtime behavior.
  *
- * The `vite` devDependency in this package exists for this test alone — the
- * plugin itself never imports Vite; it is typed structurally against whatever
- * host hands it the project root (see `index.ts`).
+ * This test uses `vite` directly to stand up the server — the seam module itself
+ * never imports Vite; it is typed structurally against whatever host hands it the
+ * project root (see `cell-plugin.ts`).
  *
  * The fixture tree below deliberately diverges from `core/tests/fixtures`:
  * those entries only have to exist on disk for registry checks, while seam
