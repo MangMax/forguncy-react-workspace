@@ -167,6 +167,49 @@ export interface CellCodeBudgetOverrides {
   readonly justification: string;
 }
 
+/**
+ * The height-adaptation modes a Cell may declare (#185, Epic #184).
+ *
+ * - `"auto"` — the compiler injects the ReactCellAutoHeight patch into the artifact:
+ *   the cell's outermost container tracks content height (`min-height: 100%` fills the
+ *   grid row, `height: auto` lets tall content extend it), so there is no blank tail
+ *   under short content and no clipping of tall content.
+ * - `"fixed"` — the platform's native behaviour: the container is `height: 100%` of
+ *   the grid row, exactly as the unpatched ReactCellType produces it. Declare this
+ *   for a Cell whose layout is deliberately row-height-bound.
+ */
+export type CellHeightMode = "auto" | "fixed";
+
+/** The height modes a Cell may declare, in declaration order. */
+export const CELL_HEIGHT_MODES = ["auto", "fixed"] as const;
+
+/**
+ * The default height mode the compiler applies when a Cell declares nothing.
+ *
+ * `auto`, per Epic #184's stated direction: the externally verified patch has been
+ * running on a production page since the Epic's verification with zero errors, and
+ * the blank-tail defect it removes is the common case. An undeclared Cell therefore
+ * compiles to a height-adaptive artifact — which is a deliberate one-time change in
+ * the artifact's bytes, recorded in #185 so the first sync after the upgrade reads
+ * as a compiler change rather than a designer edit.
+ */
+export const DEFAULT_CELL_HEIGHT_MODE: CellHeightMode = "auto";
+
+/**
+ * The layout declaration of one Cell (#185).
+ *
+ * An object shell rather than a bare enum on the Cell, for the same reason #85's
+ * `ExtensionMappingsConfig` is an object rather than an array: only an object can
+ * grow a second layout axis without breaking the spelling of the first, and only an
+ * object distinguishes "the config said nothing about layout" from a future sibling
+ * axis. Governs **code generation only** — unlike `bindings`, nothing here is written
+ * to `cellTypeProps`, drift-detected, or read by the sync layer.
+ */
+export interface CellLayoutConfig {
+  /** See {@link CellHeightMode}. Absent means {@link DEFAULT_CELL_HEIGHT_MODE}. */
+  readonly heightMode?: CellHeightMode;
+}
+
 /** One managed React Cell. */
 export interface CellConfig {
   /**
@@ -194,6 +237,16 @@ export interface CellConfig {
    * `bindings-config.ts`; this module declares shape and intent and normalizes nothing.
    */
   readonly bindings?: CellBindingsConfig;
+  /**
+   * The layout declaration steering this Cell's compilation (#185, Epic #184).
+   *
+   * Compile-time input only: `heightMode` decides whether the compiler injects the
+   * ReactCellAutoHeight patch into the artifact. Absent means the compiler default
+   * (`auto`) applies; `"fixed"` is the deliberate opt-out. Validated inline in
+   * `cell-registry.ts` beside `output` — one enum field does not warrant the
+   * measured-schema machinery `bindings-config.ts` exists for.
+   */
+  readonly layout?: CellLayoutConfig;
 }
 
 /**
@@ -284,7 +337,9 @@ export interface ForguncyConfig {
 
 /** Fields allowed at each level. Used verbatim in unknown-field diagnostics. */
 export const CONFIG_ALLOWED_FIELDS = ["schemaVersion", "cells", "runtime", "extensions", "resolve"] as const;
-export const CELL_ALLOWED_FIELDS = ["entry", "target", "fixture", "output", "bindings"] as const;
+export const CELL_ALLOWED_FIELDS = ["entry", "target", "fixture", "output", "bindings", "layout"] as const;
+/** Fields allowed inside a cell's `layout` block. Used verbatim in unknown-field diagnostics. */
+export const LAYOUT_ALLOWED_FIELDS = ["heightMode"] as const;
 export const RUNTIME_ALLOWED_FIELDS = [
   "forguncyVersion",
   "projectAlias",

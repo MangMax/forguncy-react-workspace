@@ -25,19 +25,27 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import {
   CELL_ALLOWED_FIELDS,
+  CELL_HEIGHT_MODES,
   CELL_REFERENCE_PATTERN,
   CONFIG_ALLOWED_FIELDS,
   DEFAULT_CODE_MARKER_NAMESPACE,
   DEFAULT_DEPENDENCY_LOCK_PATH,
+  DEFAULT_CELL_HEIGHT_MODE,
   DEPENDENCY_DECISION_FIELD_NAMES,
   FORGUNCY_CONFIG_SCHEMA_VERSION,
   isConfigRecord,
+  LAYOUT_ALLOWED_FIELDS,
   normalizeCellReference,
   RUNTIME_ALLOWED_FIELDS,
   TARGET_LOCATOR_MODEL,
   targetLocatorKey,
 } from "./forguncy-config.ts";
-import type { CellCodeBudgetOverrides, ForguncyTargetLocator, TargetLocatorModel } from "./forguncy-config.ts";
+import type {
+  CellCodeBudgetOverrides,
+  CellHeightMode,
+  ForguncyTargetLocator,
+  TargetLocatorModel,
+} from "./forguncy-config.ts";
 import { validateCellBindings } from "./bindings-config.ts";
 import type { BindingsConfigWarning, NormalizedCellBindings } from "./bindings-config.ts";
 import { normalizeExtensionMappings } from "./extension-mappings-config.ts";
@@ -136,6 +144,11 @@ export type ConfigDiagnosticCode =
   | "unknown-output-field"
   | "renamed-output-field"
   | "unjustified-output-override"
+  // Layout declarations (#185). Small enough to validate beside `output` rather than in
+  // a module of its own — the same call `validateOutputOverride`'s shape already makes.
+  | "invalid-layout"
+  | "unknown-layout-field"
+  | "invalid-layout-value"
   // Runtime block.
   | "invalid-runtime-target"
   | "unknown-runtime-field"
@@ -209,6 +222,15 @@ export interface RegisteredCell {
    * "which fields are managed" off the keys, never off content truthiness.
    */
   readonly bindings?: NormalizedCellBindings;
+  /**
+   * The height mode this Cell compiles with (#185), materialized at normalization:
+   * the declared `layout.heightMode` when present, `DEFAULT_CELL_HEIGHT_MODE` when
+   * the config says nothing. Materialized rather than absence-preserving because —
+   * unlike `bindings` — there is no third state to preserve: absence means the
+   * default, so the default is what downstream consumers read. Compile-time input
+   * only; the sync layer never reads it.
+   */
+  readonly heightMode: CellHeightMode;
 }
 
 /** Project/runtime target assumptions, with defaults applied. */
@@ -514,6 +536,7 @@ interface ResolvedCell {
   readonly fixture?: ResolvedEntry;
   readonly output?: CellCodeBudgetOverrides;
   readonly bindings?: NormalizedCellBindings;
+  readonly heightMode: CellHeightMode;
   readonly bindingsWarnings: readonly BindingsConfigWarning[];
 }
 
@@ -586,6 +609,8 @@ function validateCell(
 
   const output = validateOutputOverride(raw.output, `${path}.output`, out);
 
+  const heightMode = validateCellLayoutMode(raw.layout, `${path}.layout`, out);
+
   // The host-binding declaration (#178), validated through its own module and folded into the
   // same diagnostics list — one error type, one round trip, the convention the extension
   // mappings and the resolve block follow. The module's own codes are members of this module's
@@ -612,9 +637,62 @@ function validateCell(
     target,
     fixture,
     output,
+    heightMode,
     ...(bindings === undefined ? {} : { bindings }),
     bindingsWarnings: bindingsResult.ok ? bindingsResult.warnings : [],
   };
+}
+
+/**
+ * Validates one Cell's `layout` block, returning the height mode to compile with.
+ *
+ * Kept beside `validateOutputOverride` rather than in a `bindings-config`-style module:
+ * one enum field is exactly the size the inline pattern exists for, and the
+ * measured-schema machinery the bindings module carries would be structure without a
+ * subject. The result is **materialized** — absent or empty block means
+ * {@link DEFAULT_CELL_HEIGHT_MODE} — because there is no pass-through state to
+ * preserve: unlike `bindings`, nothing deploy-time reads the declaration back, so the
+ * only question a consumer ever asks is "which mode does this Cell compile with".
+ *
+ * An invalid block still returns the default, which is fail-safe rather than lossy:
+ * the diagnostic pushed here guarantees the registry construction throws before any
+ * Cell reaches a consumer, so the returned value is never observed in a bad state.
+ */
+function validateCellLayoutMode(raw: unknown, path: string, out: ConfigDiagnostic[]): CellHeightMode {
+  if (raw === undefined) {
+    return DEFAULT_CELL_HEIGHT_MODE;
+  }
+
+  if (!isConfigRecord(raw)) {
+    out.push(
+      diag(
+        "invalid-layout",
+        path,
+        `"layout" must be an object declaring any of ${LAYOUT_ALLOWED_FIELDS.join("/")}. An empty object is legal and means the compiler default ("${DEFAULT_CELL_HEIGHT_MODE}") applies — the same as omitting the key.`,
+      ),
+    );
+    return DEFAULT_CELL_HEIGHT_MODE;
+  }
+
+  collectUnknownFieldDiagnostics(raw, LAYOUT_ALLOWED_FIELDS, path, "unknown-layout-field", "layout", out);
+
+  if (!("heightMode" in raw)) {
+    return DEFAULT_CELL_HEIGHT_MODE;
+  }
+
+  const value = raw.heightMode;
+  if (typeof value === "string" && (CELL_HEIGHT_MODES as readonly string[]).includes(value)) {
+    return value as CellHeightMode;
+  }
+
+  out.push(
+    diag(
+      "invalid-layout-value",
+      `${path}.heightMode`,
+      `"heightMode" must be one of ${CELL_HEIGHT_MODES.map(mode => `"${mode}"`).join(", ")} — "auto" injects the compile-time height-adaptation patch (#184), "fixed" keeps the platform's native fixed-height container. Got ${JSON.stringify(value)}.`,
+    ),
+  );
+  return DEFAULT_CELL_HEIGHT_MODE;
 }
 
 function validateTarget(
@@ -1008,6 +1086,7 @@ export function createCellRegistry(config: unknown, options: CreateCellRegistryO
     fixture: cell.fixture?.authored,
     fixturePath: cell.fixture?.absolute,
     output: cell.output,
+    heightMode: cell.heightMode,
     ...(cell.bindings === undefined ? {} : { bindings: cell.bindings }),
   }));
 

@@ -107,6 +107,7 @@ export {
 } from "./governance.ts";
 export type { ArchitectureDecisionSource } from "./governance.ts";
 export {
+  CELL_BROWSER_HOST_GLOBALS,
   CELL_DATA_SOURCE_CONTRACT,
   CELL_ENTRY_SHAPES,
   CELL_FORGUNCY_FACADE,
@@ -123,10 +124,12 @@ export {
   CELL_USER_SCOPE_BINDINGS,
   FRONTEND_LIBRARY_REFERENCE_CONTRACT,
   FRONTEND_LIBRARY_REFERENCE_EXAMPLE,
+  REACTCELLTYPE_CREATE_CONTENT_CONTRACT,
   RUNTIME_CONTRACT_TARGET,
   RUNTIME_CONTRACT_TARGET_FIELDS_NOT_BROWSER_OBSERVED,
   RUNTIME_CONTRACT_TARGET_FIELD_SOURCES,
   RUNTIME_EVIDENCE_CHANNELS,
+  cellBrowserHostGlobal,
   cellSourceValidationVisitsAstKey,
   cellUserScopeBinding,
   emitCellEntryShapes,
@@ -136,6 +139,7 @@ export {
   openRuntimeContractQuestions,
 } from "./runtime-contract.ts";
 export type {
+  CellBrowserHostGlobal,
   CellEntryKind,
   CellPresetLibrary,
   CellSourceRejectionId,
@@ -304,7 +308,14 @@ export {
   lockProbeStatusForAssessment,
   stagesSkippedOnEarlyExit,
 } from "./selection-policy.ts";
-export { TARGET_LOCATOR_FINALIZATION, defineForguncyConfig, isConfigRecord } from "./forguncy-config.ts";
+export {
+  CELL_HEIGHT_MODES,
+  DEFAULT_CELL_HEIGHT_MODE,
+  LAYOUT_ALLOWED_FIELDS,
+  TARGET_LOCATOR_FINALIZATION,
+  defineForguncyConfig,
+  isConfigRecord,
+} from "./forguncy-config.ts";
 export type {
   CellAvailableServerCommandBindingConfig,
   CellBindingsConfig,
@@ -313,6 +324,8 @@ export type {
   CellDataSourceBindingInfoConfig,
   CellEventArgConfig,
   CellEventHandlerBindingConfig,
+  CellHeightMode,
+  CellLayoutConfig,
   CellPermissionBindingConfig,
   CellPropertyBindingConfig,
   CellUploadLimitBindingConfig,

@@ -107,6 +107,28 @@ describe("planning one declared Cell for compilation", () => {
     expect("output" in plan).toBe(false);
   });
 
+  it("carries the registry's materialized height mode, never re-deriving it (#185)", () => {
+    // The registry materializes `DEFAULT_CELL_HEIGHT_MODE` for an undeclared Cell, so the
+    // plan's job is transport, not interpretation: what the registry recorded is what the
+    // compile consumes. Both states are asserted — the materialized default and the
+    // declared opt-out — because the two travelling the same path is what makes the
+    // opt-out real rather than a second mechanism.
+    const undeclared = planCellCompile({ registry: registryOf(), cellId: "orderList", dependencies: DECISIONS });
+    expect(undeclared.heightMode).toBe("auto");
+
+    const fixedRegistry = registryOf({
+      cells: {
+        orderList: {
+          entry: "./cells/order-list.ts",
+          target: { pageName: "销售订单", cell: "d4" },
+          layout: { heightMode: "fixed" },
+        },
+      },
+    });
+    const fixed = planCellCompile({ registry: fixedRegistry, cellId: "orderList", dependencies: DECISIONS });
+    expect(fixed.heightMode).toBe("fixed");
+  });
+
   it("lets the registry explain an unknown id rather than planning an empty entry", () => {
     let thrown: unknown;
     try {

@@ -408,9 +408,27 @@ export function auditArtifactSource(
  * header line before the bundle, so line arithmetic would be off by one in
  * exactly the case the origin matters most. A test covers it by asserting that a
  * construct near the bundle's end is still attributed to the bundle.
+ *
+ * ## The prefix length is an input, not a constant (#185)
+ *
+ * Before the auto-height injection this function computed the bundle's start as
+ * "banner + newline", which was exact only because nothing else sat between the
+ * banner and the bundle. The composed artifact is now
+ * `banner + livePropsDeclaration? + styleInstaller? + autoHeight? + bundle + wrapper`,
+ * so the bundle's start is the banner plus *whatever prefix this assembly emitted* —
+ * and the prefix lengths are passed in rather than re-derived here, because the
+ * alternative (measuring the patch source again) is a second spelling of
+ * assembly's composition that can drift away from it. Assembly knows exactly what
+ * it emitted; this function's job is only the arithmetic.
+ *
+ * Everything before the bundle — the live-props declaration, the style installer,
+ * the injection — is reported as "the generated artifact header", which is the
+ * honest granularity: they are all compiler-emitted wiring rather than the Cell's
+ * bundle or its entry wrapper, and a diagnostic about one of them is a compiler
+ * bug report either way.
  */
-export function artifactOriginOf(bundledCode: string): (index: number) => string {
-  const bundleStart = CELL_ARTIFACT_BANNER.length + 1;
+export function artifactOriginOf(bundledCode: string, prefixLength = 0): (index: number) => string {
+  const bundleStart = CELL_ARTIFACT_BANNER.length + 1 + prefixLength;
   const bundleEnd = bundleStart + bundledCode.length;
   return index => {
     if (index < bundleStart) return "the generated artifact header";

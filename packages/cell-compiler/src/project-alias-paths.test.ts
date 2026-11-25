@@ -365,9 +365,14 @@ describe("a build compiles each Cell under its own dependency projection", () =>
     expect(alpha.code.length).toBeGreaterThan(10_000);
     expect(alpha.frontendLibraries).toEqual([]);
 
-    // Beta externalized the same package: the implementation is absent, the artifact is small, and
-    // the metadata declares the library it now depends on.
-    expect(beta.code.length).toBeLessThan(5_000);
+    // Beta externalized the same package: the implementation is absent, the artifact carries
+    // only the reference plus the compiler's own wiring, and the metadata declares the library
+    // it now depends on. The size assertion is relational rather than an absolute threshold:
+    // since #185 every height-adaptive artifact carries the ~5.9 KB auto-height injection, so
+    // a fixed "< 5 000" no longer separates the strategies — what separates them is the
+    // ~52 000 characters of implementation alpha carries and beta does not.
+    expect(beta.code.length).toBeLessThan(alpha.code.length / 2);
+    expect(beta.code.length).toBeLessThan(10_000);
     expect(beta.frontendLibraries.map(library => library.libraryId)).toEqual(["tanstack-query"]);
     expect(beta.code).toContain("TanStackQuery");
   });

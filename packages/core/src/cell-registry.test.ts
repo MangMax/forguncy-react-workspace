@@ -342,6 +342,126 @@ describe("host-binding declarations (#178)", () => {
   });
 });
 
+describe("layout declarations (#185)", () => {
+  it("materializes the compiler default for a Cell that declares nothing — one shape downstream", () => {
+    // The materialization is the design: unlike `bindings`, there is no pass-through
+    // state to preserve, so absence *means* the default and the registry records it.
+    // A consumer never re-implements the fallback.
+    const cell = registryOf(multiCellConfig()).require("orderList");
+
+    expect(cell.heightMode).toBe("auto");
+  });
+
+  it("carries an explicit heightMode through, auto and fixed alike", () => {
+    const base = {
+      entry: "./cells/order-list/src/index.ts",
+      target: { pageName: "销售订单", cell: "A1" },
+    };
+    const auto = registryOf({ cells: { orderList: { ...base, layout: { heightMode: "auto" } } } }).require("orderList");
+    const fixed = registryOf({ cells: { orderList: { ...base, layout: { heightMode: "fixed" } } } }).require("orderList");
+
+    expect(auto.heightMode).toBe("auto");
+    expect(fixed.heightMode).toBe("fixed");
+  });
+
+  it("an empty layout block means the default, same as omitting it", () => {
+    const cell = registryOf({
+      cells: {
+        orderList: {
+          entry: "./cells/order-list/src/index.ts",
+          target: { pageName: "销售订单", cell: "A1" },
+          layout: {},
+        },
+      },
+    }).require("orderList");
+
+    expect(cell.heightMode).toBe("auto");
+  });
+
+  it("refuses a non-object layout block", () => {
+    for (const bad of ["auto", 42, []]) {
+      const error = captureConfigError(() =>
+        registryOf({
+          cells: {
+            orderList: {
+              entry: "./cells/order-list/src/index.ts",
+              target: { pageName: "销售订单", cell: "A1" },
+              layout: bad,
+            },
+          },
+        }),
+      );
+      expect(error.codes).toContain("invalid-layout");
+    }
+  });
+
+  it("refuses an unknown layout field rather than dropping it — a typo must not read as declared", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            // The casing typo is the case that matters: `heightmode` passing as dead weight
+            // would read as a declared `"auto"` while the author meant `"fixed"` in the next
+            // line's absence — exactly the drift the unknown-field refusal exists to prevent.
+            layout: { heightmode: "fixed" },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toContain("unknown-layout-field");
+  });
+
+  it("refuses a heightMode value outside the enum", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            layout: { heightMode: "stretch" },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toContain("invalid-layout-value");
+  });
+
+  it("`layout` is a known Cell field, not an unknown-field diagnostic", () => {
+    expect(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            layout: { heightMode: "fixed" },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("a layout mistake and an entry mistake are reported together — one round trip", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/does-not-exist.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            layout: { heightMode: "stretch" },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toContain("missing-entry-file");
+    expect(error.codes).toContain("invalid-layout-value");
+  });
+});
+
 describe("registry validation", () => {
   it("requires an absolute project root", () => {
     expect(codesOf(() => createCellRegistry({ cells: {} }, { root: "" }))).toEqual(["invalid-project-root"]);
@@ -716,6 +836,7 @@ describe("mutation-boundary target guard", () => {
       entry: `./cells/${id}.ts`,
       entryPath: join(validMultiRoot, "cells", `${id}.ts`),
       target: { pageName: "销售订单", cell, locatorKey: `销售订单#${cell}` },
+      heightMode: "auto",
     };
   }
 

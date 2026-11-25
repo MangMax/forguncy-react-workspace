@@ -41,7 +41,7 @@
  * read by the pre-bundle pass, the build and the externals plan.
  */
 
-import type { CellRegistry, NormalizedExtensionMappings, RegisteredCell } from "@forguncy-react-workspace/core";
+import type { CellHeightMode, CellRegistry, NormalizedExtensionMappings, RegisteredCell } from "@forguncy-react-workspace/core";
 
 import type { CompileCellInput } from "./artifact.ts";
 
@@ -83,6 +83,17 @@ export interface CellCompilePlan {
    * here: the value is already in the unit the compile consumes (#21/#77).
    */
   readonly output?: RegisteredCell["output"];
+  /**
+   * The height mode this Cell compiles with (#185), carried from the registry's
+   * materialized normalization.
+   *
+   * Always present — the registry applies `DEFAULT_CELL_HEIGHT_MODE` when the config
+   * declares nothing, so this field never re-implements a fallback and the compile
+   * reads exactly one shape. `buildCellProject` forwards it as
+   * `compileCell`'s `layout` option; `"fixed"` is the opt-out the artifact omits
+   * the auto-height injection for.
+   */
+  readonly heightMode: CellHeightMode;
 }
 
 /**
@@ -137,6 +148,7 @@ function buildPlan(
     },
     codeMarkerNamespace,
     extensionMappings,
+    heightMode: cell.heightMode,
     ...(cell.output === undefined ? {} : { output: cell.output }),
   };
 }
