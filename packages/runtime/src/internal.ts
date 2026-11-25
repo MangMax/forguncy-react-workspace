@@ -314,6 +314,16 @@ export {
   RUNTIME_FACADE_SURFACE_MEMBER_IDS,
 } from "./cell-runtime.ts";
 export type { ExposedCellPropKey, ExposedForguncyMember, RuntimeFacade, RuntimeFacadeSurfaceMemberId } from "./cell-runtime.ts";
+export type {
+  ForguncyCellMethod,
+  ForguncyCurrentUser,
+  ForguncyEventFiring,
+  ForguncyUploadableFile,
+  ForguncyUploadFilesInput,
+  ForguncyUploadLimit,
+  ForguncyUploadedFile,
+  ForguncyUploadResult,
+} from "./facade-types.ts";
 
 // #29 — how the surface resolves, and every way of not resolving
 export {

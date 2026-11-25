@@ -45,6 +45,17 @@ export {
 } from "./local-dev-host-modules.ts";
 export type { LocalDevVersionField } from "./local-dev-host-modules.ts";
 export { runtimeFacade } from "./cell-runtime.ts";
+export type { RuntimeFacade } from "./cell-runtime.ts";
+export type {
+  ForguncyCellMethod,
+  ForguncyCurrentUser,
+  ForguncyEventFiring,
+  ForguncyUploadableFile,
+  ForguncyUploadFilesInput,
+  ForguncyUploadLimit,
+  ForguncyUploadedFile,
+  ForguncyUploadResult,
+} from "./facade-types.ts";
 export { installRuntimeFacadeProvider } from "./provider.ts";
 export { createMockDataSource, createMockRuntimeFacadeProvider } from "./mock-provider.ts";
 export type { MockRuntimeFacadeOptions } from "./mock-provider.ts";

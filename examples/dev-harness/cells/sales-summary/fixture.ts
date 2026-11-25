@@ -57,22 +57,32 @@ const SALES_ROWS = [
 const SALES_TOTAL_COUNT = 240;
 
 const options: MockRuntimeFacadeOptions<AppServerCommands> = {
-  forguncyMembers: {
-    // Synchronous, because both are synchronous on the host: #5 recorded `hasPermission(…)` →
-    // `true` and `getPermissions()` → `{"ProbePermission": true}` with no `await`, unlike the
-    // command call recorded beside them. A mock returning promises would be *more* permissive
-    // than the target — the one direction a local harness must never lean, because it would
-    // teach authored source to await something that is not a promise and the mistake would
-    // only surface on a real page.
-    hasPermission: (permissionName: string) => permissionName === "Orders.Read",
-    // `Partial` matches the façade's own type and the mock's honesty: one entry per
-    // *configured* name, nothing at all for names this harness did not configure.
-    getPermissions: (): Partial<Record<string, boolean>> => ({ "Orders.Read": true }),
-  },
-  // `props.Permissions` is the snapshot the runtime injects as a base prop: a plain record of
-  // configured name to boolean — `{}` when nothing is configured, never absent. Observed in an
-  // executed page, and the same object `getPermissions()` answers with.
+  // `hasPermission`/`getPermissions` are deliberately **not** overridden: since #177 the
+  // mock's own defaults reproduce the measured semantics — they read the snapshot
+  // `cellProps.Permissions` carries below, synchronously, which is exactly what this
+  // fixture used to hand-write. What the fixture still owns is the snapshot itself,
+  // because which permissions the page configured is the page's claim, not the mock's.
   cellProps: { Permissions: { "Orders.Read": true } },
+  // Declared properties land on `props` under their own names — the host's injection for
+  // `properties[].propertyName`. `title` is the bidirectional half the example exercises:
+  // the Cell reads it through `cellProperty` and the harness can push a new value through
+  // `SetPropertyValue`'s local equivalent (re-render with fresh props), mirroring the
+  // measured re-render-without-re-execute semantics.
+  properties: {
+    title: "本月销售",
+    highlightColor: "#80FF0000",
+  },
+  // `onExport` has no handler on purpose: it demonstrates the uncommanded event — the
+  // firing function exists and is a no-op, which is what the designer preview produces
+  // for an event with no command tree attached. `onRowSelect` carries one so the firing
+  // is observable in the harness console, the local stand-in for the host's command
+  // pipeline receiving the gathered arguments.
+  eventHandlers: {
+    onExport: undefined,
+    onRowSelect: (...args: readonly unknown[]) => {
+      console.log("[fixture] onRowSelect fired with gathered args:", ...args);
+    },
+  },
   serverCommands: {
     GetSalesData: async payload => ({ errorCode: 0, errorMessage: "OK", payload }),
   },

@@ -191,6 +191,13 @@ globalThis.React = {
   useRef: function (value) { return { current: value }; },
   useCallback: function (callback) { return callback; },
 };
+// File is a browser global the example's upload demonstration constructs, and the vm
+// sandbox has no DOM — so the page stub seeds the minimal shape the upload input
+// normalization reads: a name plus the byte count it would carry.
+globalThis.File = function File(parts, name) {
+  this.name = name;
+  this.size = parts.reduce(function (total, part) { return total + String(part).length; }, 0);
+};
 `;
 
 /**
@@ -216,6 +223,52 @@ globalThis.__HOST_CALLS__ = { dataSources: [], commands: [] };
 const handle = {};
 handle.hasPermission = function (permissionName) { return permissionName === "Orders.Read"; };
 handle.getPermissions = function () { return { "Orders.Read": true }; };
+// The members #176 measured, in the shapes it measured them: synchronous user/limit
+// reads, fire-and-forget session verbs, a Promise-returning upload, the silent-ignore
+// registration, and the host's own conversions. The example exercises all of them since
+// #177, so a stub that lacked them would fail the render for a wiring fault the page
+// does not have — which is the façade's presence rule doing its job, not a stub to
+// weaken.
+handle.getCurrentUser = function () {
+  return {
+    UserName: "Administrator", FullName: "Administrator", Email: "example@example.com",
+    Role: "Administrator", HasPicture: false,
+    PictureUrl: "/Forguncy/Resources/Images/SiteBuiltInImages/DefaultCurrentUser.png",
+  };
+};
+handle.logIn = function () {};
+handle.logOut = function (navigateToHomePage) {};
+handle.uploadFiles = function (files) {
+  if (files === undefined) return Promise.resolve({ files: [], attachmentValue: "" });
+  const list = Array.isArray(files) ? files : [files];
+  const uploaded = list.map(function (file, index) {
+    const filePath = "stub-" + index + "_" + file.name;
+    return { filePath: filePath, fileName: file.name, downloadUrl: "/Forguncy/FileDownloadUpload/Download?file=" + encodeURIComponent(filePath) };
+  });
+  return Promise.resolve({ files: uploaded, attachmentValue: uploaded.map(function (file) { return file.filePath + "|"; }).join("") });
+};
+handle.getUploadLimit = function () {
+  return { extensionFilter: ".png,.jpg", accept: ".png,.jpg", sizeLimit: 0, maxUploadFileCount: 0 };
+};
+handle.exposeMethod = function (methodName, method) {
+  if (!methodName || typeof method !== "function") return;
+  this.__exposed = this.__exposed || {};
+  this.__exposed[methodName] = method;
+};
+handle.ConvertToCssColor = function (color) {
+  if (!color.startsWith("#") || color.length !== 9) return color;
+  const alpha = parseInt(color.slice(1, 3), 16);
+  if (alpha === 255) return "#" + color.slice(3);
+  const r = parseInt(color.slice(3, 5), 16), g = parseInt(color.slice(5, 7), 16), b = parseInt(color.slice(7, 9), 16);
+  return "rgba(" + r + "," + g + "," + b + "," + (alpha / 255).toFixed(2) + ")";
+};
+handle.ConvertDateToOADate = function (date) {
+  return (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds()) - Date.UTC(1899, 11, 30)) / 86400000;
+};
+handle.ConvertOADateToDate = function (oadate) {
+  const shifted = new Date(Date.UTC(1899, 11, 30) + oadate * 86400000);
+  return new Date(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), shifted.getUTCHours(), shifted.getUTCMinutes(), shifted.getUTCSeconds(), shifted.getUTCMilliseconds());
+};
 globalThis.__HOST_PROPS__ = {
   Forguncy: handle,
   Permissions: { "Orders.Read": true },
@@ -226,6 +279,13 @@ globalThis.__HOST_PROPS__ = {
     },
   },
   ImageContext: {},
+  // The declared bindings the example's fixture declares locally: the host injects them
+  // as props-sibling keys, which is the injection #176 measured — a property as its
+  // evaluated value, an event as a callable firing.
+  title: "本月销售",
+  highlightColor: "#80FF0000",
+  onExport: function () {},
+  onRowSelect: function () {},
 };
 globalThis.__HOST_HOOK__ = function (dataSourceName, options) {
   globalThis.__HOST_CALLS__.dataSources.push([dataSourceName, options]);

@@ -127,15 +127,39 @@ export type RuntimeFacadeSurfaceSignature = (typeof RUNTIME_FACADE_SURFACE_SIGNA
 export type RuntimeFacadeSurfaceCarrier =
   | { readonly kind: "cell-prop" }
   | { readonly kind: "forguncy-member" }
-  | { readonly kind: "cell-hook"; readonly hook: string };
+  | { readonly kind: "cell-hook"; readonly hook: string }
+  /**
+   * A member reading `props.<name>` under a designer-chosen name — the properties and
+   * eventHandlers injection #176 measured. Distinct from `cell-prop` because those are
+   * the *base* props `core` enumerates, while these names are the project's declaration;
+   * both live on the same props object, but only the base ones are typed against
+   * `CELL_PROPS_BASE_KEYS`.
+   */
+  | { readonly kind: "declared-prop" };
 
 export interface RuntimeFacadeSurfaceMember {
   readonly id: RuntimeFacadeSurfaceMemberId;
-  /** The admitted capabilities this member is the surface for. Never empty. */
+  /**
+   * The admitted capabilities this member is the surface for.
+   *
+   * Never empty — with one declared exception. A member may mark itself `transitional`
+   * with an empty domain when every capability it used to carry has graduated to a typed
+   * member and the accessor is being kept deliberately for the *next* presence-only
+   * address the evidence probe produces. That is the state #177 leaves `forguncyMember`
+   * in: the alternative to the marker is deleting the accessor, which would force the
+   // next unmeasured member to be typed on a guess — the failure the accessor exists to
+   * prevent. The audit honours the marker for `member-exposes-nothing` alone; every other
+   * rule (implementation, registration, carrier consistency) still applies in full.
+   */
   readonly exposes: readonly RuntimeFacadeCapabilityId[];
   readonly carrier: RuntimeFacadeSurfaceCarrier;
   readonly signature: RuntimeFacadeSurfaceSignature;
   readonly summary: string;
+  /**
+   * Set only on a member whose domain is empty by design, with the reason the empty
+   * domain is being kept. Absent on every member that carries capabilities.
+   */
+  readonly transitional?: { readonly reason: string };
 }
 
 /**
@@ -179,27 +203,111 @@ export const RUNTIME_FACADE_SURFACE: readonly RuntimeFacadeSurfaceMember[] = [
     summary: "Read the host's permission map, one boolean per configured permission name.",
   },
   {
+    id: "permissionSnapshot",
+    exposes: ["permission-snapshot"],
+    carrier: { kind: "cell-prop" },
+    signature: "confirmed-call-shape",
+    summary:
+      "Read the permission snapshot captured at cell initialization — the base-prop half of the map `getPermissions` re-reads, identity-equal to it as #176 measured.",
+  },
+  {
+    id: "getCurrentUser",
+    exposes: ["current-user"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Read the signed-in user the host already resolved, synchronously.",
+  },
+  {
+    id: "logIn",
+    exposes: ["session-control"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Navigate to the host's login page — arity 0, fire-and-forget.",
+  },
+  {
+    id: "logOut",
+    exposes: ["session-control"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "End the session through the host's sign-out, forwarding `navigateToHomePage` verbatim — arity 1, fire-and-forget.",
+  },
+  {
+    id: "uploadFiles",
+    exposes: ["file-upload"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Upload files through the host, resolving to the measured `{ files, attachmentValue }` shape.",
+  },
+  {
+    id: "getUploadLimit",
+    exposes: ["upload-limit"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Read the host's declared upload limit — `sizeLimit` in megabytes, `0` meaning unlimited.",
+  },
+  {
+    id: "exposeMethod",
+    exposes: ["cell-method-exposure"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Publish a cell method so the host's command pipeline can invoke it — silent on invalid input, overwrite-wins.",
+  },
+  {
+    id: "convertDateToOADate",
+    exposes: ["forguncy-value-conversions"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Convert a Date to the host's local-timezone OADate number.",
+  },
+  {
+    id: "convertOADateToDate",
+    exposes: ["forguncy-value-conversions"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Convert an OADate number back to a Date — the exact-to-millisecond inverse of its pair.",
+  },
+  {
+    id: "convertToCssColor",
+    exposes: ["forguncy-value-conversions"],
+    carrier: { kind: "forguncy-member" },
+    signature: "confirmed-call-shape",
+    summary: "Convert a colour through the host's own quantization rules.",
+  },
+  {
+    id: "cellProperty",
+    exposes: ["cell-property-binding"],
+    carrier: { kind: "declared-prop" },
+    signature: "confirmed-call-shape",
+    summary:
+      "Read a declared cell property's current value. The re-render half is the host's own `SetPropertyValue` behaviour — the tree re-renders without the entry re-executing — so this read needs no machinery of its own.",
+  },
+  {
+    id: "fireEvent",
+    exposes: ["cell-event-firing"],
+    carrier: { kind: "declared-prop" },
+    signature: "confirmed-call-shape",
+    summary:
+      "Fire a declared event, handing the positional arguments to the host's command pipeline. The command's outcome is never observable through the firing call.",
+  },
+  {
     id: "cellProp",
-    exposes: ["permission-snapshot", "image-context"],
+    exposes: ["image-context"],
     carrier: { kind: "cell-prop" },
     signature: "caller-declared-shape",
     summary:
-      "Read a confirmed base prop under its own name, with the caller declaring its shape. `Permissions` has its identity-equality with `props.Forguncy.Permissions` measured on `12.0.102.0`, but it shares this member with `ImageContext`, whose populated shape is still read from the runtime source rather than executed — a member's signature is the weakest evidence it carries, so the accessor stays caller-declared until both halves reach `call-shape`.",
+      "Read a confirmed base prop under its own name, with the caller declaring its shape. Since #177 the only capability left here is `image-context`: its populated shape is still read from the runtime source rather than executed, so `member-presence` is where the evidence stops and the declared-shape accessor is the honest surface for it.",
   },
   {
     id: "forguncyMember",
-    exposes: [
-      "current-user",
-      "session-control",
-      "file-upload",
-      "upload-limit",
-      "cell-method-exposure",
-      "forguncy-value-conversions",
-    ],
+    exposes: [],
     carrier: { kind: "forguncy-member" },
     signature: "caller-declared-shape",
     summary:
-      "Reach a confirmed member of the `props.Forguncy` handle under its own name. #176 measured every admitted member's call shape on `12.0.102.0` and pinned the shapes in `CELL_FORGUNCY_FACADE_MEMBER_SHAPES`, so this member sits at the floor rather than the ceiling: replacing it with typed per-member accessors is #177's job, and keeping the generic accessor at `caller-declared-shape` is what lets the audit detect a member whose evidence is weaker than its type.",
+      "Reach a confirmed member of the `props.Forguncy` handle under its own name, with the caller declaring its shape. Empty since #177: every measured member now has a typed surface member of its own, so the domain has no current occupants. The member stays because the next presence-only address the probe adds lands here first — removing it would force that address to be typed on a guess or left unreachable.",
+    transitional: {
+      reason:
+        "#177 graduated every member of this accessor's domain to a typed surface member, which is the end state #176's audit relaxation depended on. The accessor is kept deliberately empty rather than deleted: the next handle member the evidence probe pins by name only lands here, and deleting the accessor would leave it either typed on a guess or unreachable.",
+    },
   },
 ];
 
@@ -247,6 +355,8 @@ export function runtimeFacadeMemberCarriesBinding(
       return member.carrier.kind === "forguncy-member";
     case "cell-hook":
       return member.carrier.kind === "cell-hook" && member.carrier.hook === binding.hook;
+    case "declared-prop":
+      return member.carrier.kind === "declared-prop";
   }
 }
 
@@ -289,11 +399,22 @@ export function auditRuntimeFacadeSurface(
   const findings: RuntimeFacadeSurfaceFinding[] = [];
 
   for (const member of members) {
-    if (member.exposes.length === 0) {
+    // The one honoured exception: a member that declares itself transitional with a
+    // stated reason. The marker exists for exactly one situation — #177's deliberately
+    // empty `forguncyMember` — and a member carrying it non-empty, or without the reason,
+    // is reported like any other drift rather than silently honoured.
+    if (member.exposes.length === 0 && member.transitional === undefined) {
       findings.push({
         id: "member-exposes-nothing",
         member: member.id,
         statement: `Surface member "${member.id}" exposes no capability, so it asserts nothing about the host.`,
+      });
+    }
+    if (member.transitional !== undefined && (member.exposes.length > 0 || member.transitional.reason.trim().length === 0)) {
+      findings.push({
+        id: "member-exposes-nothing",
+        member: member.id,
+        statement: `Surface member "${member.id}" is marked transitional but ${member.exposes.length > 0 ? "still exposes capabilities" : "states no reason for its empty domain"} — the marker is for a deliberately empty accessor kept for the next presence-only address, not for a member with a live domain or an unexplained one.`,
       });
     }
 

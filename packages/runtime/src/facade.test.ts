@@ -48,23 +48,35 @@ describe("the surface registry", () => {
     expect(auditRuntimeFacadeSurface()).toEqual([]);
   });
 
-  // Six members rather than twelve is the whole design: one per confirmed call
-  // shape, one per confirmed address family. The two handle calls joined the typed
-  // half during review, when #5's comments turned out to record them being executed
-  // where the key list only recorded their names.
-  it("records exactly the six members, in order", () => {
+  // Seventeen members since #177: the four original typed members, the eleven typed
+  // members #176's measured evidence pays for (including the two new dynamic-binding
+  // capabilities `cellProperty`/`fireEvent`), and the two declared-shape accessors —
+  // one reduced to the single presence-only address that remains (`ImageContext`),
+  // one kept deliberately empty for the next presence-only member the probe adds.
+  it("records exactly the seventeen members, in order", () => {
     expect([...RUNTIME_FACADE_SURFACE_MEMBER_IDS]).toEqual([
       "invokeServerCommand",
       "useDataSource",
       "hasPermission",
       "getPermissions",
+      "permissionSnapshot",
+      "getCurrentUser",
+      "logIn",
+      "logOut",
+      "uploadFiles",
+      "getUploadLimit",
+      "exposeMethod",
+      "convertDateToOADate",
+      "convertOADateToDate",
+      "convertToCssColor",
+      "cellProperty",
+      "fireEvent",
       "cellProp",
       "forguncyMember",
     ]);
     expect(RUNTIME_FACADE_SURFACE.map(member => member.id)).toEqual([...RUNTIME_FACADE_SURFACE_MEMBER_IDS]);
     for (const member of RUNTIME_FACADE_SURFACE) {
       expect(member.summary.trim().length, member.id).toBeGreaterThan(10);
-      expect(member.exposes.length, member.id).toBeGreaterThan(0);
     }
   });
 
@@ -84,12 +96,43 @@ describe("the surface registry", () => {
     const typed = RUNTIME_FACADE_SURFACE.filter(
       member => member.signature === "confirmed-call-shape",
     ).map(member => member.id);
-    expect(typed).toEqual(["invokeServerCommand", "useDataSource", "hasPermission", "getPermissions"]);
+    expect(typed).toEqual([
+      "invokeServerCommand",
+      "useDataSource",
+      "hasPermission",
+      "getPermissions",
+      "permissionSnapshot",
+      "getCurrentUser",
+      "logIn",
+      "logOut",
+      "uploadFiles",
+      "getUploadLimit",
+      "exposeMethod",
+      "convertDateToOADate",
+      "convertOADateToDate",
+      "convertToCssColor",
+      "cellProperty",
+      "fireEvent",
+    ]);
 
     // Each typed handle member's address is the host's own name for it, so a reader
     // can check the signature against #5 instead of decoding a rename.
     expect(runtimeFacadeExposedAddressNames("hasPermission")).toEqual(["hasPermission"]);
     expect(runtimeFacadeExposedAddressNames("getPermissions")).toEqual(["getPermissions"]);
+  });
+
+  it("leaves exactly the two declared-shape accessors, one reduced and one empty", () => {
+    // The end state #176's reviewer said the audit relaxation depends on: a capability
+    // whose evidence reached `call-shape` no longer sits behind a weak accessor. What
+    // remains is the one address whose evidence genuinely stops at `member-presence`
+    // (`image-context`'s populated shape), and the deliberately empty `forguncyMember`
+    // — the landing spot for the next presence-only member rather than a dead accessor.
+    const weak = RUNTIME_FACADE_SURFACE.filter(
+      member => member.signature === "caller-declared-shape",
+    ).map(member => member.id);
+    expect(weak).toEqual(["cellProp", "forguncyMember"]);
+    expect(findRuntimeFacadeSurfaceMember("forguncyMember").exposes).toEqual([]);
+    expect(findRuntimeFacadeSurfaceMember("cellProp").exposes).toEqual(["image-context"]);
   });
 
   it("refuses an unknown member id rather than returning undefined", () => {
@@ -129,11 +172,14 @@ describe("accessor address domains", () => {
     for (const member of RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES) {
       expect(CELL_FORGUNCY_PROP_KEYS, member).toContain(member);
     }
-    // The complement is the count, not a second list: `core` pins fourteen handle
-    // members, five are reached elsewhere, and each of the five has a written reason
-    // below. Asserting the *number* is what makes a sixth omission require a
-    // sentence rather than passing as arithmetic a reader has to redo.
-    expect(CELL_FORGUNCY_PROP_KEYS.length - RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES.length).toBe(5);
+    // Empty since #177: all fourteen handle members are accounted for elsewhere —
+    // eleven typed members (counting the conversion renames and the snapshot), the
+    // two wrapper-locals the cell scope already names, and nothing left over. The
+    // complement count is asserted rather than the emptiness alone so a member
+    // re-entering this domain — the accessor's whole remaining purpose — changes
+    // both numbers and cannot slip through as arithmetic a reader has to redo.
+    expect(CELL_FORGUNCY_PROP_KEYS.length - RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES.length).toBe(14);
+    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES).toEqual([]);
   });
 
   /**
@@ -149,21 +195,32 @@ describe("accessor address domains", () => {
    */
   it("keeps the addresses another member or the cell scope already owns out of the accessors", () => {
     expect(RUNTIME_FACADE_CELL_PROP_ADDRESSES as readonly string[]).not.toContain("ServerCommands");
-    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[]).not.toContain("Permissions");
-    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[]).not.toContain("hasPermission");
-    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[]).not.toContain(
-      "getPermissions",
-    );
-    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[]).not.toContain(
-      "DataSourceCompareType",
-    );
-    expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[]).not.toContain(
-      "DataSourceRelationType",
-    );
+    // `Permissions` moved out of `cellProp`'s domain with #177: its measured
+    // identity-equality and one-boolean-per-name shape are exactly what
+    // `permissionSnapshot` types, so reaching it through the weak accessor would be
+    // the second-address failure the exclusion exists to refuse.
+    expect(RUNTIME_FACADE_CELL_PROP_ADDRESSES as readonly string[]).not.toContain("Permissions");
+    // Every typed handle member is out of `forguncyMember`'s domain for the same reason —
+    // asserted per address rather than by inspecting the empty tuple, so a regression that
+    // re-admitted one would name it here.
+    for (const typedMember of [
+      "getCurrentUser",
+      "logIn",
+      "logOut",
+      "uploadFiles",
+      "getUploadLimit",
+      "exposeMethod",
+      "ConvertDateToOADate",
+      "ConvertOADateToDate",
+      "ConvertToCssColor",
+    ]) {
+      expect(RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES as readonly string[], typedMember).not.toContain(typedMember);
+    }
 
     // Each omitted name is a real confirmed address, so the exclusions are
     // choices rather than gaps in #5's evidence.
     expect(CELL_PROPS_BASE_KEYS).toContain("ServerCommands");
+    expect(CELL_PROPS_BASE_KEYS).toContain("Permissions");
     expect(CELL_FORGUNCY_PROP_KEYS).toContain("Permissions");
     expect(CELL_FORGUNCY_PROP_KEYS).toContain("hasPermission");
     expect(CELL_FORGUNCY_PROP_KEYS).toContain("getPermissions");
@@ -205,8 +262,12 @@ describe("surface audit", () => {
   });
 
   it("refuses a member that exposes no capability", () => {
+    // `forguncyMember` is empty by design since #177 (its summary says why the empty
+    // accessor stays), so the mutation has to empty a member that is *supposed* to be
+    // full: `cellProp` is the other declared-shape accessor, and emptying it is the
+    // drift the finding exists to catch.
     const members = RUNTIME_FACADE_SURFACE.map(member =>
-      member.id === "forguncyMember" ? { ...member, exposes: [] } : member,
+      member.id === "cellProp" ? { ...member, exposes: [] } : member,
     );
     expect(findingsFrom(members)).toContain("member-exposes-nothing");
   });
@@ -243,7 +304,9 @@ describe("surface audit", () => {
   });
 
   it("names a capability no member exposes", () => {
-    const members = RUNTIME_FACADE_SURFACE.filter(member => member.id !== "forguncyMember");
+    // `getCurrentUser` is the only member exposing `current-user`, so dropping it is the
+    // minimal mutation that strands exactly one capability.
+    const members = RUNTIME_FACADE_SURFACE.filter(member => member.id !== "getCurrentUser");
     const findings = auditRuntimeFacadeSurface(members);
     expect(findings.map(finding => finding.id)).toContain("capability-unexposed");
     expect(
@@ -251,26 +314,31 @@ describe("surface audit", () => {
         .filter(finding => finding.id === "capability-unexposed")
         .map(finding => finding.capability),
     ).toContain("current-user");
-    // Exactly the six `forguncyMember` was the only surface for. The count is
+    // Exactly the one `getCurrentUser` was the only surface for. The count is
     // asserted so a capability that quietly becomes reachable through nothing else
     // cannot hide behind the `toContain` above.
-    expect(findings.filter(finding => finding.id === "capability-unexposed")).toHaveLength(6);
+    expect(findings.filter(finding => finding.id === "capability-unexposed")).toHaveLength(1);
   });
 
   // The narrow case, and the one the first draft of this design got wrong: the
   // capability *is* exposed, but through a member that cannot carry one of its
   // two addresses.
   it("names an address the members that expose it cannot carry", () => {
+    // `cell-event-firing`'s measured address is a declared prop, so moving `fireEvent`'s
+    // carrier to the wrong kind strands the address in exactly the way the finding names —
+    // exposed, but through a member whose carrier cannot reach it. (Mutating the carrier
+    // rather than the exposes list keeps every other capability fully exposed, so the
+    // `.find` below cannot be answered by a different finding first.)
     const members = RUNTIME_FACADE_SURFACE.map(member =>
-      member.id === "cellProp"
-        ? { ...member, exposes: ["permission-snapshot" as const], carrier: { kind: "forguncy-member" as const } }
+      member.id === "fireEvent"
+        ? { ...member, carrier: { kind: "forguncy-member" as const } }
         : member,
     );
     const finding = auditRuntimeFacadeSurface(members).find(
       candidate => candidate.id === "address-unreachable",
     );
-    expect(finding?.capability).toBe("permission-snapshot");
-    expect(finding?.address).toBe("Permissions");
+    expect(finding?.capability).toBe("cell-event-firing");
+    expect(finding?.address).toBe("<eventHandlers[].eventName>");
   });
 
   it("catches a registered member the accessor does not return", () => {
@@ -290,7 +358,10 @@ describe("surface audit", () => {
   });
 
   it("reports every finding at once, and refuses with a contract error", () => {
-    const members = RUNTIME_FACADE_SURFACE.filter(member => member.id !== "forguncyMember");
+    // Dropping `getCurrentUser` strands its capability *and* leaves the session-control
+    // pair untouched, so more than one finding fires — which is what the
+    // "reports every finding at once" half needs.
+    const members = RUNTIME_FACADE_SURFACE.filter(member => member.id !== "getCurrentUser" && member.id !== "logIn");
     expect(auditRuntimeFacadeSurface(members).length).toBeGreaterThan(1);
 
     let caught: unknown;
@@ -327,7 +398,7 @@ describe("resolving through the installed provider", () => {
           getPermissions: () => ({ "dev@readable": true }),
           // One of the six #5 pinned by name only, so the declared-shape accessor has
           // something to reach that is not also a typed member.
-          getCurrentUser: () => ({ userName: "dev@example.com" }),
+          getCurrentUser: () => ({ UserName: "dev@example.com" }),
         },
         cellProps: { Permissions: { "Orders.Read": true } },
         // The call shape #5 executed: one object argument.
@@ -339,11 +410,12 @@ describe("resolving through the installed provider", () => {
     );
   }
 
-  it("reads a base prop under its confirmed name", () => {
+  it("reads the permission snapshot typed, with no declaration and no await", () => {
     installMock();
     // The shape an executed page hands a Cell: a plain record of configured name to
-    // boolean, not an array of descriptors.
-    expect(runtimeFacade().cellProp("Permissions")).toEqual({ "Orders.Read": true });
+    // boolean, not an array of descriptors — and since #177 the typed member reads it
+    // directly rather than through a declared-shape accessor.
+    expect(runtimeFacade().permissionSnapshot()).toEqual({ "Orders.Read": true });
   });
 
   // The rule that separates a value prop from a function member: the resolver answers
@@ -361,13 +433,12 @@ describe("resolving through the installed provider", () => {
     expect(runtimeFacade().cellProp("ImageContext")).toBeUndefined();
   });
 
-  it("reaches a handle member and lets the declared shape call it", () => {
+  it("reaches the typed user member without declaring anything", () => {
     installMock();
-    // `getCurrentUser` is presence-only, which is what the accessor is for: the façade
-    // asserts the confirmed *address* and the caller declares the shape, because #5
-    // pinned the name and never called it.
-    const getCurrentUser = runtimeFacade().forguncyMember<() => { userName: string }>("getCurrentUser");
-    expect(getCurrentUser().userName).toBe("dev@example.com");
+    // `getCurrentUser` stopped being presence-only when #176 measured its call shape:
+    // the typed member *is* the end state the accessor was the transitional one for.
+    const user = runtimeFacade().getCurrentUser();
+    expect(user.UserName).toBe("dev@example.com");
   });
 
   // The other half of the same split, and the one review corrected: `hasPermission`
@@ -384,7 +455,9 @@ describe("resolving through the installed provider", () => {
     installMock();
     // Same rule as `cellProp("ServerCommands")`: one address, one member. Reaching a
     // typed call through the declared-shape accessor would give the façade a second
-    // way to be called wrongly.
+    // way to be called wrongly. The accessor's domain is empty since #177, so every
+    // one of these is `as never` — the runtime guard is what is being asserted, and
+    // the message has to point at the typed member that owns the address now.
     expect(() => runtimeFacade().forguncyMember("hasPermission" as never)).toThrow(
       /not the member that exposes it/,
     );
@@ -436,7 +509,10 @@ describe("resolving through the installed provider", () => {
       bindings: { cellProps: { Forguncy: {} }, useDataSource: () => ({}) } as never,
     });
     expect(() => runtimeFacade().cellProp("NotABaseProp" as never)).toThrow(/not a base prop #5 verified/);
-    expect(() => runtimeFacade().cellProp("Permissions")).toThrow(/does not carry "Permissions"/);
+    // `Permissions` reached through its *typed* member hits the provider-binding refusal,
+    // because the typed member does no confirmation check of its own — the base-prop read
+    // is the validation, exactly as it is for the accessor.
+    expect(() => runtimeFacade().permissionSnapshot()).toThrow(/does not carry "Permissions"/);
   });
 
   it("names the member to use instead when a confirmed address belongs to another one", () => {
@@ -476,16 +552,9 @@ function typeOnlyUndeclaredCommandCall(): void {
 }
 
 function typeOnlyUndeclaredShape(): void {
-  const unclaimed = runtimeFacade().forguncyMember("getCurrentUser");
-  // @ts-expect-error `unknown` is not callable
-  unclaimed();
-  // @ts-expect-error `unknown` does not narrow to a declared type on its own
-  const asBoolean: boolean = unclaimed;
-  void asBoolean;
-
-  const permissions = runtimeFacade().cellProp("Permissions");
+  const context = runtimeFacade().cellProp("ImageContext");
   // @ts-expect-error a base prop is `unknown` until its shape is declared too
-  const entries: readonly string[] = permissions;
+  const entries: readonly string[] = context;
   void entries;
 }
 
@@ -539,7 +608,7 @@ describe("what the types refuse", () => {
         forguncyMembers: {
           hasPermission: (permissionName: string) => permissionName === "Orders.Read",
           getPermissions: () => ({ "Orders.Read": true }),
-          getCurrentUser: () => ({ userName: "dev@example.com" }),
+          getCurrentUser: () => ({ UserName: "dev@example.com" }),
         },
         cellProps: { Permissions: { "Orders.Read": true } },
         serverCommands: { GetSalesData: async () => ({ errorCode: 0 }) },
@@ -561,19 +630,19 @@ describe("what the types refuse", () => {
     installMock();
     expect(typeOnlyUndeclaredShape).toBeTypeOf("function");
 
-    // Both halves of the pair: un-declared is unusable, declared works.
-    expect(runtimeFacade().forguncyMember("getCurrentUser")).toBeTypeOf("function");
-    // The shape an executed page hands a Cell: a plain record of configured name to
-    // boolean, not an array of descriptors.
-    expect(runtimeFacade().cellProp("Permissions")).toEqual({ "Orders.Read": true });
+    // Both halves of the pair: un-declared is unusable, declared works — and the working
+    // half is now the one base prop the accessor still owns.
+    expect(runtimeFacade().cellProp("ImageContext")).toEqual({});
     expect(
-      runtimeFacade().forguncyMember<() => { userName: string }>("getCurrentUser")().userName,
-    ).toBe("dev@example.com");
+      runtimeFacade().cellProp<{ readonly marker: string }>("ImageContext"),
+    ).toEqual({});
 
-    // And the other half of the split: the two confirmed calls need no declaration at
-    // all, which is exactly what the confirmation level buys.
+    // The typed members need no declaration at all, which is exactly what the
+    // confirmation level buys — including the ones #176 added evidence for.
     expect(runtimeFacade().hasPermission("Orders.Read")).toBe(true);
     expect(runtimeFacade().getPermissions()).toEqual({ "Orders.Read": true });
+    expect(runtimeFacade().permissionSnapshot()).toEqual({ "Orders.Read": true });
+    expect(runtimeFacade().getCurrentUser().UserName).toBe("dev@example.com");
   });
 
   it("refuses an address that belongs to another member or to the cell scope", () => {
@@ -589,7 +658,7 @@ describe("what the types refuse", () => {
       /not the member that exposes it.*wrapper-local/,
     );
     expect(() => runtimeFacade().forguncyMember("Permissions" as never)).toThrow(
-      /not the member that exposes it.*cellProp\("Permissions"\)/,
+      /not the member that exposes it.*runtimeFacade\(\)\.permissionSnapshot\(\)/,
     );
     expect(() => runtimeFacade().forguncyMember("hasPermission" as never)).toThrow(
       /not the member that exposes it.*runtimeFacade\(\)\.hasPermission\(\)/,
@@ -656,6 +725,7 @@ describe("host boundaries only a hostile fixture can see", () => {
    * match the host.
    */
   it("keeps the props.Forguncy receiver on the handle it came from, on both paths", () => {
+    let logInReceiver: unknown;
     installRuntimeFacadeProvider(
       createHostRuntimeFacadeProvider({
         cellProps: hostCellProps({
@@ -665,7 +735,10 @@ describe("host boundaries only a hostile fixture can see", () => {
               return this?.realm === "the-handle";
             },
             logIn(this: { realm?: string }) {
-              return this?.realm;
+              // `logIn` is `void` and fire-and-forget on the host, so the receiver cannot
+              // be read back off a return value — the fixture records it instead, which is
+              // the same observation the method form makes either way.
+              logInReceiver = this?.realm;
             },
           },
         }),
@@ -673,48 +746,42 @@ describe("host boundaries only a hostile fixture can see", () => {
       }),
     );
 
-    // Typed member first, then the accessor: they resolve through one helper, so a
-    // regression in it must fail here rather than pass on the other's green.
+    // Typed member first, then a second typed member through the same helper: `logIn`
+    // is typed since #177, so the receiver rule is now asserted across the typed half
+    // wholesale rather than as the typed-member/declared-accessor pair it used to be —
+    // the accessor's domain is empty and there is no second path left to compare.
     expect(runtimeFacade().hasPermission("ProbePermission")).toBe(true);
-    expect(runtimeFacade().forguncyMember<() => unknown>("logIn")()).toBe("the-handle");
+    runtimeFacade().logIn();
+    expect(logInReceiver).toBe("the-handle");
   });
 
   /**
-   * A `member-presence` address is an address, not a signature.
+   * The empty accessor's guard still runs — for the next presence-only member.
    *
-   * `forguncyMember` reaches the capabilities whose confirmation is `member-presence`,
-   * and #5 confirmed only that those names appear in the handle's key list — never that
-   * any of them is callable, nor what its `typeof` is. Before this was fixed, all nine
-   * went through the same helper the two *called* members use, so the value was forced
-   * to be a function and bound; a confirmed address holding anything else was refused
-   * with `capability-not-supplied`. That is the façade inventing a callability contract
-   * the registry does not carry, and it contradicts the accessor's own promise: the
-   * address is the façade's claim, the shape is the caller's.
-   *
-   * `getCurrentUser` carries this test because the neighbouring receiver test already
-   * covers the function case; what has to be visible is the *non*-function value, which
-   * is the one the old shared path refused. The fixture is deliberately an object rather
-   * than `undefined`: `undefined` is a value a provider might legitimately not carry,
-   * and confusing "not a function" with "not present" is the other way this could be
-   * got wrong.
+   * `forguncyMember`'s domain is empty since #177, so there is no presence-only member
+   * left to reach through it. What does not change is the *rule* the accessor exists
+   * for: a confirmed address it does own (when one arrives) is handed over as read,
+   * never forced callable. This test keeps the guard honest in the meantime by driving
+   * the refusal path the domain empties into: a member the registry confirms but the
+   * typed surface owns is refused with the owner named, so the accessor cannot silently
+   * become a second way in.
    */
-  it("hands a presence-only address over as read, without demanding callability", () => {
+  it("refuses a typed member's address reached through the empty accessor, naming the owner", () => {
     installRuntimeFacadeProvider(
       createHostRuntimeFacadeProvider({
         cellProps: hostCellProps({
-          Forguncy: { getCurrentUser: { userName: "dev@example.com" } },
+          Forguncy: { getCurrentUser: () => ({ UserName: "dev@example.com" }) },
         }),
         useDataSource: unusedDataSource,
       }),
     );
 
-    expect(runtimeFacade().forguncyMember("getCurrentUser")).toEqual({ userName: "dev@example.com" });
-    // And the declared shape is still the caller's to choose, so the same value is
-    // usable under the type the caller supplies — which is what
-    // `caller-declared-shape` has to mean if it is to mean anything.
-    expect(runtimeFacade().forguncyMember<{ userName: string }>("getCurrentUser").userName).toBe(
-      "dev@example.com",
+    expect(() => runtimeFacade().forguncyMember("getCurrentUser" as never)).toThrow(
+      /not the member that exposes it.*runtimeFacade\(\)\.getCurrentUser\(\)/,
     );
+    // And the typed member itself reaches the same value — the pair is what makes the
+    // refusal a routing rule rather than a dead end.
+    expect(runtimeFacade().getCurrentUser().UserName).toBe("dev@example.com");
   });
 
   /**
@@ -869,6 +936,187 @@ describe("host boundaries only a hostile fixture can see", () => {
     );
 
     expect(runtimeFacade().getPermissions()).toEqual({ "Orders.Read": true, "Orders.Write": false });
+  });
+});
+
+/**
+ * The typed members #177 adds, exercised end to end against the mock's measured defaults.
+ *
+ * What is asserted here is the *delegation and the narrowing*, not the mock behaviour —
+ * `mock-provider.test.ts` owns the measured behaviours themselves. Each member is
+ * checked for the one thing that is this file's job: the value the cell actually sees,
+ * which is the host answer after the boundary check this file implements.
+ */
+describe("the typed members #176's evidence pays for", () => {
+  function installDefaultMock(options?: Parameters<typeof createMockRuntimeFacadeProvider>[0]): void {
+    installRuntimeFacadeProvider(createMockRuntimeFacadeProvider(options));
+  }
+
+  it("delegates uploadFiles and hands the resolved result back as the measured shape", async () => {
+    installDefaultMock();
+    const result = await runtimeFacade().uploadFiles(new File(["x"], "probe.png"));
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]?.fileName).toBe("probe.png");
+    expect(result.attachmentValue).toBe(`${result.files[0]?.filePath}|`);
+
+    // The no-arguments path is the host's own empty result, forwarded — not an error
+    // the façade pre-empts.
+    expect(await runtimeFacade().uploadFiles()).toEqual({ files: [], attachmentValue: "" });
+  });
+
+  it("refuses an uploadFiles answer that is not a thenable, because a sync answer is not the measured contract", () => {
+    installDefaultMock({
+      forguncyMembers: { uploadFiles: (() => ({ files: [] })) as never },
+    });
+    expect(() => runtimeFacade().uploadFiles(new File(["x"], "probe.png"))).toThrow(/rather than the Promise #176 measured/);
+  });
+
+  it("refuses an uploadFiles resolution that is not the result object", async () => {
+    installDefaultMock({
+      forguncyMembers: { uploadFiles: (async () => "done") as never },
+    });
+    await expect(runtimeFacade().uploadFiles(new File(["x"], "probe.png"))).rejects.toThrow(
+      /rather than the upload result #176 measured/,
+    );
+  });
+
+  it("reads the upload limit synchronously and refuses a non-record answer", () => {
+    installDefaultMock();
+    const limit = runtimeFacade().getUploadLimit();
+    expect(limit.sizeLimit).toBe(0);
+    expect(limit.accept).toBe(limit.extensionFilter);
+    expect(limit).not.toBeInstanceOf(Promise);
+
+    uninstallRuntimeFacadeProvider();
+    installDefaultMock({ forguncyMembers: { getUploadLimit: (() => null) as never } });
+    expect(() => runtimeFacade().getUploadLimit()).toThrow(/rather than the upload limit record/);
+  });
+
+  it("reads the current user synchronously and refuses a non-record answer", () => {
+    installDefaultMock();
+    const user = runtimeFacade().getCurrentUser();
+    expect(user.UserName).toBeTypeOf("string");
+    expect(user).not.toBeInstanceOf(Promise);
+
+    uninstallRuntimeFacadeProvider();
+    installDefaultMock({ forguncyMembers: { getCurrentUser: (() => Promise.resolve({})) as never } });
+    expect(() => runtimeFacade().getCurrentUser()).toThrow(/rather than the user record/);
+  });
+
+  it("forwards the session verbs verbatim and fire-and-forget", () => {
+    const seen: (boolean | undefined)[] = [];
+    installDefaultMock({
+      forguncyMembers: {
+        logIn: () => {
+          seen.push(undefined);
+        },
+        logOut: (navigateToHomePage?: boolean) => {
+          seen.push(navigateToHomePage);
+        },
+      },
+    });
+
+    // Neither returns anything the cell can use, and the argument goes over untouched —
+    // including its absence, because coalescing a default would be a navigation decision
+    // the host owns.
+    expect(runtimeFacade().logIn()).toBeUndefined();
+    expect(runtimeFacade().logOut(false)).toBeUndefined();
+    runtimeFacade().logOut();
+    expect(seen).toEqual([undefined, false, undefined]);
+  });
+
+  it("forwards exposeMethod input exactly as written, validation deferred to the host shape", () => {
+    const registrations: [unknown, unknown][] = [];
+    installDefaultMock({
+      forguncyMembers: {
+        exposeMethod: (name: unknown, method: unknown) => {
+          registrations.push([name, method]);
+        },
+      },
+    });
+
+    const method = () => "result";
+    runtimeFacade().exposeMethod("run", method);
+    expect(registrations).toEqual([["run", method]]);
+
+    // Invalid input is forwarded too — #176 measured the host silently ignoring it, so
+    // refusing it here would make the façade stricter than the host. The mock's own
+    // default reproduces the silent ignore; this fixture records what arrived instead.
+    runtimeFacade().exposeMethod("", method);
+    expect(registrations).toHaveLength(2);
+  });
+
+  it("delegates the three conversions as measured, boundary only", () => {
+    installDefaultMock();
+    // The boundary is a forward: what is asserted is that the value the mock computed is
+    // the value the cell receives, not that the façade recomputed anything.
+    expect(runtimeFacade().convertToCssColor("#80FF0000")).toBe("rgba(255,0,0,0.50)");
+    const now = new Date();
+    expect(runtimeFacade().convertOADateToDate(runtimeFacade().convertDateToOADate(now)).getTime()).toBe(now.getTime());
+  });
+
+  it("reads a declared property through cellProperty, typed only by the project", () => {
+    installDefaultMock({ properties: { title: "销售总览" } });
+    // The bare façade admits no property read — `Properties` defaults to `never` — so
+    // the declaration is what makes this compile, the same discipline as the command map.
+    const title = runtimeFacade<Record<never, never>, "title">().cellProperty<string>("title");
+    expect(title).toBe("销售总览");
+  });
+
+  it("refuses an undeclared property name as a missing injection, not a silent undefined", () => {
+    installDefaultMock();
+    // The host cannot inject a property the cell never declared, so a read of one is a
+    // wiring fault — the same absence family as a missing base prop.
+    expect(() => runtimeFacade<Record<never, never>, "missing">().cellProperty("missing")).toThrow(
+      /does not carry "missing"/,
+    );
+  });
+
+  it("fires a declared event through the props-assigned function, arguments verbatim", () => {
+    const seen: readonly unknown[][] = [];
+    installDefaultMock({
+      eventHandlers: {
+        onSelect: (...args: readonly unknown[]) => {
+          (seen as unknown[][]).push([...args]);
+        },
+      },
+    });
+
+    runtimeFacade<Record<never, never>, never, "onSelect">().fireEvent("onSelect", "row-3", 42);
+    expect(seen).toEqual([["row-3", 42]]);
+    // And the firing itself is void, because the command outcome is the host pipeline's.
+    expect(runtimeFacade<Record<never, never>, never, "onSelect">().fireEvent("onSelect")).toBeUndefined();
+  });
+
+  it("fires an uncommanded event as a no-op rather than refusing it", () => {
+    installDefaultMock({ eventHandlers: { onIdle: undefined } });
+    expect(() => runtimeFacade<Record<never, never>, never, "onIdle">().fireEvent("onIdle")).not.toThrow();
+  });
+
+  it("refuses to fire an event the host never injected", () => {
+    installDefaultMock();
+    expect(() => runtimeFacade<Record<never, never>, never, "onNope">().fireEvent("onNope")).toThrow(
+      /does not carry "onNope"/,
+    );
+  });
+
+  it("refuses a non-callable value at an event address as the wrong shape, not as a call", () => {
+    // A property and an event are both props-sibling injections, so a project that
+    // declares a *property* under the same conceptual name and then fires it meets the
+    // non-callable refusal — the shape #176 measured events as never having.
+    installDefaultMock({ properties: { onClick: "a-string-not-a-firing" } });
+    expect(() => runtimeFacade<Record<never, never>, "onClick", never>().fireEvent("onClick" as never)).toThrow(
+      /not callable/,
+    );
+  });
+
+  it("keeps the permission snapshot identity-equal between the typed member and the base prop", () => {
+    installDefaultMock({ cellProps: { Permissions: { "Orders.Read": true } } });
+    // What is asserted is the *content* agreement: identity itself is the mock's
+    // construction (`mock-provider.test.ts` pins `toBe`), and the façade's contribution
+    // is that both reads pass through the same narrowing and answer the same map.
+    expect(runtimeFacade().permissionSnapshot()).toEqual(runtimeFacade().getPermissions());
+    expect(runtimeFacade().cellProp("ImageContext")).toEqual({});
   });
 });
 

@@ -110,3 +110,115 @@ export function canReadOrders(): boolean {
 export function readOrderPermissions(): Readonly<Partial<Record<string, boolean>>> {
   return runtimeFacade().getPermissions();
 }
+
+/**
+ * The Cell's declared bindings, typed the way #178's declaration layer will pin them.
+ *
+ * `Properties` and `Events` are the project's own declaration: which properties the
+ * designer configured (`title`, `highlightColor`) and which events (`onExport`,
+ * `onRowSelect`). The bare `runtimeFacade()` admits neither — `never` is the default
+ * for both — so this type argument is the only place the names enter the type system,
+ * which is the same discipline the command map already follows.
+ */
+export type AppCellBindings = {
+  readonly properties: "title" | "highlightColor";
+  readonly events: "onExport" | "onRowSelect";
+};
+
+/** The façade typed for this Cell's commands *and* its declared bindings. */
+function cellFacade() {
+  return runtimeFacade<AppServerCommands, AppCellBindings["properties"], AppCellBindings["events"]>();
+}
+
+/**
+ * The current value of the declared `title` property.
+ *
+ * Read during render rather than captured: #176 measured `SetPropertyValue` re-rendering
+ * the existing tree **without re-executing the cell entry**, so a property read inside
+ * the component body is already the reactive half of the binding — there is no
+ * subscription to write, and writing one would be the façade inventing a lifecycle the
+ * host does not have.
+ */
+export function readTitle(): string {
+  return cellFacade().cellProperty<string>("title");
+}
+
+/** The declared `highlightColor`, converted through the host's own colour conversion. */
+export function readHighlightColor(): string {
+  const raw = cellFacade().cellProperty<string>("highlightColor");
+  return runtimeFacade().convertToCssColor(raw);
+}
+
+/**
+ * Fire the declared events.
+ *
+ * `onExport` is the uncommanded demonstration — the designer attached no command tree,
+ * so the firing is a no-op locally exactly as it is in the designer preview. `onRowSelect`
+ * carries the gathered positional arguments, which the host would key by `eventArgs[].name`
+ * before handing them to the configured command.
+ */
+export function fireExport(): void {
+  cellFacade().fireEvent("onExport");
+}
+
+export function fireRowSelect(rowKey: string, index: number): void {
+  cellFacade().fireEvent("onRowSelect", rowKey, index);
+}
+
+/** The signed-in user the host resolved — synchronous, so there is nothing to await. */
+export function readCurrentUser(): { readonly UserName?: string; readonly Role?: string } {
+  return runtimeFacade().getCurrentUser();
+}
+
+/** The host's upload limit, `sizeLimit` in megabytes with `0` meaning unlimited. */
+export function readUploadLimit(): { readonly extensionFilter: string; readonly sizeLimit: number; readonly maxUploadFileCount: number } {
+  const limit = runtimeFacade().getUploadLimit();
+  return {
+    extensionFilter: limit.extensionFilter,
+    sizeLimit: limit.sizeLimit,
+    maxUploadFileCount: limit.maxUploadFileCount,
+  };
+}
+
+/**
+ * Upload through the host — the one genuinely asynchronous member.
+ *
+ * The result's `attachmentValue` is the pipe-separated trailing-pipe form the host
+ * persists, so the Cell surfaces it verbatim rather than reshaping it: reshaping is
+ * the application-layer decision, and a cell doing it silently would drift from what
+ * the host writes into a bound attachment column.
+ */
+export async function uploadSalesEvidence(files: Parameters<ReturnType<typeof runtimeFacade>["uploadFiles"]>[0]): Promise<{
+  readonly fileNames: readonly string[];
+  readonly attachmentValue: string;
+}> {
+  const result = await runtimeFacade().uploadFiles(files);
+  return {
+    fileNames: result.files.map(file => file.fileName),
+    attachmentValue: result.attachmentValue,
+  };
+}
+
+/**
+ * Register the Cell's exposed method at module scope.
+ *
+ * `exposeMethod` is the registration half of the host's command pipeline: a configured
+ * Forguncy command reaches the cell through `ExecuteMethod`, and this is what it reaches.
+ * Module scope rather than render scope because the registration is not a render effect —
+ * re-registering on every render would be noise the host's overwrite-wins semantics
+ * tolerate but the cell never needs.
+ */
+let methodExposed = false;
+export function exposeSalesMethodOnce(): void {
+  if (methodExposed) {
+    return;
+  }
+  methodExposed = true;
+  runtimeFacade().exposeMethod("getSalesSummary", () => ({
+    totalCount: SALES_TOTAL_COUNT_HINT,
+    exposedBy: "sales-summary",
+  }));
+}
+
+/** The count the exposed method reports, mirroring the fixture's server-side total. */
+const SALES_TOTAL_COUNT_HINT = 240;
