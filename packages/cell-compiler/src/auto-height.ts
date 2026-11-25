@@ -20,31 +20,49 @@
  * The patch is the mechanism #184 verified end-to-end on the live 12.0.102.0 as an
  * external frontend library (`reactcell-autoh` 0.2.0), re-expressed as artifact
  * source. It is three complementary mechanisms, and they are complementary rather
- * than redundant — the probe evidence
- * (`packages/mcp-sync/scripts/probe-autoh-evidence-185.mjs`, whose measurements are
- * recorded in `core`'s `REACTCELLTYPE_CREATE_CONTENT_CONTRACT`) is what each one
- * answers:
+ * than redundant. The plugin source pins the timing they answer, and the order is
+ * the opposite of what "the wrap patches creation" suggests:
  *
- * 1. **the prototype wrap** — `cellTypeCtor.prototype.createContent` is wrapped so
- *    every cell instantiated *after the patch lands* gets the adaptive container
+ * - `createContent()` runs **synchronously, first**: it builds the container div
+ *   (hardcoded `height: 100%`), creates the React root on it, sets the id and
+ *   returns — with `renderCurrent()` early-returning on `!this.librariesReady`.
+ * - the artifact evaluates **asynchronously, later**: `render()` →
+ *   `createReactElement` → `compileSource` only fires once `librariesReady` and
+ *   `_loaded` both hold, so by the time the injected source runs, *its own cell's
+ *   container is already in the DOM, unpatched*.
+ *
+ * Measured against that sequence (the probe at
+ * `packages/mcp-sync/scripts/probe-autoh-evidence-185.mjs`, recorded in `core`'s
+ * `REACTCELLTYPE_CREATE_CONTENT_CONTRACT`):
+ *
+ * 1. **`repairExistingContainers()` is the primary path for the injecting cell
+ *    itself.** Because the container pre-exists the artifact's evaluation, the scan
+ *    for content roots whose id matches the position-independent `/^r\d+c\d+p$/`
+ *    pattern is what actually adapts the first-rendered cell — the probe's step 5
+ *    shows exactly that state (container in the DOM, `height: 100%` inline, no
+ *    marker, before the patch lands). Nothing anywhere keys on a concrete cell id,
+ *    which is what makes one artifact adapt at any grid position.
+ * 2. **the prototype wrap** — `cellTypeCtor.prototype.createContent` wrapped so
+ *    cells instantiated *after the patch lands* get the adaptive container
  *    (`min-height: 100%` fills the grid row, `height: auto` lets content extend it,
- *    plus the marker class). This is the primary path, and it serves the common case:
- *    artifact evaluation precedes the platform's own instantiation of the cell.
- * 2. **`repairExistingContainers()`** — scans the DOM for content roots whose id
- *    matches the position-independent `/^r\d+c\d+p$/` pattern and applies the same
- *    control. This answers the instantiation race: frontend-library bundles and
- *    artifact evaluation run in parallel with cell instantiation, so cells already in
- *    the DOM when the patch lands would otherwise stay fixed-height. It is also what
- *    keeps the patch *position-independent* — nothing anywhere keys on a concrete
- *    cell id, which is why one artifact adapts at any grid position.
- * 3. **the `MutationObserver`** — follows containers the SPA mounts later (navigation
- *    away and back, cells added after first render), which neither of the first two
- *    can see.
+ *    plus the marker class). This covers *other* cells of the type mounted later,
+ *    and any re-created containers — a maintenance reader removing it as "redundant
+ *    with the repair pass" would lose every cell instantiated after the first scan.
+ * 3. **the `MutationObserver`** — follows containers the SPA mounts after the patch
+ *    lands (navigation away and back, cells added later), which neither of the
+ *    first two can see: the scan runs once, and the wrap only affects creation time.
  *
- * Removing any one of the three as "duplicated" re-opens the timing hole it covers;
- * the polling loop (`setInterval` until the registry entry exists) is the fourth
- * piece of the same tolerance, because the patch cannot decide its own execution
- * order relative to the plugin script.
+ * Removing any one of the three re-opens the timing hole it covers.
+ *
+ * The polling loop (`setInterval` until the registry entry exists) is kept verbatim
+ * from the proven patch, but its role changed with the delivery mechanism: for the
+ * external *library* it was load-bearing, because a frontend-library bundle races
+ * plugin-script registration. For the *injected artifact* the race cannot occur —
+ * the artifact only ever evaluates inside the cell type's own `render()`, at which
+ * point `cellTypeCtor` is trivially registered (every verification run shows
+ * `attempts: 1`). What the poll is now is a cheap invariant guard against platform
+ * change — one no-op pass in the common case — and it is documented as that rather
+ * than as a load-bearing race answer.
  *
  * ## Why this is a template emission and not a bundler interception
  *
@@ -113,14 +131,18 @@
  * `heightMode: "fixed"` is a **compile-level** opt-out: the artifact carries no
  * injection of its own. It is not — and by the mechanism's nature cannot be — a
  * runtime shield. The patch wraps `cellTypeCtor.prototype.createContent`, and the
- * prototype is shared by every ReactCellType on the page, so once *any* cell on a
- * page injects the patch, every cell of the type on that page renders adaptive —
- * including one compiled `fixed`. This is the Epic's explicit scope decision
- * (#184's "本轮全局生效；若后续有 cell 需要固定高度，再引入 opt-out 声明"), verified
- * on the live page rather than inferred: the acceptance run's shared-page measurement
- * shows a fixed-control cell rendering adaptive beside its adaptive neighbor, while
- * the fixed-only control page shows the same artifact carrying no patch activity at
- * all. A future per-instance conditional is new mechanism, not a bug in this one.
+ * prototype is shared by every ReactCellType for the lifetime of the browser
+ * window — and Forguncy is an SPA, so the accurate scope is **session-global, not
+ * page-global**: once any injected cell renders anywhere in the session, every
+ * ReactCellType in the whole session renders adaptive, including `fixed` cells on
+ * pages navigated to afterwards. The fixed-only control in the acceptance run
+ * proves compile-level absence on a fresh load, not session-level isolation. This
+ * is the Epic's explicit scope decision (#184's "本轮全局生效；若后续有 cell 需要
+ * 固定高度，再引入 opt-out 声明"), verified on the live page rather than inferred:
+ * the acceptance run's shared-page measurement shows a fixed-control cell rendering
+ * adaptive beside its adaptive neighbor, while the fixed-only control page shows
+ * the same artifact carrying no patch activity at all. A future per-instance
+ * conditional is new mechanism, not a bug in this one.
  *
  * ## The local-dev fidelity gap, stated rather than smoothed over
  *
@@ -290,8 +312,14 @@ export function renderAutoHeightInjection(): string {
     `          }`,
     `        }`,
     `      });`,
-    `      if (document.body) {`,
-    `        observer.observe(document.body, { childList: true, subtree: true });`,
+    `      // documentElement rather than body alone: the container always lives inside`,
+    `      // body, and body inside documentElement — but body can still be null when the`,
+    `      // patch lands early, and a body-only guard would then never install the`,
+    `      // observer at all. documentElement exists whenever a script can run, so the`,
+    `      // fallback closes the hole without a retry loop.`,
+    `      var observeTarget = document.body || document.documentElement;`,
+    `      if (observeTarget) {`,
+    `        observer.observe(observeTarget, { childList: true, subtree: true });`,
     `      }`,
     `    }`,
     `    return true;`,

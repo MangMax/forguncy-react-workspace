@@ -1235,6 +1235,16 @@ export function assertUniqueTargets(registry: CellRegistry): void {
  * Needed because the Vite plugin and MCP sync accept "config or registry": a host
  * that has already loaded and validated the config must not be re-validated with
  * a different root, which would silently re-resolve every entry path.
+ *
+ * The checks are registry-level fields only, and the per-Cell shape is deliberately
+ * not deep-validated — the predicate answers "is this a registry" rather than "is
+ * every Cell in it well-formed", which is the same division it has always applied
+ * (no per-Cell `entry`/`target` inspection either). The one consequence worth
+ * writing down is #185's `RegisteredCell.heightMode`: a hand-forged registry from
+ * before the field existed passes here, and downstream reads `undefined` as the
+ * materialized default `"auto"` — coincidentally the correct answer, because the
+ * degradation direction is *toward* the default rather than away from it. A field
+ * whose absence degraded the other way would not get this pass.
  */
 export function isCellRegistry(value: unknown): value is CellRegistry {
   return (

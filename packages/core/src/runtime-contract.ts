@@ -1041,17 +1041,17 @@ export const CELL_BROWSER_HOST_GLOBALS: readonly CellBrowserHostGlobal[] = [
   },
   {
     name: "MutationObserver",
-    note: "Browser constructor used to follow SPA-later-mounted cell containers. Ambient in every browser the generated page runs in.",
+    note: "Browser constructor used to follow SPA-later-mounted cell containers. Observed constructible and firing against `document.documentElement` on the live dev site (the same run that measured the containers below), not merely assumed ambient.",
     evidence: ["generated-runtime-browser"],
   },
   {
     name: "setInterval",
-    note: "Browser timer the patch polls the cell-type registry with, because frontend-library bundles and artifact evaluation race plugin-script registration and polling is the only ordering-tolerant mechanism.",
+    note: "Browser timer the patch polls the cell-type registry with — load-bearing for the external-library form, an invariant guard for the injected artifact (see `auto-height.ts`'s header for why the race differs). The exact poll-then-clear pattern was exercised on the live dev site: fires on cadence, stops on `clearInterval`.",
     evidence: ["generated-runtime-browser"],
   },
   {
     name: "clearInterval",
-    note: "The `setInterval` pair; stops the registry poll once the constructor is patched or the attempt budget is exhausted.",
+    note: "The `setInterval` pair; stops the registry poll once the constructor is patched or the attempt budget is exhausted. Verified in the same exercise as `setInterval` — a two-fire poll stopped exactly at two.",
     evidence: ["generated-runtime-browser"],
   },
 ];

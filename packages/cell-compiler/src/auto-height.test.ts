@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
+import { parse } from "@babel/parser";
 import {
   CELL_BROWSER_HOST_GLOBALS,
   CELL_USER_SCOPE_BINDINGS,
@@ -47,6 +48,202 @@ import { createRolldownCellBundler } from "./rolldown-bundler.ts";
 const DEPENDENCIES: readonly DependencyDecision[] = [
   { strategy: "host", packageName: "react", globalName: "React" },
 ];
+
+// ---------------------------------------------------------------------------
+// Free-identifier analysis for the mirror-direction naming check
+// ---------------------------------------------------------------------------
+
+/**
+ * The ES builtins the patch legitimately references without declaring.
+ *
+ * ES builtins are realm-intrinsic rather than host-provided, so they are not host
+ * names and do not belong in `CELL_AUTO_HEIGHT_HOST_NAMES` — the same exclusion
+ * `runtime-binding`'s discipline applies implicitly. The list is deliberately the
+ * ones this source uses; a template edit that reaches for another builtin
+ * (`Promise`, `Array`) must extend it consciously, which is exactly the review
+ * surface this check exists to create.
+ */
+const ES_BUILTINS_IN_USE = ["Object", "String", "globalThis", "undefined", "Error", "TypeError"] as const;
+
+interface AstNode {
+  readonly type: string;
+  readonly [key: string]: unknown;
+}
+
+function isNode(value: unknown): value is AstNode {
+  return typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
+}
+
+/**
+ * The free identifiers of a script, computed scope-aware.
+ *
+ * Not a regex and not a heuristic over capitalized names: the check's whole point is
+ * that a template edit referencing `window`, `self`, `$` or `top` must surface here,
+ * and those are exactly the names a casing-based heuristic would wave through. The
+ * analysis is a scope-resolving walk:
+ *
+ * - **scopes are function-scoped**, matching the patch's deliberately ES5 shape:
+ *   `var` and function declarations hoist to the enclosing function scope, catch
+ *   parameters and function expressions' inner names bind where they appear;
+ * - **references resolve outward** through the scope chain; anything unresolved at
+ *   the script root is free;
+ * - **property keys and member-expression properties are never references** —
+ *   `obj.createContent` names a property, not a variable, and distinguishing the two
+ *   is the difference between this walk and a word search (which would report
+ *   `createContent`, `css`, `addClass` as free);
+ * - **labels**, shorthand properties and `typeof` operands are handled at their
+ *   actual semantics rather than uniformly — the patch uses none of the ambiguous
+ *   forms, and the walk documents what it treats how.
+ *
+ * The implementation covers the node types the generated source actually contains
+ * plus the ordinary statement/expression forms around them; anything unrecognized
+ * is walked generically over its node-valued properties, which keeps the analysis
+ * sound (a missed specialization can only over-report structure, never hide a
+ * reference — except shadowing forms like destructuring, which the patch does not
+ * use and which are listed in the test that uses this).
+ */
+function freeIdentifiersOf(source: string): readonly string[] {
+  const ast = parse(source, { sourceType: "script" }) as unknown as AstNode;
+  const free = new Set<string>();
+
+  /** One function scope: the names bound in it, plus its parent chain. */
+  interface Scope {
+    readonly names: Set<string>;
+    readonly parent: Scope | null;
+  }
+
+  const resolvesIn = (scope: Scope | null, name: string): boolean => {
+    for (let current = scope; current !== null; current = current.parent) {
+      if (current.names.has(name)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Collects every binding one function scope owns, without crossing into nested
+   * functions — JavaScript `var`/function-declaration hoisting in one pass.
+   *
+   * Run per scope **before** that scope's references are checked, which is what makes
+   * a use-before-`var` inside one function read as bound (hoisted) rather than free.
+   */
+  function hoistInto(node: AstNode, scope: Scope): void {
+    if (node.type === "VariableDeclarator") {
+      const id = node.id;
+      if (isNode(id) && id.type === "Identifier") scope.names.add(id.name as string);
+    }
+    if (node.type === "FunctionDeclaration") {
+      const id = node.id;
+      if (isNode(id) && id.type === "Identifier") scope.names.add(id.name as string);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "type" || key === "loc" || key === "start" || key === "end" || key === "range") continue;
+      const value = node[key];
+      const descend = (item: unknown): void => {
+        if (!isNode(item)) return;
+        if (item.type === "FunctionDeclaration") {
+          // The name hoists into this scope; the body is a new scope and not entered.
+          const id = item.id;
+          if (isNode(id) && id.type === "Identifier") scope.names.add(id.name as string);
+          return;
+        }
+        if (item.type === "FunctionExpression" || item.type === "ArrowFunctionExpression") {
+          // No hoisted name into this scope (the expression's own name, if any, binds inside it).
+          return;
+        }
+        hoistInto(item, scope);
+      };
+      if (Array.isArray(value)) value.forEach(descend);
+      else descend(value);
+    }
+  }
+
+  /** Whether this identifier occurrence is a variable *reference* rather than a binding position or a property/key. */
+  const isReferenceUse = (node: AstNode, parent: AstNode | null, key: string | null): boolean => {
+    if (parent === null || key === null) return true;
+    // `obj.x` — x is a property name, unless computed (`obj[x]`, where x IS a reference).
+    if ((parent.type === "MemberExpression" || parent.type === "OptionalMemberExpression") && key === "property" && parent.computed !== true) {
+      return false;
+    }
+    // `{ x: 1 }` — x is a key, unless computed or shorthand (shorthand is a reference).
+    if (parent.type === "ObjectProperty" && key === "key" && parent.computed !== true && parent.shorthand !== true) {
+      return false;
+    }
+    // Labels and break/continue targets are not variable references.
+    if (parent.type === "LabeledStatement" && key === "label") return false;
+    if ((parent.type === "BreakStatement" || parent.type === "ContinueStatement") && key === "label") return false;
+    // Binding positions: function names, parameters, declarator ids, catch params.
+    if ((parent.type === "FunctionDeclaration" || parent.type === "FunctionExpression") && key === "id") return false;
+    if (parent.type === "VariableDeclarator" && key === "id") return false;
+    if (
+      (parent.type === "FunctionDeclaration" || parent.type === "FunctionExpression" || parent.type === "ArrowFunctionExpression") &&
+      key === "params"
+    ) {
+      return false;
+    }
+    if (parent.type === "CatchClause" && key === "param") return false;
+    return true;
+  };
+
+  const walk = (node: AstNode, scope: Scope, parent: AstNode | null, key: string | null): void => {
+    if (node.type === "Identifier") {
+      const name = node.name as string;
+      if (isReferenceUse(node, parent, key) && !resolvesIn(scope, name)) {
+        free.add(name);
+      }
+      return;
+    }
+
+    let inner = scope;
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
+      inner = { names: new Set(), parent: scope };
+      if (node.type === "FunctionExpression" && isNode(node.id)) {
+        // A function expression's own name binds inside itself.
+        inner.names.add((node.id as AstNode).name as string);
+      }
+      const params = node.params;
+      if (Array.isArray(params)) {
+        for (const param of params) {
+          if (isNode(param) && param.type === "Identifier") inner.names.add(param.name as string);
+        }
+      }
+      // Hoist this function's own declarations before walking its body — the
+      // correctness property the two-pass shape exists for.
+      hoistInto(node, inner);
+    }
+
+    if (node.type === "CatchClause") {
+      inner = { names: new Set(), parent: scope };
+      const param = node.param;
+      if (isNode(param) && param.type === "Identifier") inner.names.add(param.name as string);
+    }
+
+    for (const childKey of Object.keys(node)) {
+      if (childKey === "type" || childKey === "loc" || childKey === "start" || childKey === "end" || childKey === "range") continue;
+      const value = node[childKey];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (isNode(item)) walk(item, inner, node, childKey);
+        }
+      } else if (isNode(value)) {
+        walk(value, inner, node, childKey);
+      }
+    }
+  };
+
+  const body = ast.program;
+  const root: Scope = { names: new Set(), parent: null };
+  if (isNode(body)) {
+    // The program root is itself a function-like scope for hoisting purposes.
+    hoistInto(body, root);
+    if (Array.isArray(body.body)) {
+      for (const statement of body.body) {
+        if (isNode(statement)) walk(statement, root, body, "body");
+      }
+    }
+  }
+
+  return [...free].sort();
+}
 
 /**
  * A minimal Cell, compiled from a scratch file — the same pattern
@@ -296,14 +493,53 @@ describe("the injection's derivation from the runtime contract", () => {
     for (const name of CELL_AUTO_HEIGHT_HOST_NAMES) {
       expect(source, name).toMatch(new RegExp(`\\b${name}\\b`));
     }
-    // The mirror: the host-environment free identifiers in the source are exactly the
-    // declared ones. `document`, `MutationObserver`, `setInterval`, `clearInterval` and
-    // `Forguncy` are the five; everything else the patch touches is either a local,
-    // an ES builtin (`Object`, `String`, `globalThis`), or a property access on one of
-    // those. `globalThis` is an ES2020 builtin rather than a host name, so it is
-    // deliberately absent from the declaration — and present in the source.
-    expect(source).toContain("globalThis");
-    expect(CELL_AUTO_HEIGHT_HOST_NAMES).not.toContain("globalThis");
+
+    // The mirror direction is a real analysis, not a claim: the free identifiers of
+    // the rendered source are extracted scope-aware (see `freeIdentifiersOf` above —
+    // property names, object keys, labels and binding positions are never references,
+    // which is what separates this from a word search), and every one of them must be
+    // either a declared host name or an ES builtin in use. A template edit reaching
+    // for `window`, `self`, `$`, `jQuery` or `top` appears in this set and fails the
+    // test — the exact defect the naming discipline exists to prevent.
+    const freeNames = freeIdentifiersOf(source);
+    const allowed = new Set<string>([...CELL_AUTO_HEIGHT_HOST_NAMES, ...ES_BUILTINS_IN_USE]);
+    const undeclared = freeNames.filter(name => !allowed.has(name));
+    expect(undeclared, `free identifiers outside the declaration: ${undeclared.join(", ")}`).toEqual([]);
+
+    // And the control that keeps the analysis honest: the patch does reference host
+    // names, so an analysis that silently found nothing would pass vacuously. The
+    // declared five must all be present in the extracted set — `Forguncy` included,
+    // which is the one a broken member-vs-reference distinction would lose.
+    for (const name of CELL_AUTO_HEIGHT_HOST_NAMES) {
+      expect(freeNames, `${name} must be extracted as a free reference`).toContain(name);
+    }
+  });
+
+  it("the free-identifier analysis is not vacuous — it catches an injected global reference", () => {
+    // The negative control for the mirror check above: a source that references an
+    // undeclared global must produce it in the extraction. Without this, a regression
+    // in the analyzer itself (a walk that stops descending, a property rule that
+    // swallows real references) would read as a green naming check.
+    const probe = `(function () {
+      var x = 1;
+      function helper() { return x + window.innerWidth + $.fn; }
+      obj.prop = helper();
+      obj.method();
+    })();`;
+
+    const freeNames = freeIdentifiersOf(probe);
+
+    // `window` and `$` are free references and must be caught; `obj` likewise —
+    // while `x`, `helper`, `prop` and `method` must not appear: the first two are
+    // bound in scope, the last two are property positions, which is the distinction
+    // a word search cannot make.
+    expect(freeNames).toContain("window");
+    expect(freeNames).toContain("$");
+    expect(freeNames).toContain("obj");
+    expect(freeNames).not.toContain("x");
+    expect(freeNames).not.toContain("helper");
+    expect(freeNames).not.toContain("prop");
+    expect(freeNames).not.toContain("method");
   });
 
   it("keeps its names out of the host-mapping surface", () => {
