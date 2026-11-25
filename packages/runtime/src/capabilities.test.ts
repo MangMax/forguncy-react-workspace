@@ -243,8 +243,15 @@ describe("confirmation levels", () => {
     ).toEqual([
       "server-command-invocation",
       "data-source-binding",
+      "permission-snapshot",
       "permission-check",
       "permission-map-read",
+      "current-user",
+      "session-control",
+      "file-upload",
+      "upload-limit",
+      "cell-method-exposure",
+      "forguncy-value-conversions",
     ]);
   });
 
@@ -273,7 +280,9 @@ describe("confirmation levels", () => {
     const mapRead = findRuntimeFacadeCapability("permission-map-read");
     const check = findRuntimeFacadeCapability("permission-check");
 
-    expect(snapshot.confirmation).toBe("member-presence");
+    // #176 measured the snapshot's identity-equality with `props.Forguncy.Permissions`
+    // end-to-end in a live browser, which lifts it out of `member-presence`.
+    expect(snapshot.confirmation).toBe("call-shape");
     expect(snapshot.hostBindings).toEqual([{ kind: "cell-prop", prop: "Permissions" }]);
     expect(mapRead.confirmation).toBe("call-shape");
     expect(mapRead.hostBindings).toEqual([{ kind: "forguncy-member", member: "getPermissions" }]);
@@ -297,16 +306,10 @@ describe("confirmation levels", () => {
     const presenceOnly = RUNTIME_FACADE_CAPABILITIES.filter(
       capability => capability.confirmation === "member-presence",
     ).map(capability => capability.id);
-    expect(presenceOnly).toEqual([
-      "permission-snapshot",
-      "current-user",
-      "session-control",
-      "file-upload",
-      "upload-limit",
-      "cell-method-exposure",
-      "forguncy-value-conversions",
-      "image-context",
-    ]);
+    // After #176 the only capability still pinned at presence-only is `image-context`:
+    // its empty-path shape is measured but the populated shape is read from the runtime
+    // source rather than executed, so the evidence does not reach `call-shape`.
+    expect(presenceOnly).toEqual(["image-context"]);
   });
 });
 
@@ -341,7 +344,11 @@ describe("ownership projection", () => {
     const unclassified = RUNTIME_FACADE_CAPABILITIES.filter(
       capability => capability.scope.kind === "unclassified",
     ).map(capability => capability.id);
-    expect(unclassified).toEqual(["cell-method-exposure", "image-context"]);
+    // After #176, `cell-method-exposure` is classified (the invocation path is the
+    // host command pipeline's, so the concern is `server-commands`). `image-context`
+    // stays unclassified because its populated shape was read from source rather than
+    // executed.
+    expect(unclassified).toEqual(["image-context"]);
     for (const id of unclassified) {
       expect(runtimeFacadeConcernOf(findRuntimeFacadeCapability(id))).toBeUndefined();
     }

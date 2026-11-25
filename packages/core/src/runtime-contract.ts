@@ -1127,13 +1127,313 @@ export const CELL_SERVER_COMMANDS_CONTRACT = {
 export const CELL_SERVER_COMMAND_RESULT_KEYS = CELL_SERVER_COMMANDS_CONTRACT.resultKeys;
 
 export const CELL_DATA_SOURCE_CONTRACT = {
-  resultFieldsExecuted: ["data", "totalCount", "loading", "error"],
+  resultFieldsExecuted: ["data", "totalCount", "loading", "error", "reload"],
   resultFieldsDocumented: ["data", "totalCount", "loading", "error", "reload"],
   /** A name that was never declared is an error state, not a thrown exception. */
   unknownSourceOutcome: "the hook returns an error state whose message contains the data source name",
   pageSizeCountsAreServerSide: true,
-  evidence: ["product-documentation", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  evidence: ["product-runtime-source", "product-documentation", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
 };
+
+// ---------------------------------------------------------------------------
+// The `props.Forguncy` member call shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * The signatures #176 measured for the `props.Forguncy` facade members, on
+ * Forguncy `12.0.102.0` against a live generated page.
+ *
+ * Until now the contract pinned only the *names* on `props.Forguncy` (#5) and the
+ * shapes of two bridges (`ServerCommands`, `useDataSource`). #176 executed every
+ * member in a real browser against a generated page carrying probe bindings, so
+ * this table is what #177's typed facade reads when it decides how strongly it
+ * may type a member. Anything the probe could not settle stays an open question
+ * in `RUNTIME_CONTRACT_UNKNOWNS` rather than being guessed here.
+ *
+ * Two kinds of typing strength appear in `shape`:
+ *
+ * - **exact**: the runtime callsite was executed and the value shape was read off
+ *   the live object. These are strong enough for a facade to expose them
+ *   verbatim.
+ * - **passthrough**: the member is a thin wrapper over a `Forguncy.*` host global
+ *   whose own signature the runtime source states but #176 did not exercise
+ *   end-to-end. The shape is still the answer to "what does the cell see", but a
+ *   caller dependent on host behaviour the wrapper forwards (navigation,
+ *   side-effects) is reading the host's contract, not this one.
+ */
+export const CELL_FORGUNCY_FACADE_MEMBER_SHAPES = {
+  "props.Forguncy.getCurrentUser": {
+    shape: "() => { UserName, FullName, Email, Role, HasPicture, PictureUrl }",
+    shapeKind: "exact",
+    signedInSample: {
+      UserName: "Administrator",
+      FullName: "Administrator",
+      Email: "example@example.com",
+      Role: "Administrator",
+      HasPicture: false,
+      PictureUrl: "/Forguncy/Resources/Images/SiteBuiltInImages/DefaultCurrentUser.png",
+    },
+    note: "Reads `Forguncy.Page.getUserInfo()` and computes `PictureUrl` from `UserName`/`HasPicture`. With no signed-in user the underlying userInfo fields are undefined and `PictureUrl` falls back to the built-in default avatar; the exact signed-out shape was not separately executed.",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.logIn": {
+    shape: "() => void — arity 0",
+    shapeKind: "passthrough",
+    forwardsTo: "Forguncy.AccountEx_ForApi.navigateToLogin()",
+    redirectsToLoginPage: true,
+    note: "The wrapper passes no arguments through. Calling it navigates the browser to the login page; it does not return a promise of a session. The redirect target is the host's navigation decision, not the cell's.",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.logOut": {
+    shape: "(navigateToHomePage) => void — arity 1",
+    shapeKind: "passthrough",
+    forwardsTo: "Forguncy.logOut(navigateToHomePage)",
+    note: "Forwards the single `navigateToHomePage` argument verbatim. The redirect and session teardown are the host's; the cell sees only a fire-and-forget call.",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.uploadFiles": {
+    shape: "(files, options?) => Promise<{ files: [{ filePath, fileName, downloadUrl }], attachmentValue: string }>",
+    shapeKind: "exact",
+    acceptsShapes: ["single File", "Array<File>", "FileList"],
+    optionsShape: "{ uploadFolder?: string }",
+    validationErrors: {
+      emptyFile: "不能上传空文件。",
+      extensionMismatch: "上传的文件 <name> 的类型不正确。",
+      exceedsSize: "上传的文件 <name> 的大小超出了限制, 最大上传文件的大小为 <sizeLimit> MB。",
+      exceedsCount: "The number of selected files exceeds the maximum upload file count.",
+    },
+    attachmentValueFormat: "<filePath>|<filePath>|…| — pipe-separated, trailing pipe",
+    filePathFormat: "<uuid>_<originalName> (or `<uploadFolder>/<uuid>_<originalName>` when uploadFolder is supplied)",
+    noArgsOutcome: "resolves `{ files: [], attachmentValue: \"\" }` rather than rejecting",
+    emptyArrayOutcome: "resolves the same empty result without a network call",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.getUploadLimit": {
+    shape: "() => { extensionFilter, accept, sizeLimit, maxUploadFileCount }",
+    shapeKind: "exact",
+    units: {
+      sizeLimit: "megabytes — the runtime validates `sizeLimit * 1024 * 1024 < file.size`",
+      maxUploadFileCount: "count of files per call",
+    },
+    defaultsWhenUnset: { sizeLimit: 0, maxUploadFileCount: 0 },
+    zeroMeansUnlimited: true,
+    acceptEqualsExtensionFilter: true,
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.exposeMethod": {
+    shape: "(methodName, method) => void",
+    shapeKind: "exact",
+    invalidInputOutcome: "silently returns without throwing when `methodName` is falsy or `method` is not a function",
+    overwriteSemantics: "re-registering the same name replaces the previous method; the latest registration wins",
+    invocationPath: "Forguncy host reaches the cell through `page.getCell(<cellName>).getCellType().ExecuteMethod(name, methodParameters)`",
+    invocationResultShape: "{ Result: <method-return-value> } — a Promise return is awaited before being placed on Result",
+    invocationParameterShapes: "each entry is unwrapped as `parameterValue` or `ParameterValue` when either key is present, otherwise the entry is passed through verbatim",
+    invocationErrors: {
+      emptyName: "ReactCellType ExecuteMethod requires an exposed method name.",
+      unregisteredName: "ReactCellType exposed method was not found: <name>",
+    },
+    scope: "host-invokable cell method exposure — not a cross-cell pub/sub channel. The page, a page command, or another cell with a reference can invoke it; the cell itself does not subscribe to other cells through this surface.",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.hasPermission": {
+    shape: "(name) => boolean",
+    shapeKind: "exact",
+    falsyInputOutcome: "returns false for `''`, `null` and `undefined` rather than throwing",
+    unknownPermissionOutcome: "returns false for a name the cell did not declare",
+    caseSensitivity: "case-sensitive — `'probe176.permission'` does not match `'Probe176.Permission'`",
+    reads: "the permission snapshot captured when the cell initialized; it does not consult the host per call",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.getPermissions": {
+    shape: "() => { [name]: boolean }",
+    shapeKind: "exact",
+    returnsCopy: true,
+    copyNote: "each call returns a fresh shallow object; mutating it does not affect the snapshot other callers see",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.Permissions": {
+    shape: "the same snapshot object as `props.Permissions` — identity equality holds",
+    shapeKind: "exact",
+    identityEqualsPropsPermissions: true,
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.ConvertToCssColor": {
+    shape: "(color: string) => string",
+    shapeKind: "exact",
+    behavior: {
+      sixDigitHex: "passed through verbatim (`#FF0000` → `#FF0000`)",
+      eightDigitHexFullAlpha: "alpha `FF` is dropped (`#FFFF0000` → `#FF0000`)",
+      eightDigitHexPartialAlpha: "converted to `rgba(r,g,b,a)` with the alpha quantized to two decimals (`#80FF0000` → `rgba(255,0,0,0.50)`)",
+      eightDigitHexZeroAlpha: "converted to `rgba(r,g,b,0.00)` (`#00FF0000` → `rgba(255,0,0,0.00)`)",
+      rgbFunctionalString: "passed through verbatim",
+      namedColor: "passed through verbatim",
+      emptyString: "returned as `''`",
+      nonStringInput: "throws `TypeError: n.startsWith is not a function` — the host assumes a string",
+    },
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.ConvertDateToOADate": {
+    shape: "(date: Date) => number",
+    shapeKind: "exact",
+    epochBehavior: "the OLE Automation epoch `1899-12-30T00:00:00Z` does not map to 0 because the conversion runs in the local timezone — observed `0.33730324074074075` for that input on a UTC+8 host",
+    roundtripWithinMs: "a `ConvertDateToOADate` → `ConvertOADateToDate` round-trip is exact to the millisecond",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.ConvertOADateToDate": {
+    shape: "(oadate: number) => Date",
+    shapeKind: "exact",
+    zeroBehavior: "`0` does not produce the OLE Automation epoch — it produces the local-timezone-adjusted instant (`1899-12-29T15:54:17.000Z` on a UTC+8 host)",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.DataSourceCompareType": {
+    shape: "enum object keyed by name with numeric values",
+    shapeKind: "exact",
+    members: {
+      EqualsTo: 0, NotEqualsTo: 1, GreaterThan: 2, GreaterThanOrEqualsTo: 3,
+      LessThan: 4, LessThanOrEqualsTo: 5, BeginsWith: 6, NotBeginWith: 7,
+      EndsWith: 8, NotEndWith: 9, Contains: 10, NotContains: 11, In: 12, NotIn: 13,
+    },
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.Forguncy.DataSourceRelationType": {
+    shape: "enum object keyed by name with numeric values",
+    shapeKind: "exact",
+    members: { And: 0, Or: 1 },
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+} as const;
+
+/**
+ * The base-prop members that are not part of `props.Forguncy` but ride the same
+ * injection. Measured on the same probe so the props surface is fully typed.
+ */
+export const CELL_PROPS_SURFACE_SHAPES = {
+  "props.ImageContext": {
+    shape: "a plain object mapping image name to URL; `{}` when the cell declares no image data sources",
+    emptyWhenNoImageDataSources: true,
+    populatedBy: "cellParam.ImageDataSource — populated only when the cell declares image bindings",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.PageProperties": {
+    shape: "a Proxy that forwards reads to `Forguncy.Page.getPropertyValue(name)`",
+    readsLive: true,
+    evidence: ["product-runtime-source"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.properties-declared": {
+    shape: "the declared property's `propertyValue` is evaluated as a formula and `props.<name>` is the result; changes reach the cell through `SetPropertyValue`",
+    changeSemantics: "a change re-renders the existing tree without re-executing the cell entry — observed `execCount` unchanged while `appCalls` incremented",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+  "props.event-handler-functions": {
+    shape: "for each declared `eventHandlers[i].eventName` the runtime assigns `props[eventName] = (...args) => void`",
+    firingSemantics: "calling the function gathers positional args into an object keyed by `eventArgs[].name` and hands it to `executeCustomCommandObject` against the persisted `EventHandler` command tree",
+    designerPreviewNoOp: "the function is a no-op in the designer preview",
+    evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// `cellTypeProps` write schema
+// ---------------------------------------------------------------------------
+
+/**
+ * What `setCells` accepts and what `getCells` returns for each binding field of a
+ * `ReactCellType` cell, measured by writing and reading probe cells on
+ * `12.0.102.0`. This is the schema #178 writes and #179 verifies, so the field
+ * names below are the names the platform persists — camelCase in the wire JSON
+ * even though the CLR types are PascalCase.
+ *
+ * Two things matter for every field.
+ *
+ * - **Round-trip shape**: `setCells` accepts both camelCase and PascalCase input
+ *   (Json.NET is case-insensitive on deserialization), but `getCells` always
+ *   reads back camelCase. A writer that wants byte-identical round-trips writes
+ *   camelCase.
+ * - **Strictness**: unknown keys on an element are silently dropped on write
+ *   rather than rejected. Element entries that are not objects at all (a string,
+ *   a number) fail the whole write with a Json.NET deserialization error.
+ */
+export const CELL_TYPE_PROPS_WRITE_SCHEMA = {
+  code: {
+    wireKey: "code",
+    shape: "string — the cell source, required",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  properties: {
+    wireKey: "properties",
+    elementType: "ReactCellType.ReactProperty",
+    roundTrippedKeys: ["propertyName", "propertyValue", "exampleValue"],
+    droppedKeys: ["displayName", "propertyType", "defaultValue", "editorType", "category", "description", "required"],
+    propertyValueFormulaRewrite: "a bare cell reference is rewritten to a page-qualified formula on write (`=A1` round-trips as `='<pageName>'!A1`)",
+    emptyArrayDropped: true,
+    nullDropped: true,
+    elementNonObjectError: "Error converting value <x> to type 'ReactCellType.ReactProperty'",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  eventHandlers: {
+    wireKey: "eventHandlers",
+    elementType: "ReactCellType.ReactEventHandler",
+    roundTrippedKeys: ["eventName", "eventArgs", "eventHandler"],
+    eventArgsKeys: ["name"],
+    eventHandlerShape: "the command tree is stored verbatim under `eventHandler` — arbitrary JSON keys round-trip unchanged. The runtime reads it as the `executeCustomCommandObject` argument, so the merge strategy #179 needs is: **read `eventHandlers[i].eventHandler` wholesale and preserve it untouched on sync**",
+    droppedKeys: ["displayName", "description", "parameters"],
+    nullCommandDropped: "an entry whose `eventHandler` is `null` round-trips with the key omitted entirely",
+    emptyObjectCommandRoundTrips: "`eventHandler: {}` is preserved as `{}`",
+    emptyArrayDropped: true,
+    nullDropped: true,
+    elementNonObjectError: "Error converting value <x> to type 'ReactCellType.ReactEventHandler'",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  dataSources: {
+    wireKey: "dataSources",
+    elementType: "ReactCellType.DataSourceProperty",
+    roundTrippedKeys: ["dataSourceName", "dataSource"],
+    dataSourceShape: "{ tableName, bindingInfos: [{ bindingInfo: { tableName, columnName }, columnName }], formulaNullQueryPolicy }",
+    droppedKeys: ["name", "displayName", "bindingType", "type"],
+    missingBindingInfosOutcome: "an entry without the full `dataSourceName` + `dataSource.bindingInfos` shape round-trips as `null` — the deserializer produces the empty object but the serializer omits all-empty entries",
+    emptyArrayDropped: true,
+    elementNonObjectError: "Error converting value <x> to type 'ReactCellType.DataSourceProperty'",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  permissions: {
+    wireKey: "permissions",
+    elementType: "ReactCellType.ReactPermission",
+    roundTrippedKeys: ["name", "allowRoles"],
+    missingNameOutcome: "an entry without `name` round-trips with the key omitted",
+    emptyArrayDropped: true,
+    elementNonObjectError: "Error converting value <x> to type 'ReactCellType.ReactPermission'",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  availableServerCommands: {
+    wireKey: "availableServerCommands",
+    elementType: "ReactCellType.AvailableServerCommand",
+    roundTrippedKeys: ["name"],
+    existenceValidation: "none — the platform persists a command name that no server command defines; calling it at runtime is a plain TypeError on the record",
+    emptyArrayDropped: true,
+    elementNonObjectError: "Error converting value <x> to type 'ReactCellType.AvailableServerCommand'",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  uploadLimit: {
+    wireKey: "uploadLimit",
+    roundTrippedKeys: ["extensionFilter", "sizeLimit", "maxUploadFileCount"],
+    defaultsWhenUnwritten: { extensionFilter: ".jpg, .jpeg, .png, .gif, .bmp, .xlsx, .docx, .doc, .xls, .pdf", sizeLimit: 0, maxUploadFileCount: 0 },
+    nullDropped: "writing `uploadLimit: null` removes the object entirely",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  libraries: {
+    wireKey: "libraries",
+    acceptedInputs: ["string (`\"AntDesign\"`, `\"ECharts\"`, `\"AntDesign,ECharts\"`, `\"None\"`)", "integer bitmask (0/1/2/3)"],
+    roundTripForm: "comma-separated string with a space after the comma — `AntDesign, ECharts` for bitmask 3",
+    defaultWhenUnwritten: "AntDesign",
+    evidence: ["designer-api"] as readonly RuntimeEvidenceChannel[],
+  },
+  frontendLibraries: {
+    wireKey: "frontendLibraries",
+    elementKeys: ["libraryId"],
+    emptyArrayDropped: true,
+    evidence: ["designer-api", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+  },
+} as const;
 
 // ---------------------------------------------------------------------------
 // Frontend libraries
@@ -1407,17 +1707,17 @@ export const RUNTIME_CONTRACT_UNKNOWNS: readonly RuntimeContractUnknown[] = [
     whyOpen: "Each probe cell used a distinct name. The per-cell compilation scope implies yes, but this was not executed.",
   },
   {
-    id: "property-change-re-render",
-    question: "Does a property change re-execute the cell entry, or re-render the existing tree?",
-    whyOpen: "The runtime re-creates the element factory when a property value changes; not exercised with state to observe whether component state survives.",
+    id: "property-change-component-state-survival",
+    question: "Does a property change preserve React component state inside the cell?",
+    whyOpen: "#176 settled the entry-vs-render half: `SetPropertyValue` re-renders the existing tree without re-executing the cell entry. What it did not measure is whether `useState` inside the component survives that re-render — that depends on whether the host produces a new element type per render or reuses the factory, which the probe did not isolate.",
     ownedBy: "#6",
   },
   {
-    id: "artifact-re-evaluated-per-render",
+    id: "artifact-teardown-observability",
     question:
-      "Does the platform re-evaluate a Cell artifact's modules when a property changes, or evaluate them once and re-render the existing tree?",
+      "Does the host's cell teardown reach the artifact — does the generated module ever observe an unmount signal?",
     whyOpen:
-      "Half of this is now answered from the artifact's side and half is not. **Settled locally (#83):** the generated binding installs the host provider at artifact evaluation but reads the Cell's props through a reader over an artifact-scope variable the entry wrapper refreshes on every `App` call, so a re-render sees fresh props whether the platform re-invokes `App` or re-evaluates the modules. A re-evaluation simply assigns again. What remains open is which branch the product actually takes — that changes nothing about the artifact's correctness, but it is still not observable from this repository. Related and still open: whether teardown reaches the artifact at all (`unmount-clears-the-cell-root` is read from the product source, not executed), which is why no teardown was added.",
+      "The re-render-vs-re-execute question this record used to carry is settled: #176 measured `SetPropertyValue` re-rendering the existing tree without re-executing the cell entry, and the artifact's wrapper refreshes its props reader on every `App` call, so a re-render sees fresh props either way. What is still not observable from this repository is the other half the original question bundled in — whether teardown reaches the artifact at all (`unmount-clears-the-cell-root` is read from the product source, not executed), which is why no teardown was added.",
     ownedBy: "#84",
   },
   {
@@ -1429,7 +1729,7 @@ export const RUNTIME_CONTRACT_UNKNOWNS: readonly RuntimeContractUnknown[] = [
   {
     id: "permission-snapshot-empty",
     question: "Can props.Permissions come back empty for a configured permission?",
-    whyOpen: "One early run reported an empty snapshot; a dedicated isolation run with the same configuration returned the expected value in three of three cells, so the observation is unreproduced.",
+    whyOpen: "One early run reported an empty snapshot; a dedicated isolation run with the same configuration returned the expected value in three of three cells, so the observation is unreproduced. #176 re-confirmed the populated path on `12.0.102.0`.",
   },
   {
     id: "load-order-stability",
@@ -1440,6 +1740,30 @@ export const RUNTIME_CONTRACT_UNKNOWNS: readonly RuntimeContractUnknown[] = [
     id: "permission-refresh-without-reload",
     question: "Does the permission snapshot refresh when the signed-in user's roles change?",
     whyOpen: "Not exercised.",
+  },
+  {
+    id: "signed-out-user-shape",
+    question: "What does `props.Forguncy.getCurrentUser()` return when no user is signed in?",
+    whyOpen: "#176 measured the signed-in shape on the dev site (which auto-signs Administrator in). The signed-out path needs either an anonymous-access page or a logged-out browser, neither of which the probe set up.",
+    ownedBy: "#177",
+  },
+  {
+    id: "logOut-redirect-observability",
+    question: "Where does `props.Forguncy.logOut(navigateToHomePage)` actually navigate, and does `false` suppress the navigation?",
+    whyOpen: "The wrapper forwards the argument to `Forguncy.logOut` verbatim; the host's redirect matrix is not part of the ReactCellType plugin source and was not exercised in a browser because logging out would end the probe session.",
+    ownedBy: "#177",
+  },
+  {
+    id: "image-context-populated-shape",
+    question: "What keys and value shapes does `props.ImageContext` carry when the cell declares image data sources?",
+    whyOpen: "The probe cell declared no image data sources, so `ImageContext` was the empty object — the empty-path shape is confirmed, the populated path is read from the runtime source (`{ [name]: src-url }`) but not executed.",
+    ownedBy: "#177",
+  },
+  {
+    id: "event-handler-executeCustomCommandObject-error-shape",
+    question: "What does the cell observe when a configured event-handler command fails at runtime?",
+    whyOpen: "#176 measured the firing semantics end-to-end but did not force a server-side failure. The runtime wraps the call in no cell-visible error surface — failures are the host's command pipeline's, not the cell's.",
+    ownedBy: "#177",
   },
 ];
 

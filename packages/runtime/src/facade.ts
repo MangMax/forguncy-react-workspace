@@ -183,7 +183,8 @@ export const RUNTIME_FACADE_SURFACE: readonly RuntimeFacadeSurfaceMember[] = [
     exposes: ["permission-snapshot", "image-context"],
     carrier: { kind: "cell-prop" },
     signature: "caller-declared-shape",
-    summary: "Read a confirmed base prop under its own name, with the caller declaring its shape.",
+    summary:
+      "Read a confirmed base prop under its own name, with the caller declaring its shape. `Permissions` has its identity-equality with `props.Forguncy.Permissions` measured on `12.0.102.0`, but it shares this member with `ImageContext`, whose populated shape is still read from the runtime source rather than executed — a member's signature is the weakest evidence it carries, so the accessor stays caller-declared until both halves reach `call-shape`.",
   },
   {
     id: "forguncyMember",
@@ -197,7 +198,8 @@ export const RUNTIME_FACADE_SURFACE: readonly RuntimeFacadeSurfaceMember[] = [
     ],
     carrier: { kind: "forguncy-member" },
     signature: "caller-declared-shape",
-    summary: "Reach a confirmed member of the `props.Forguncy` handle under its own name.",
+    summary:
+      "Reach a confirmed member of the `props.Forguncy` handle under its own name. #176 measured every admitted member's call shape on `12.0.102.0` and pinned the shapes in `CELL_FORGUNCY_FACADE_MEMBER_SHAPES`, so this member sits at the floor rather than the ceiling: replacing it with typed per-member accessors is #177's job, and keeping the generic accessor at `caller-declared-shape` is what lets the audit detect a member whose evidence is weaker than its type.",
   },
 ];
 
@@ -306,12 +308,15 @@ export function auditRuntimeFacadeSurface(
         });
         continue;
       }
-      // The rule that makes "do not invent APIs" checkable: a typed member may
-      // only type what #5 called, and a declared-shape accessor may only carry
-      // what #5 merely named.
-      const expected =
-        member.signature === "confirmed-call-shape" ? "call-shape" : "member-presence";
-      if (capability.confirmation !== expected) {
+      // The rule that makes "do not invent APIs" checkable: a member's signature
+      // may not outrun the weakest capability it exposes. `confirmed-call-shape`
+      // requires every exposed capability at `call-shape`; `caller-declared-shape`
+      // carries capabilities at `member-presence` and, since #176, capabilities whose
+      // evidence has been upgraded past the floor the accessor declares. The asymmetry
+      // is deliberate: an accessor that underdeclares is safe because the caller still
+      // has to type the shape, while an accessor that overdeclares types something the
+      // evidence does not pin.
+      if (member.signature === "confirmed-call-shape" && capability.confirmation !== "call-shape") {
         findings.push({
           id: "signature-outruns-confirmation",
           member: member.id,

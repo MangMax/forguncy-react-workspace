@@ -718,9 +718,11 @@ describe("lifecycle questions left to real Forguncy validation (#84)", () => {
     // recorded, so this file's green run cannot be read as an answer to them:
     //
     // 1. Which branch the platform takes on a property change — re-evaluating the artifact
-    //    or re-invoking `App` — is `RUNTIME_CONTRACT_UNKNOWNS.artifact-re-evaluated-per-render`,
-    //    now owned by #84. Both branches are exercised above, so the artifact is correct
-    //    either way; only the observation is missing.
+    //    or re-invoking `App` — was `RUNTIME_CONTRACT_UNKNOWNS.artifact-re-evaluated-per-render`.
+    //    #176 settled the observable half on `12.0.102.0`: `SetPropertyValue` re-renders the
+    //    existing tree without re-executing the entry. What remains is the question this test
+    //    file cannot observe — whether teardown reaches the artifact — renamed to
+    //    `artifact-teardown-observability` and still owned by #84.
     // 2. Whether teardown reaches the artifact at all. `unmount-clears-the-cell-root` is
     //    recorded with `product-runtime-source` evidence — read from the runtime source, not
     //    executed — which is exactly why the binding installs no teardown and this file only
@@ -729,7 +731,7 @@ describe("lifecycle questions left to real Forguncy validation (#84)", () => {
     //    artifact: `one-react-root-per-cell` makes that shape unavailable on a recorded page,
     //    so the evaluation — not the React root — is this file's isolation unit.
     const questionsOwnedByRealValidation = openRuntimeContractQuestions("#84").map(unknown => unknown.id);
-    expect(questionsOwnedByRealValidation).toContain("artifact-re-evaluated-per-render");
+    expect(questionsOwnedByRealValidation).toContain("artifact-teardown-observability");
     expect(findCellHostRuntimeFact("unmount-clears-the-cell-root").evidence).toEqual([
       "product-runtime-source",
     ]);
