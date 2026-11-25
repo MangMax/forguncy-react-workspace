@@ -543,12 +543,34 @@ function checkDuplicateNames(
   }
 }
 
-function validateBindingName(name: unknown, label: string, path: string, out: BindingsConfigDiagnostic[]): name is string {
+/**
+ * Validate a declared name, defaulting to the strict JavaScript-identifier rule.
+ *
+ * `requiresIdentifier` is `false` for exactly one field: a permission's `name`. The
+ * identifier rule is justified for `propertyName` / `eventName` / `eventArgs[].name` /
+ * `dataSourceName` because those become a props key the cell's source references and a
+ * literal in the facade's type parameters (`cellProperty`/`fireEvent`, #177) — a name
+ * that cannot be a member access or a type literal would be un-consumable. A permission
+ * name is neither: it is a **string lookup key** passed to `hasPermission(name)` and read
+ * back off the `getPermissions()` map, and `props.Forguncy.hasPermission("订单.读取")` is as
+ * valid a call as any. Real Forguncy permission/role names are frequently non-identifier
+ * (Chinese characters, dots, spaces), so the measured schema (`CELL_TYPE_PROPS_WRITE_SCHEMA`)
+ * round-trips them as plain non-empty strings and imposes no identifier constraint. Requiring
+ * one here would invent a restriction the platform does not have — a schema-fidelity error in
+ * the restrictive direction — so a permission name is validated as a non-empty string only.
+ */
+function validateBindingName(
+  name: unknown,
+  label: string,
+  path: string,
+  out: BindingsConfigDiagnostic[],
+  requiresIdentifier = true,
+): name is string {
   if (!isNonEmptyString(name)) {
     out.push(diag("invalid-binding-value", path, `${label} must be a non-empty string.`));
     return false;
   }
-  if (!BINDING_NAME_PATTERN.test(name)) {
+  if (requiresIdentifier && !BINDING_NAME_PATTERN.test(name)) {
     out.push(
       diag(
         "invalid-binding-value",
@@ -789,7 +811,9 @@ function validatePermissions(
     checkElementKeys(record, { field: "permissions" }, elementPath, out);
     const name = record.name;
     if (typeof name === "string") names.push(name);
-    if (!validateBindingName(name, "A permission's `name`", `${elementPath}.name`, out)) continue;
+    // `requiresIdentifier: false` — a permission name is a string lookup key, not a props
+    // key or type literal, so the identifier rule does not apply (see `validateBindingName`).
+    if (!validateBindingName(name, "A permission's `name`", `${elementPath}.name`, out, false)) continue;
     let allowRoles: readonly string[] | undefined;
     let rolesValid = true;
     if (record.allowRoles !== undefined) {

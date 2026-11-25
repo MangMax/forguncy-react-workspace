@@ -297,6 +297,22 @@ describe("illegal declarations refuse loudly, at their config path", () => {
     expect(diagnosticsOf({ eventHandlers: [{ eventName: "onSelect", eventArgs: [{ name: "" }] }] }).length).toBeGreaterThan(0);
   });
 
+  it("a permission name is a string lookup key, not a member literal — non-identifier names are accepted", () => {
+    // Unlike `propertyName`/`eventName`, a permission name never becomes `props.<name>` or a
+    // facade type literal: it is the string key passed to `hasPermission(name)` and read back
+    // off the `getPermissions()` map, and `obj["订单.读取"]` is a valid lookup. Real Forguncy
+    // permission names are frequently non-identifier (Chinese, dots, spaces), and the measured
+    // schema round-trips them as plain non-empty strings — so the identifier rule would invent
+    // a restriction the platform does not have. Regression for the review finding on #182.
+    const result = validateOrThrow({ permissions: [{ name: "订单.读取" }, { name: "订单管理 读写" }] });
+    expect(result.bindings?.permissions).toEqual([{ name: "订单.读取" }, { name: "订单管理 读写" }]);
+
+    // But an empty / non-string permission name is still refused — the relaxation is of the
+    // identifier constraint, not of the non-empty-string requirement.
+    expect(diagnosticsOf({ permissions: [{ name: "" }] }).map(d => d.code)).toEqual(["invalid-binding-value"]);
+    expect(diagnosticsOf({ permissions: [{ name: 42 }] }).map(d => d.code)).toEqual(["invalid-binding-value"]);
+  });
+
   it("duplicate names are refused per name-bearing field", () => {
     expect(
       diagnosticsOf({ properties: [{ propertyName: "title" }, { propertyName: "title" }] }).map(d => d.code),
