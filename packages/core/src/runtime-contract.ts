@@ -1084,11 +1084,12 @@ export function cellBrowserHostGlobal(name: string): CellBrowserHostGlobal | und
  *   `Forguncy.Plugin.CellTypeHelper.registerCellType("ReactCellType.ReactCellTypeCellType, ReactCellType", ReactCellTypeCellType)`.
  * - **[RT]** on a generated page, `_registedCellTypes[key]` is an array whose `[0]`
  *   carries exactly `{ cellTypeCtor, match }`, `cellTypeCtor.prototype.createContent`
- *   is a function, and the mounted container's id matched `/^r\d+c\d+p$/`
- *   (`r0c0p` for a cell anchored at A1). The blank tail was measured rather than
- *   asserted: the unpatched container reported 32px against a content extent of
- *   ~58.6px (tall content clipped), and after applying the patch the container
- *   tracked the content exactly (blank tail 0).
+ *   is a function, and the mounted container's id matched `/^r\d+c\d+p\d*$/`
+ *   (`r0c0p` for a cell anchored at A1 on a direct load, `r0c0p1` once the same page
+ *   has been rendered through SPA navigation — both measured). The blank tail was
+ *   measured rather than asserted: the unpatched container reported 32px against a
+ *   content extent of ~58.6px (tall content clipped), and after applying the patch
+ *   the container tracked the content exactly (blank tail 0).
  *
  * The jQuery reliance is real and deliberately recorded: the prototype patch calls
  * `.css()`/`.addClass()` on whatever the original `createContent` returns, wrapped in
@@ -1110,12 +1111,45 @@ export const REACTCELLTYPE_CREATE_CONTENT_CONTRACT = {
   /**
    * The position-independent id pattern the container carries.
    *
-   * `this.ID` is assigned by the platform's own cell instantiation, and the measured
-   * value for a cell at A1 was `r0c0p` — row, column, `p` suffix. The patch's repair
-   * and observer passes key on this pattern precisely so no cell id is ever
-   * hardcoded: the same artifact adapts at any grid position.
+   * `this.ID` is assigned by the platform's own cell instantiation. Measured on
+   * 12.0.102.0: a cell at A1 on a **directly loaded** page carries `r0c0p` — row,
+   * column, `p` suffix — but a page rendered through **SPA navigation** carries a
+   * trailing instance counter, `r0c0p1` after the first SPA re-render of the session
+   * (measured in `probe-autoh186-recon.mjs`'s follow-up debug runs; the exact
+   * numbering semantics are not part of the contract — what is measured is that the
+   * digits appear and the pattern must tolerate them). A `/^r\d+c\d+p$/` scan
+   * therefore misses every SPA-rendered container: the #185-era patch never adapted
+   * a React cell first mounted through navigation, which is the defect #186 exists
+   * to close. The pattern ends in `p\d*` so both shapes match.
+   *
+   * The pattern is the platform's coordinate convention, **not** a ReactCellType
+   * exclusive — #186's recon probe (`probe-autoh186-recon.mjs`) measured plain
+   * value-only cells on a generated page whose LABEL elements carried ids like
+   * `r25c0p`/`r27c1p`/`r29c2p` (class `fgc-general-cell-label`), so an id-only scan
+   * restyles non-target elements. {@link reactContainerExpandoPrefix} is the
+   * discriminator the repair/observer passes require in addition.
    */
-  containerIdPattern: "^r\\d+c\\d+p$",
+  containerIdPattern: "^r\\d+c\\d+p\\d*$",
+  /**
+   * The own-property prefix React stamps on a container element when
+   * `ReactDOM.createRoot` is called on it.
+   *
+   * The plugin source calls `ReactDOM.createRoot(div[0])` **synchronously inside
+   * `createContent`** ([SRC], verified again on 12.0.102.0 for #186), so every
+   * in-DOM ReactCellType content root carries an enumerable own property
+   * `__reactContainer$<key>` from the moment it exists — before it is inserted into
+   * the document, and independently of whether any React content has rendered yet.
+   * Measured on the live runtime: the ReactCellType container `r0c0p` carried
+   * `__reactContainer$z7wzjnmdi4` while the plain-cell labels carried none. The
+   * check is a `for...in` scan for this prefix, not a fixed property name, because
+   * the suffix is React's per-copy random key. It is React-internal rather than a
+   * platform contract, and the record says so: the platform pins the React copy the
+   * plugin runs on, the expando is stable across React 18/19, and the degrade mode
+   * if a future React dropped it is a silent no-patch — the failure the artifact
+   * can least afford is styling cells that are not ReactCellType containers, which
+   * is the direction this discriminator exists to close.
+   */
+  reactContainerExpandoPrefix: "__reactContainer$",
   /**
    * The marker class the patch adds, so its repair/observer passes never re-apply
    * and a second cell's patch short-circuits.

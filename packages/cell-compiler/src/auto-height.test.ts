@@ -5,6 +5,12 @@
  * - #185 — "Implement: cell-compiler 编译期注入 ReactCellAutoHeight"
  *   (https://github.com/MangMax/forguncy-react-workspace/issues/185), this file's ticket,
  *   Ticket 1 of Epic #184,
+ * - #186 — "Implement: ReactCellAutoHeight edge case 加固（多 cell/生命周期/共存/可移植）"
+ *   (https://github.com/MangMax/forguncy-react-workspace/issues/186), whose simulated-DOM
+ *   execution block pins the container-identity discriminator: the positional id pattern
+ *   is the platform's coordinate convention for every grid cell, so the scan must require
+ *   the react-container expando, and the regression it guards was measured live — plain
+ *   value cells' labels (`r25c0p` and friends) restyled by the #185-era scan,
  * - #124 — the artifact-thinness negative controls this file extends: the patch IS real
  *   runtime code (allowed in the artifact), but it must not drag the capability registry,
  *   the contract tables or the mock in with it.
@@ -13,15 +19,19 @@
  *
  * Everything in this file is `local` evidence in #4's vocabulary: it proves the artifact
  * carries the injection, carries it once, omits it on opt-out, and stays free of the
- * toolchain symbols #124 forbids. It does NOT prove the patch adapts a real cell's height —
- * that is the real-machine verification (#185's acceptance), recorded on the ticket with
- * the browser evidence separated from this run. AGENTS.md rule 7 forbids presenting this
- * green run as runtime compatibility.
+ * toolchain symbols #124 forbids. The simulated-DOM block additionally proves the
+ * injection's *selection logic* — which elements it touches — but in a simulated DOM,
+ * not a real page: layout, the platform's own element conventions and the expando's
+ * provenance are all the test's own construction. Real-machine verification is the only
+ * compatibility evidence, recorded on the tickets with the browser evidence separated
+ * from this run. AGENTS.md rule 7 forbids presenting this green run as runtime
+ * compatibility.
  */
 
 import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createContext, Script } from "node:vm";
 
 import { parse } from "@babel/parser";
 import {
@@ -346,7 +356,7 @@ describe("the compile-time auto-height injection", () => {
     // regression to position-dependent patching.
     const code = await compileScratchCell();
 
-    expect(code).toContain(String.raw`/^r\d+c\d+p$/`);
+    expect(code).toContain(String.raw`/^r\d+c\d+p\d*$/`);
   });
 
   it("is absent when the Cell declares heightMode fixed — the declared opt-out", async () => {
@@ -467,7 +477,7 @@ describe("the injection's derivation from the runtime contract", () => {
     expect(source).toContain(JSON.stringify(contract.registryKey));
     expect(source).toContain(JSON.stringify(contract.markerClass));
     expect(source).toContain(`/${contract.containerIdPattern}/`);
-    expect(contract.containerIdPattern).toBe(String.raw`^r\d+c\d+p$`);
+    expect(contract.containerIdPattern).toBe(String.raw`^r\d+c\d+p\d*$`);
   });
 
   it("names only identifiers the browser-globals table verifies", () => {
@@ -620,8 +630,362 @@ describe("the injection's artifact thinness (#124)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Simulated-DOM execution: which elements the patch touches (#186 regression)
+// ---------------------------------------------------------------------------
+
+/**
+ * #186's imprecision regression, executed rather than source-inspected.
+ *
+ * The defect this pins: #186's recon probe measured plain value-only cells on a real
+ * generated page whose LABEL elements carry positional ids (`r25c0p`, `r27c1p`,
+ * `r29c2p`, class `fgc-general-cell-label`) — the `/^r\d+c\d+p$/` pattern is the
+ * platform's coordinate convention, not a ReactCellType exclusive — and the #185-era
+ * scan restyled them. The fix requires the react-container expando
+ * (`__reactContainer$*`) in addition to the id pattern, which is sound because the
+ * plugin calls `ReactDOM.createRoot` synchronously inside `createContent`: the
+ * expando exists on a real content root before the element is ever inserted.
+ *
+ * These tests execute the rendered injection in a vm sandbox against a simulated
+ * DOM — elements, a document, a MutationObserver — and assert *which elements get
+ * styled*, not merely that the source mentions the discriminator. The simulation is
+ * the point and the limit: every selector answer here is the test's own construction,
+ * so a green run says the selection logic is right, not that a real page's elements
+ * answer the same way. That comparison is the real-machine verification's job.
+ */
+
+interface SimElement {
+  nodeType: number;
+  id: string;
+  style: Record<string, string>;
+  childElementCount: number;
+  readonly classList: { add(c: string): void; contains(c: string): boolean };
+  querySelectorAll(selector: string): readonly SimElement[];
+  setAttribute(name: string, value: string): void;
+  appendChild(child: SimElement): void;
+  textContent: string;
+  readonly __classes: string[];
+  readonly __attributes: Record<string, string>;
+  readonly __children: SimElement[];
+  [key: string]: unknown;
+}
+
+function makeSimElement(id: string, options: { readonly reactRoot?: boolean } = {}): SimElement {
+  const classes: string[] = [];
+  const attributes: Record<string, string> = {};
+  const children: SimElement[] = [];
+  const el: SimElement = {
+    nodeType: 1,
+    id,
+    style: {},
+    childElementCount: 0,
+    __classes: classes,
+    __attributes: attributes,
+    __children: children,
+    classList: {
+      add(c: string) {
+        if (!classes.includes(c)) classes.push(c);
+      },
+      contains(c: string) {
+        return classes.includes(c);
+      },
+    },
+    querySelectorAll(selector: string) {
+      if (selector !== "[id]") return [];
+      const found: SimElement[] = [];
+      const walk = (node: SimElement): void => {
+        for (const child of node.__children) {
+          if (child.id) found.push(child);
+          walk(child);
+        }
+      };
+      walk(el);
+      return found;
+    },
+    setAttribute(name: string, value: string) {
+      attributes[name] = value;
+    },
+    appendChild(child: SimElement) {
+      children.push(child);
+      el.childElementCount = children.length;
+    },
+    textContent: "",
+  };
+  if (options.reactRoot) {
+    // What ReactDOM.createRoot stamps, synchronously, per the plugin source:
+    // enumerable, own, per-copy-suffixed.
+    el["__reactContainer$simulatedkey"] = { simulated: true };
+  }
+  return el;
+}
+
+interface SimPage {
+  readonly context: ReturnType<typeof createContext>;
+  readonly ctor: { prototype: Record<string, unknown> };
+  readonly elements: {
+    readonly reactContainer: SimElement;
+    readonly plainLabel: SimElement;
+    readonly anotherLabel: SimElement;
+  };
+  readonly observers: { callback(mutations: unknown): void; observeCalls: number }[];
+  readonly styleElements: SimElement[];
+  readonly documentElement: SimElement;
+  readonly documentObject: {
+    querySelectorAll(selector: string): readonly SimElement[];
+    querySelector(selector: string): SimElement | null;
+    createElement(): SimElement;
+    head: SimElement;
+    body: SimElement;
+    documentElement: SimElement;
+  };
+}
+
+/**
+ * Builds the page the injection wakes up into: one mounted ReactCellType container
+ * (id pattern + expando, the way the platform's synchronous `createRoot` leaves it),
+ * two plain-cell labels that share the id pattern but carry no expando — the exact
+ * shape the recon probe measured — plus the registry entry the poll reads.
+ */
+function makeSimPage(): SimPage {
+  const reactContainer = makeSimElement("r0c0p", { reactRoot: true });
+  reactContainer.style.width = "100%";
+  reactContainer.style.height = "100%";
+  const plainLabel = makeSimElement("r25c0p");
+  const anotherLabel = makeSimElement("r27c1p");
+
+  const documentElement = makeSimElement("");
+  const body = makeSimElement("");
+  const head = makeSimElement("");
+  documentElement.appendChild(body);
+  body.appendChild(reactContainer);
+  body.appendChild(plainLabel);
+  body.appendChild(anotherLabel);
+
+  const styleElements: SimElement[] = [];
+  const observers: SimPage["observers"] = [];
+
+  const allWithIds = (): SimElement[] => {
+    const found: SimElement[] = [];
+    const walk = (node: SimElement): void => {
+      for (const child of node.__children) {
+        if (child.id) found.push(child);
+        walk(child);
+      }
+    };
+    walk(documentElement);
+    return found;
+  };
+
+  const documentObject = {
+    querySelectorAll(selector: string): readonly SimElement[] {
+      if (selector === "[id]") return allWithIds();
+      return [];
+    },
+    querySelector(selector: string): SimElement | null {
+      if (selector === "style[data-reactcell-autoh]") {
+        return styleElements.find(s => s.__attributes["data-reactcell-autoh"] !== undefined) ?? null;
+      }
+      return null;
+    },
+    createElement(): SimElement {
+      const el = makeSimElement("");
+      styleElements.push(el);
+      return el;
+    },
+    head,
+    body,
+    documentElement,
+  };
+
+  function MutationObserverStub(this: { observeCalls: number }, callback: (mutations: unknown) => void) {
+    const instance = { callback, observeCalls: 0 };
+    observers.push(instance);
+    return {
+      observe() {
+        instance.observeCalls += 1;
+      },
+      disconnect() {},
+      __instance: instance,
+    };
+  }
+
+  const ctor: { prototype: Record<string, unknown> } = {
+    prototype: {
+      // The plugin's original shape: returns a jQuery-ish object with css/addClass.
+      createContent(this: unknown) {
+        const applied: Record<string, string> = {};
+        const classes: string[] = [];
+        return {
+          css(props: Record<string, string>) {
+            Object.assign(applied, props);
+            return this;
+          },
+          addClass(c: string) {
+            classes.push(c);
+            return this;
+          },
+          __applied: applied,
+          __classes: classes,
+        };
+      },
+    },
+  };
+
+  const sandbox: Record<string, unknown> = {
+    document: documentObject,
+    MutationObserver: MutationObserverStub,
+    setInterval: () => 0,
+    clearInterval: () => {},
+    Object,
+    String,
+    Forguncy: {
+      Plugin: {
+        CellTypeHelper: {
+          _registedCellTypes: {
+            "ReactCellType.ReactCellTypeCellType, ReactCellType": [{ cellTypeCtor: ctor }],
+          },
+        },
+      },
+    },
+  };
+  const context = createContext(sandbox);
+
+  return {
+    context,
+    ctor,
+    elements: { reactContainer, plainLabel, anotherLabel },
+    observers,
+    styleElements,
+    documentElement,
+    documentObject,
+  };
+}
+
+function runInjectionIn(page: SimPage): void {
+  new Script(renderAutoHeightInjection()).runInContext(page.context);
+}
+
+describe("the injection executed against a simulated page (#186)", () => {
+  it("styles the react-container element and leaves same-pattern non-react elements untouched", () => {
+    // The regression in executable form: before the discriminator, both elements
+    // matched the scan; after it, only the expando-carrying one may. The plain labels
+    // standing in for the measured `r25c0p`/`r27c1p` must keep their inline style
+    // exactly as the platform wrote it — which is nothing.
+    const page = makeSimPage();
+
+    runInjectionIn(page);
+
+    const { reactContainer, plainLabel, anotherLabel } = page.elements;
+    expect(reactContainer.style.minHeight).toBe("100%");
+    expect(reactContainer.style.height).toBe("auto");
+    expect(reactContainer.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(true);
+
+    expect(plainLabel.style.minHeight).toBeUndefined();
+    expect(plainLabel.style.height).toBeUndefined();
+    expect(plainLabel.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(false);
+    expect(anotherLabel.style.minHeight).toBeUndefined();
+    expect(anotherLabel.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(false);
+  });
+
+  it("matches SPA-rendered containers carrying the page-instance suffix", () => {
+    // The second half of #186's identity defect, and the one that silently broke
+    // navigation-mounted cells: the platform appends an instance counter to cell ids
+    // on SPA-rendered pages (`r0c0p1` measured live), so a pattern ending at `p`
+    // never sees them. A scan that misses the suffixed shape leaves the lifecycle
+    // scenario completely unpatched — the cell was created before the artifact
+    // evaluated, the wrap cannot cover it, and the scan is the only path left.
+    const page = makeSimPage();
+    const spaContainer = makeSimElement("r0c0p1", { reactRoot: true });
+    spaContainer.style.height = "100%";
+    page.documentObject.body.appendChild(spaContainer);
+
+    runInjectionIn(page);
+
+    expect(spaContainer.style.minHeight).toBe("100%");
+    expect(spaContainer.style.height).toBe("auto");
+    expect(spaContainer.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(true);
+  });
+
+  it("the observer path applies the same discrimination to later-mounted elements", () => {
+    // Lifecycle coverage in the small: a container the SPA mounts after the patch
+    // lands must be adapted through the observer — and a same-pattern non-react
+    // element mounted the same way must not be.
+    const page = makeSimPage();
+    runInjectionIn(page);
+    expect(page.observers.length).toBe(1);
+
+    const lateReact = makeSimElement("r9c0p", { reactRoot: true });
+    const lateLabel = makeSimElement("r9c1p");
+    page.documentObject.body.appendChild(lateReact);
+    page.documentObject.body.appendChild(lateLabel);
+
+    page.observers[0].callback([{ addedNodes: [lateReact, lateLabel] }]);
+
+    expect(lateReact.style.height).toBe("auto");
+    expect(lateReact.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(true);
+    expect(lateLabel.style.height).toBeUndefined();
+    expect(lateLabel.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(false);
+  });
+
+  it("the observer covers react containers deep inside an added subtree", () => {
+    // SPA navigation re-inserts whole page subtrees, so the container is usually a
+    // descendant of the added node rather than the node itself.
+    const page = makeSimPage();
+    runInjectionIn(page);
+
+    const deep = makeSimElement("r4c2p", { reactRoot: true });
+    const wrapper = makeSimElement("");
+    wrapper.appendChild(deep);
+    page.documentObject.body.appendChild(wrapper);
+
+    page.observers[0].callback([{ addedNodes: [wrapper] }]);
+
+    expect(deep.style.height).toBe("auto");
+    expect(deep.classList.contains(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass)).toBe(true);
+  });
+
+  it("is idempotent across repeated evaluation: one wrap, one observer, one stylesheet", () => {
+    // The page-global guards in executable form: a second artifact evaluating the
+    // same injection in one session must leave the prototype's createContent
+    // reference untouched, register no second observer, and add no second style tag.
+    // This is the mechanism-level meaning of #186's multi-cell idempotency — the
+    // real-machine verification measures the same property in a browser.
+    const page = makeSimPage();
+    runInjectionIn(page);
+    const wrappedOnce = page.ctor.prototype.createContent;
+
+    runInjectionIn(page);
+    runInjectionIn(page);
+
+    expect(page.ctor.prototype.createContent).toBe(wrappedOnce);
+    expect(page.observers.length).toBe(1);
+    const styled = page.styleElements.filter(s => s.__attributes["data-reactcell-autoh"] !== undefined);
+    expect(styled.length).toBe(1);
+  });
+
+  it("the wrapped createContent styles what the platform's own method returns", () => {
+    // The wrap path needs no discriminator — the object it styles is the plugin's
+    // own return value by construction. Asserted so a template edit that dropped the
+    // wrap (keeping only scan/observer) fails locally rather than only in the field:
+    // cells instantiated after the patch lands are the wrap's exclusive job.
+    const page = makeSimPage();
+    runInjectionIn(page);
+
+    const createContent = page.ctor.prototype.createContent as (this: unknown) => {
+      __applied: Record<string, string>;
+      __classes: string[];
+    };
+    const result = createContent.call({});
+
+    expect(result.__applied["min-height"]).toBe("100%");
+    expect(result.__applied.height).toBe("auto");
+    expect(result.__classes).toContain(REACTCELLTYPE_CREATE_CONTENT_CONTRACT.markerClass);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // End-to-end: the config declaration reaches the artifact
 // ---------------------------------------------------------------------------
+
 
 describe("the config-to-artifact path", () => {
   /**

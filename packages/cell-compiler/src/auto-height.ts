@@ -7,6 +7,10 @@
  *   (https://github.com/MangMax/forguncy-react-workspace/issues/185), this module's
  *   ticket, Ticket 1 of Epic #184 — "ReactCellType 高度自适应沉淀为 cell-compiler
  *   内置能力" (https://github.com/MangMax/forguncy-react-workspace/issues/184),
+ * - #186 — "Implement: ReactCellAutoHeight edge case 加固（多 cell/生命周期/共存/可移植）"
+ *   (https://github.com/MangMax/forguncy-react-workspace/issues/186), whose recon probe
+ *   measured that the positional id pattern is not ReactCellType-exclusive and added
+ *   the expando discriminator the scan/observer passes now require,
  * - #82 — "修复 Runtime：在生产 Cell 入口自动安装 Host Provider"
  *   (https://github.com/Mang-X/forguncy-react-workspace/issues/82), whose generated
  *   runtime binding is the sibling mechanism this module sits beside — and whose
@@ -37,11 +41,35 @@
  *
  * 1. **`repairExistingContainers()` is the primary path for the injecting cell
  *    itself.** Because the container pre-exists the artifact's evaluation, the scan
- *    for content roots whose id matches the position-independent `/^r\d+c\d+p$/`
+ *    for content roots whose id matches the position-independent `/^r\d+c\d+p\d*$/`
  *    pattern is what actually adapts the first-rendered cell — the probe's step 5
  *    shows exactly that state (container in the DOM, `height: 100%` inline, no
  *    marker, before the patch lands). Nothing anywhere keys on a concrete cell id,
- *    which is what makes one artifact adapt at any grid position.
+ *    which is what makes one artifact adapt at any grid position. The trailing
+ *    `\d*` is measured necessity, not caution: a directly loaded page carries
+ *    `r0c0p`, but the platform appends a page-instance counter on SPA-rendered
+ *    pages (`r0c0p1`), and #186's live runs showed the unprefixed-digit pattern
+ *    missing every navigated container — no marker, no adaptation, the exact
+ *    lifecycle failure this ticket exists to close.
+ *
+ *    The id pattern alone is **not sufficient identity**, and #186's recon probe
+ *    is the evidence: it is the platform's coordinate convention for every grid
+ *    cell, not a ReactCellType exclusive — on a real generated page, plain
+ *    value-only cells' LABEL elements (`fgc-general-cell-label`) carry ids like
+ *    `r25c0p`, and the #185-era scan restyled them (measured: the marker class
+ *    and `height:auto` inline on three labels that were never ReactCellType
+ *    containers). The discriminator the scan and observer passes now require is
+ *    the `__reactContainer$` expando React stamps when `ReactDOM.createRoot` runs
+ *    on an element — and the plugin source runs it **synchronously inside
+ *    `createContent`**, so the expando exists on every ReactCellType container
+ *    from birth, before insertion and independently of render progress. The
+ *    prototype-wrap path needs no such test because the object it styles is the
+ *    plugin's own return value by construction. The failure ordering is
+ *    deliberate: if a future platform React dropped the expando the scan goes
+ *    silent (unpatched cells, the pre-#184 status quo), while the alternative —
+ *    an id-only scan — restyles cells that are not ReactCellType containers at
+ *    all. The constants live in `REACTCELLTYPE_CREATE_CONTENT_CONTRACT` beside
+ *    the evidence.
  * 2. **the prototype wrap** — `cellTypeCtor.prototype.createContent` wrapped so
  *    cells instantiated *after the patch lands* get the adaptive container
  *    (`min-height: 100%` fills the grid row, `height: auto` lets content extend it,
@@ -220,6 +248,7 @@ export function renderAutoHeightInjection(): string {
   const markerClass = JSON.stringify(contract.markerClass);
   const patchedGuard = JSON.stringify(contract.patchedGuard);
   const diagnosticGlobal = JSON.stringify(AUTO_HEIGHT_DIAGNOSTIC_GLOBAL);
+  const expandoPrefix = JSON.stringify(contract.reactContainerExpandoPrefix);
   // The id pattern is emitted as a regex literal rather than a string + `new RegExp`,
   // because that is the shape the proven patch ran with — one less allocation per
   // call, and no constructor string to escape twice. The contract carries it as a
@@ -241,7 +270,24 @@ export function renderAutoHeightInjection(): string {
     `  var REGISTRY_KEY = ${registryKey};`,
     `  var MARKER_CLASS = ${markerClass};`,
     `  var CELL_ROOT_ID = ${idPatternLiteral};`,
+    `  var EXPANDO_PREFIX = ${expandoPrefix};`,
     `  var STATE = { patched: false, error: null, attempts: 0 };`,
+    ``,
+    `  // The positional id pattern is the platform's coordinate convention for every`,
+    `  // grid cell — plain value cells' labels carry it too (measured on 12.0.102.0),`,
+    `  // so an id-only scan restyles non-target elements. The discriminator is the`,
+    `  // __reactContainer$ expando React stamps when ReactDOM.createRoot runs on an`,
+    `  // element, which the plugin does synchronously inside createContent — every`,
+    `  // ReactCellType content root carries it from birth, before insertion and`,
+    `  // independently of render progress. for-in rather than Object.keys: one pass,`,
+    `  // early exit, no allocation, and no new free identifier.`,
+    `  function isReactCellContainer(el) {`,
+    `    if (!el || !CELL_ROOT_ID.test(el.id || "")) return false;`,
+    `    for (var key in el) {`,
+    `      if (key.indexOf(EXPANDO_PREFIX) === 0) return true;`,
+    `    }`,
+    `    return false;`,
+    `  }`,
     ``,
     `  function applyContainerControl(el) {`,
     `    if (!el || el.nodeType !== 1) return;`,
@@ -258,7 +304,7 @@ export function renderAutoHeightInjection(): string {
     `    var all = document.querySelectorAll("[id]");`,
     `    for (var i = 0; i < all.length; i += 1) {`,
     `      var el = all[i];`,
-    `      if (CELL_ROOT_ID.test(el.id) && !el.classList.contains(MARKER_CLASS)) {`,
+    `      if (isReactCellContainer(el) && !el.classList.contains(MARKER_CLASS)) {`,
     `        applyContainerControl(el);`,
     `        repaired += 1;`,
     `      }`,
@@ -299,12 +345,12 @@ export function renderAutoHeightInjection(): string {
     `          for (var n = 0; n < added.length; n += 1) {`,
     `            var nodeItem = added[n];`,
     `            if (nodeItem && nodeItem.nodeType === 1) {`,
-    `              if (CELL_ROOT_ID.test(nodeItem.id || "") && !nodeItem.classList.contains(MARKER_CLASS)) {`,
+    `              if (isReactCellContainer(nodeItem) && !nodeItem.classList.contains(MARKER_CLASS)) {`,
     `                applyContainerControl(nodeItem);`,
     `              }`,
     `              var descendants = nodeItem.querySelectorAll ? nodeItem.querySelectorAll("[id]") : [];`,
     `              for (var d = 0; d < descendants.length; d += 1) {`,
-    `                if (CELL_ROOT_ID.test(descendants[d].id) && !descendants[d].classList.contains(MARKER_CLASS)) {`,
+    `                if (isReactCellContainer(descendants[d]) && !descendants[d].classList.contains(MARKER_CLASS)) {`,
     `                  applyContainerControl(descendants[d]);`,
     `                }`,
     `              }`,
