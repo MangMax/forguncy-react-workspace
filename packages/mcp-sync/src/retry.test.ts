@@ -192,6 +192,7 @@ function statefulPort(initial: { readonly deployed?: ReadCellSourceResult } = {}
         kind: "react-cell",
         code: cell.cellTypeProps.code,
         frontendLibraries: cell.cellTypeProps.frontendLibraries,
+        bindingProps: {},
       });
       state.unsaved = true;
       if (state.faults.setCellsFailure === "after") throw new Error("transport refused setCells after it landed");
@@ -577,6 +578,7 @@ describe("a target edited between the failure and the retry", () => {
       kind: "react-cell",
       code: "function App() { return null; } // edited by hand after the failure\n",
       frontendLibraries: [],
+      bindingProps: {},
     };
   }
 

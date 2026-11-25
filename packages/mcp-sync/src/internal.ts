@@ -211,6 +211,7 @@ export type {
 export {
   fingerprintArtifact,
   fingerprintArtifactCode,
+  fingerprintDeclaredBindings,
   readSyncMarker,
   stampSyncMarker,
   stripSyncMarker,
@@ -223,6 +224,21 @@ export {
   verifySyncMarkerSelfConsistency,
 } from "./fingerprint.ts";
 export type { SyncFingerprintErrorCode, SyncMarker, SyncMarkerState } from "./fingerprint.ts";
+
+// The declared host bindings, as a write and a comparison (#179)
+export {
+  bindingValuesEqual,
+  bindingWriteInstructions,
+  canonicalizeJsonValue,
+  canonicalizeLibraries,
+  canonicalJsonText,
+  declaredBindingWireValue,
+  diffDeclaredBindings,
+  emptyFormOf,
+  mergeEventHandlerBodies,
+  readBackBindingValue,
+} from "./bindings-sync.ts";
+export type { BindingFieldDrift, BindingWriteInstruction } from "./bindings-sync.ts";
 
 // What the target holds, and what may be done about it
 export {

@@ -62,7 +62,7 @@ import {
   CELL_ARTIFACT_BANNER,
   frontendLibraryIds,
 } from "@forguncy-react-workspace/cell-compiler";
-import type { ExtensionExternalMapping, ExtensionLibraryListing } from "@forguncy-react-workspace/core";
+import type { ExtensionExternalMapping, ExtensionLibraryListing, NormalizedCellBindings } from "@forguncy-react-workspace/core";
 
 import {
   assertMcpSyncFlowIsCoherent,
@@ -250,6 +250,12 @@ export interface PlanCellSyncOptions extends SyncCellInput {
   readonly mappings?: readonly ExtensionExternalMapping[];
   /** What to do about a diverged target. Defaults to preserving designer edits. */
   readonly overwrite?: CellOverwritePolicy;
+  /**
+   * The host bindings this Cell is declared authoritative for (#178/#179). Threaded into the
+   * divergence classification (so declared-field drift is detected) and into the write (so the
+   * declared fields are taken over). `undefined` is the all-pass-through default.
+   */
+  readonly bindings?: NormalizedCellBindings;
 }
 
 export interface CellSyncPlan {
@@ -367,7 +373,10 @@ export function planCellSync(options: PlanCellSyncOptions): CellSyncPlan {
   declaredDiagnostics.push(...extensionVerification.diagnostics);
 
   const policy = options.overwrite ?? DEFAULT_CELL_OVERWRITE_POLICY;
-  const divergence = classifyCellDivergence(options.deployed, artifact);
+  const divergence = classifyCellDivergence(options.deployed, artifact, {
+    ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
+    pageName: options.target.pageName,
+  });
   const writeAction = resolveCellWriteAction(divergence, policy);
   const overriddenConflict = cellDivergenceOverride(divergence, policy);
 
@@ -401,13 +410,19 @@ export function planCellSync(options: PlanCellSyncOptions): CellSyncPlan {
   const libraries = canonicalizeFrontendLibraries(artifact.frontendLibraries);
   let write: CellSyncWrite;
   if (generationRefusal === undefined) {
+    // `--restore-all` is the one policy that clears the designer-side eventHandler command bodies.
+    // Every other policy — including `restore` — preserves them through the merge. The flag is
+    // carried on the write so the transport need not know the policy names.
+    const clearEventBodies = policy === "restore-all";
     const mutation: CellSyncMutation = {
       pageName: options.target.pageName,
       cells: [
         {
           cell: options.target.cell,
           cellType: "ReactCellTypeCellType",
-          cellTypeProps: { code: stampSyncMarker(artifact), frontendLibraries: libraries },
+          cellTypeProps: { code: stampSyncMarker(artifact, options.bindings), frontendLibraries: libraries },
+          ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
+          ...(clearEventBodies ? { clearEventBodies: true } : {}),
         },
       ],
     };

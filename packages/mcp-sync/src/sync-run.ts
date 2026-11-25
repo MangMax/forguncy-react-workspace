@@ -63,7 +63,13 @@ export function deployedStateOfRead(result: ReadCellSourceResult): DeployedCellS
     case "occupied":
       return { kind: "occupied", detail: result.code };
     case "react-cell":
-      return { kind: "read", code: result.code, frontendLibraries: result.frontendLibraries };
+      return {
+        kind: "read",
+        code: result.code,
+        frontendLibraries: result.frontendLibraries,
+        // The read-back binding values (#179): the plan classifies field-level drift off these.
+        declaredBindings: result.bindingProps,
+      };
   }
 }
 

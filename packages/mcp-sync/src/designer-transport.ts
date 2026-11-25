@@ -62,6 +62,7 @@
 import { EXTENSION_LIBRARY_REFERENCE_FIELD_NAME, isPlainRecord } from "@forguncy-react-workspace/core";
 import type { ExtensionLibraryListing } from "@forguncy-react-workspace/core";
 
+import { bindingWriteInstructions } from "./bindings-sync.ts";
 import { REACT_CELL_TYPE_READ_BACK_NAMES } from "./port.ts";
 import type {
   ForguncySyncPort,
@@ -75,6 +76,8 @@ import type {
   ProjectSaveStatusRequest,
   ReadCellSourceRequest,
   ReadCellSourceResult,
+  SetCellsCell,
+  SetCellsCellTypeProps,
   SetCellsRequest,
 } from "./port.ts";
 
@@ -343,18 +346,22 @@ export function createDesignerSyncPort(options: DesignerSyncPortOptions): Forgun
       // A read that cannot be understood stops the write. That direction is deliberate:
       // proceeding with no preserved props is exactly the wholesale replacement this exists
       // to prevent, and a failed read must not quietly become "the Cell had no bindings".
-      const preserved = await Promise.all(
-        request.cells.map(async cell => {
-          const existing = await readCellRecord(
+      // Read the target's current props per Cell. The read does double duty now (#141 → #179):
+      // it is still the source of the *pass-through* bindings that must survive the wholesale
+      // write, and it is now also the source of the `eventHandlers` command bodies the merge
+      // preserves. A read that cannot be understood stops the write either way: proceeding with no
+      // read would either erase the pass-through bindings or drop the command trees.
+      const existingCells = await Promise.all(
+        request.cells.map(async cell =>
+          readCellRecord(
             callTool,
             { pageName: request.pageName, cell: cell.cell },
             "setCells",
             "sync: read existing cell props",
-          );
-          return preservedCellTypePropsOf(existing);
-        }),
+          ),
+        ),
       );
-      const payload = mutationPayloadOf(request, preserved);
+      const payload = mutationPayloadOf(request, existingCells);
       const response = await callTool(DESIGNER_EXECUTE_TOOL, {
         title: "sync: write target cell",
         code: scriptFor({ payload }, "return await api.page.setCells(payload);"),
@@ -503,46 +510,103 @@ export function runtimePageUrl(baseUrl: string, pageName: string): string {
  */
 function mutationPayloadOf(
   request: IssuedSetCellsRequest,
-  preservedProps: readonly Record<string, unknown>[],
+  existingCells: readonly (Record<string, unknown> | undefined)[],
 ): SetCellsRequest {
   return {
     pageName: request.pageName,
-    cells: request.cells.map((cell, index) => ({
-      cell: cell.cell,
-      cellType: cell.cellType,
-      cellTypeProps: {
-        ...preservedProps[index],
+    cells: request.cells.map((cell, index) => {
+      const existing = existingCells[index];
+      const readBackProps = bindingPropsOfExisting(existing);
+      const clearBodies = cell.clearEventBodies === true;
+
+      // The per-field write decision (#179). Every one of the seven binding fields is either
+      // written authoritatively from the declaration (managed/managed-empty) or carried through
+      // from the read-back (pass-through). This replaces #141's "preserve everything" with
+      // "preserve what the repository does not declare, take over what it does".
+      const instructions = bindingWriteInstructions(cell.bindings, readBackProps, request.pageName, {
+        clearEventBodies: clearBodies,
+      });
+
+      // Assemble the cellTypeProps. Unknown/non-binding preserved props (anything outside the
+      // seven managed fields and the two sync-owned ones) are carried through verbatim first —
+      // the platform may host settings this contract does not model, and the wholesale write must
+      // not erase them. The sync-owned `code`/`frontendLibraries` and the seven binding fields are
+      // then written over that base, so they always win.
+      const base = nonBindingPreservedPropsOf(existing);
+      // Typed as the target shape from the start. The two required fields are written here, the
+      // non-binding preserved extras are spread in, and the binding fields are assigned one by one
+      // below — all keys the platform round-trips, which the widened `SetCellsCellTypeProps` admits.
+      const props: SetCellsCellTypeProps = {
+        ...base,
         code: cell.cellTypeProps.code,
         frontendLibraries: cell.cellTypeProps.frontendLibraries.map(library => ({
           libraryId: library.libraryId,
         })),
-      },
-    })),
+      };
+      // The extras the spread carried in that the interface does not name are still present at
+      // runtime; the type only needs to admit the keys the takeover writes. Indexing for the write
+      // goes through a record view, because the binding field name is not a literal the interface
+      // can narrow.
+      const writable = props as unknown as Record<string, unknown>;
+      for (const instruction of instructions) {
+        if (instruction.value === undefined) {
+          // A pass-through field the read-back holds nothing for: omitting the key is a no-op for
+          // an already-empty field, and it must not be written `null` (which would *change*
+          // `libraries` to "None"). So it is simply absent.
+          delete writable[instruction.field];
+        } else {
+          writable[instruction.field] = instruction.value;
+        }
+      }
+
+      return {
+        cell: cell.cell,
+        cellType: cell.cellType,
+        cellTypeProps: props,
+      };
+    }),
   };
 }
 
 /**
- * The `cellTypeProps` a write must carry through from the Cell it replaces (#141).
+ * The cell's `cellTypeProps` as the binding logic reads them, or `{}` when there is nothing.
  *
- * `api.page.setCells` replaces `cellTypeProps` **wholesale** — measured during #107's live
- * Forguncy 12.0.102.0 gate, where a write carrying only `code`/`frontendLibraries` erased
- * the Designer-configured host bindings on an existing ReactCellType Cell. Those bindings
- * are Forguncy's to own (AGENTS.md: "Forguncy owns the application"), so sync carries them
- * through instead of overwriting them.
- *
- * Only a Cell that is already a ReactCellType contributes props, and the type check is the
- * read-back predicate — the same one that recognises our own writes — rather than the write
- * alias. A blank Cell has nothing to preserve, and a foreign cell type's `cellTypeProps`
- * belong to a cell sync may not write at all: inheriting them would move one cell type's
- * configuration onto another.
- *
- * The props are copied, never mutated. They arrived as parsed designer data, and a caller
- * holding a reference to that read must not see this write appear in it.
+ * Only a Cell already recognised as a ReactCellType contributes read-back bindings — the same
+ * predicate #141 uses — because a foreign cell type's props belong to a cell sync may not write,
+ * and a blank cell has nothing to read back.
  */
-function preservedCellTypePropsOf(cell: Record<string, unknown> | undefined): Record<string, unknown> {
+function bindingPropsOfExisting(cell: Record<string, unknown> | undefined): Record<string, unknown> {
   if (cell === undefined || !isReactCellTypeName(cell.cellType)) return {};
   const props = cell.cellTypeProps;
-  return isPlainRecord(props) ? { ...props } : {};
+  return isPlainRecord(props) ? (props as Record<string, unknown>) : {};
+}
+
+/**
+ * The preserved props minus everything the takeover now owns.
+ *
+ * The seven binding fields and the two sync-owned fields are stripped, because they are written
+ * deliberately later — leaving them here would let a stale read-back value shadow the declaration
+ * through the spread order. What remains (geometry-adjacent settings, anything outside the
+ * measured schema) is carried through verbatim.
+ */
+function nonBindingPreservedPropsOf(cell: Record<string, unknown> | undefined): Record<string, unknown> {
+  const props = bindingPropsOfExisting(cell);
+  const OWNED = new Set([
+    "code",
+    "frontendLibraries",
+    "dataSources",
+    "permissions",
+    "availableServerCommands",
+    "properties",
+    "eventHandlers",
+    "uploadLimit",
+    "libraries",
+  ]);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (!OWNED.has(key)) out[key] = value;
+  }
+  return out;
 }
 
 /**
@@ -637,6 +701,10 @@ function readOneCell(cell: Record<string, unknown>): ReadCellSourceResult {
     // the contract — `DeployedCellState`'s optional field is for "not stated", which this
     // call always states, because it read the Cell.
     frontendLibraries: libraryReferencesOf(propsRecord?.frontendLibraries),
+    // The whole props object verbatim (#179): drift detection and the eventHandlers merge both
+    // read the binding fields out of it. `propsRecord` is the parsed designer data; it is carried
+    // by reference here and copied only where a write would otherwise mutate it.
+    bindingProps: propsRecord ?? {},
   };
 }
 

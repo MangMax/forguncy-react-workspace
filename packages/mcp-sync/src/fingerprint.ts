@@ -67,7 +67,19 @@ import { createHash } from "node:crypto";
 import { CELL_ARTIFACT_BANNER, canonicalizeFrontendLibraries, serializeCompileCellResult } from "@forguncy-react-workspace/cell-compiler";
 import type { CompileCellResult } from "@forguncy-react-workspace/cell-compiler";
 
-/** The marker format's version. Present so a future format change is detectable. */
+import { canonicalJsonText, declaredBindingWireValue, stripEventHandlerBodiesForCompare } from "./bindings-sync.ts";
+import type { NormalizedCellBindings } from "@forguncy-react-workspace/core";
+
+/**
+ * The marker format's version. Present so a future format change is detectable.
+ *
+ * **Stays `1` for the bindings-aware marker.** v2 is not a new version number: it is the same
+ * envelope carrying one additional optional field, `bindings`. Bumping `version` would make every
+ * already-deployed v1 cell read as `malformed` — the reader rejects any version it does not
+ * recognise — which is precisely the misjudgement #179 forbids. An *added optional* field is the
+ * backward-compatible change: a v1 cell carries no `bindings` key, and that absence is itself the
+ * signal that the marker covers only the code, not the declared bindings.
+ */
 export const SYNC_MARKER_VERSION = 1;
 
 /**
@@ -105,6 +117,13 @@ export interface SyncMarker {
   readonly artifact: string;
   /** Hash of the source with marker lines removed. The tamper check. */
   readonly code: string;
+  /**
+   * Hash of the canonicalized declared host bindings, when the sync that wrote the cell managed
+   * any. **Optional and absent on a v1 cell** — its absence is the backward-compatibility signal:
+   * a marker without it covers only the code, so drift detection must not judge the binding axis
+   * on such a cell (doing so would misread every pre-#179 managed cell as binding-drifted).
+   */
+  readonly bindings?: string;
 }
 
 /**
@@ -183,6 +202,7 @@ export function readSyncMarker(code: string): SyncMarkerState {
   const version = record.v;
   const artifact = record.artifact;
   const codeHash = record.code;
+  const bindingsHash = record.bindings;
 
   if (version !== SYNC_MARKER_VERSION) {
     return { kind: "malformed", line, reason: `the marker version is ${String(version)}, not ${SYNC_MARKER_VERSION}` };
@@ -193,8 +213,22 @@ export function readSyncMarker(code: string): SyncMarkerState {
   if (typeof codeHash !== "string" || !/^[0-9a-f]{64}$/.test(codeHash)) {
     return { kind: "malformed", line, reason: "the code hash is missing or is not a sha-256 digest" };
   }
+  // `bindings` is optional: a v1 cell carries no such key. When present it must be a digest —
+  // a malformed one is corruption, not "no bindings managed", because the writer never emits a
+  // non-digest value.
+  if (bindingsHash !== undefined && (typeof bindingsHash !== "string" || !/^[0-9a-f]{64}$/.test(bindingsHash))) {
+    return { kind: "malformed", line, reason: "the bindings hash is present but is not a sha-256 digest" };
+  }
 
-  return { kind: "present", marker: { version, artifact, code: codeHash } };
+  return {
+    kind: "present",
+    marker: {
+      version,
+      artifact,
+      code: codeHash,
+      ...(typeof bindingsHash === "string" ? { bindings: bindingsHash } : {}),
+    },
+  };
 }
 
 /**
@@ -222,12 +256,42 @@ export function fingerprintArtifactCode(code: string): string {
   return sha256(stripSyncMarker(code));
 }
 
-/** The marker line for an artifact, without writing it into anything. */
-export function syncMarkerLine(artifact: CompileCellResult): string {
+/**
+ * The hash a marker's `bindings` field carries: the declared host bindings, canonicalized.
+ *
+ * Only the **declared** fields are hashed — pass-through fields are the designer's, so they are
+ * no part of what the repository asserts. Each declared field contributes its canonical wire
+ * value (the same transformation the write and the drift comparison use), keyed by field name, so
+ * the hash is a faithful, order-independent image of "what the repository claims to own". A Cell
+ * with no `bindings` block at all yields the empty object — still a meaningful, deterministic
+ * hash, and deliberately distinct from *omitting* the field: omitting means "this marker is v1 and
+ * knows nothing of bindings", while the empty-object hash means "this sync managed nothing".
+ */
+export function fingerprintDeclaredBindings(bindings: NormalizedCellBindings | undefined): string {
+  const content: Record<string, unknown> = {};
+  for (const field of bindings?.declaredFields ?? []) {
+    // Strip the designer-owned command body so the hash covers exactly what the repository owns —
+    // the same reduction the drift comparison applies. `eventHandlers` contributes only its
+    // `eventName`/`eventArgs` contract; the body is never part of what the fingerprint asserts.
+    content[field] = stripEventHandlerBodiesForCompare(field, declaredBindingWireValue(bindings as NormalizedCellBindings, field));
+  }
+  return sha256(canonicalJsonText(content));
+}
+
+/**
+ * The marker line for an artifact, without writing it into anything.
+ *
+ * `bindings` is the Cell's declaration when the sync manages any host bindings. When it is
+ * `undefined` (a project that declares nothing, or a caller that does not thread it) the field is
+ * omitted and the marker is byte-identical to a v1 marker — so enabling bindings awareness never
+ * rewrites the provenance of a Cell that uses none of it.
+ */
+export function syncMarkerLine(artifact: CompileCellResult, bindings?: NormalizedCellBindings): string {
   const payload = JSON.stringify({
     v: SYNC_MARKER_VERSION,
     artifact: fingerprintArtifact(artifact),
     code: fingerprintArtifactCode(artifact.code),
+    ...(bindings === undefined ? {} : { bindings: fingerprintDeclaredBindings(bindings) }),
   });
   return `${SYNC_MARKER_PREFIX}${payload}${SYNC_MARKER_SUFFIX}`;
 }
@@ -248,7 +312,7 @@ export function syncMarkerLine(artifact: CompileCellResult): string {
  * `planCellSync`'s own `artifact-not-generated` gate, so the throw is a programming
  * error in this package rather than a routine outcome.
  */
-export function stampSyncMarker(artifact: CompileCellResult): string {
+export function stampSyncMarker(artifact: CompileCellResult, bindings?: NormalizedCellBindings): string {
   const body = stripSyncMarker(artifact.code);
   if (!body.startsWith(CELL_ARTIFACT_BANNER)) {
     throw new SyncFingerprintError(
@@ -259,10 +323,10 @@ export function stampSyncMarker(artifact: CompileCellResult): string {
 
   const firstBreak = body.indexOf("\n");
   if (firstBreak === -1) {
-    return `${body}\n${syncMarkerLine(artifact)}\n`;
+    return `${body}\n${syncMarkerLine(artifact, bindings)}\n`;
   }
 
-  return `${body.slice(0, firstBreak)}\n${syncMarkerLine(artifact)}${body.slice(firstBreak)}`;
+  return `${body.slice(0, firstBreak)}\n${syncMarkerLine(artifact, bindings)}${body.slice(firstBreak)}`;
 }
 
 /**

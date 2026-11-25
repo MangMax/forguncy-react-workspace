@@ -275,7 +275,7 @@ describe("executing a sync", () => {
 
 describe("when the plan refuses", () => {
   it("sends nothing for a diverged target, though it did read it", async () => {
-    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "designer work", frontendLibraries: [] } });
+    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "designer work", frontendLibraries: [], bindingProps: {} } });
 
     const run = await executeCellSync(runOptions(port));
 
@@ -324,7 +324,7 @@ describe("when the plan refuses", () => {
   // The property that makes `refused` worth a status of its own: a refusal stops the flow,
   // so it has no verification result and no locator to hand a browser step.
   it("reports a refusal as refused, with no locator and no validation steps run", async () => {
-    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "designer work", frontendLibraries: [] } });
+    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "designer work", frontendLibraries: [], bindingProps: {} } });
 
     const run = await executeCellSync(runOptions(port));
     const text = formatCellSyncRun(run);
@@ -352,7 +352,7 @@ describe("syncing the same artifact twice", () => {
     const artifact = generated();
     const stamped = stampSyncMarker(artifact);
     const { port, calls } = recordingPort({
-      read: { kind: "react-cell", code: stamped, frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stamped, frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
     });
 
     const run = await executeCellSync(runOptions(port, { artifact }));
@@ -393,7 +393,7 @@ describe("syncing the same artifact twice", () => {
   it("reports the save it performed as a change to the project", async () => {
     const artifact = generated();
     const { port, calls } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
       saveStatus: { containsUnsavedChanges: true },
     });
 
@@ -414,7 +414,7 @@ describe("syncing the same artifact twice", () => {
   it("returns a locator this run generated, not one carried over from a previous write", async () => {
     const artifact = generated();
     const { port, calls } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
       runtime: { pageName: TARGET.pageName, pageUrl: "http://localhost:63982/Forguncy/OrderPage?run=second" },
     });
 
@@ -433,7 +433,7 @@ describe("syncing the same artifact twice", () => {
   it("fails an unchanged run whose project reports errors", async () => {
     const artifact = generated();
     const { port, calls } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
       errors: { errorCount: 1 },
     });
 
@@ -450,7 +450,7 @@ describe("syncing the same artifact twice", () => {
   it("fails an unchanged run whose generation produces no locator", async () => {
     const artifact = generated();
     const { port } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
       runtime: { pageName: TARGET.pageName, pageUrl: "  " },
     });
 
@@ -469,7 +469,7 @@ describe("syncing the same artifact twice", () => {
   it("fails an unchanged run when the product declines a save it needed", async () => {
     const artifact = generated();
     const { port, calls } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
       saveStatus: { containsUnsavedChanges: true },
       saveResult: { saved: false },
     });
@@ -488,7 +488,7 @@ describe("syncing the same artifact twice", () => {
   it("reports an unchanged run as a finished sync, naming its own locator", async () => {
     const artifact = generated();
     const { port } = recordingPort({
-      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries },
+      read: { kind: "react-cell", code: stampSyncMarker(artifact), frontendLibraries: artifact.frontendLibraries, bindingProps: {} },
     });
 
     const run = await executeCellSync(runOptions(port, { artifact }));
@@ -513,6 +513,7 @@ describe("syncing the same artifact twice", () => {
         kind: "react-cell",
         code: stampSyncMarker(artifact),
         frontendLibraries: [frontendLibraryReference("lib-added-in-designer")],
+        bindingProps: {},
       },
     });
 
@@ -674,8 +675,9 @@ describe("turning a read into a plan input", () => {
       kind: "react-cell",
       code: "x",
       frontendLibraries: [{ libraryId: "lib-a" }],
+      bindingProps: {},
     });
-    expect(state).toEqual({ kind: "read", code: "x", frontendLibraries: [{ libraryId: "lib-a" }] });
+    expect(state).toEqual({ kind: "read", code: "x", frontendLibraries: [{ libraryId: "lib-a" }], declaredBindings: {} });
   });
 
   // The direction that matters: a Cell holding something else must not become an empty read.
@@ -692,13 +694,13 @@ describe("turning a read into a plan input", () => {
   });
 
   it("performs the read the flow needs, and passes the request the platform takes", async () => {
-    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "", frontendLibraries: [] } });
+    const { port, calls } = recordingPort({ read: { kind: "react-cell", code: "", frontendLibraries: [], bindingProps: {} } });
 
     const read = await readCellState(port, TARGET);
 
     expect(calls).toEqual([{ method: "readCellSource", argument: { pageName: "OrderPage", cell: "A1" } }]);
     expect(read.result.kind).toBe("react-cell");
-    expect(read.state).toEqual({ kind: "read", code: "", frontendLibraries: [] });
+    expect(read.state).toEqual({ kind: "read", code: "", frontendLibraries: [], declaredBindings: {} });
   });
 });
 

@@ -65,11 +65,16 @@ const USAGE = `fgc-cell — build, inspect and sync a Forguncy React Cell projec
       the project's extension listing and each target are read, and nothing is written.
 
   fgc-cell sync   --port <module> [--project <dir>] [--on-transport-failure <stop|continue>]
-                  [--on-failed-run <stop|continue>] [--json]
+                  [--on-failed-run <stop|continue>] [--restore | --restore-all] [--json]
       Write the compiled Cells through the supplied port. Explicit only: there is no
-      default designer and no auto-start.
+      default designer and no auto-start. By default a target that diverged from the
+      repository declaration — edited code, or an edited declared binding — is REFUSED and
+      reported field by field. --restore overwrites the declared bindings from the repository
+      but preserves the eventHandlers command body; --restore-all additionally clears that body.
 
   --overwrite <policy>   preserve-designer-edits (default) | force. Applies to plan.
+  --restore              sync: overwrite declared bindings from the repo, keep event command bodies.
+  --restore-all          sync: overwrite declared bindings and clear event command bodies.
   --project <dir>        Project root. Defaults to the current directory.
   --json                 Print the machine-readable report instead of the prose one.
 
@@ -81,7 +86,7 @@ interface ParsedArguments {
   readonly options: Readonly<Record<string, string | boolean>>;
 }
 
-const BOOLEAN_OPTIONS = new Set(["json"]);
+const BOOLEAN_OPTIONS = new Set(["json", "restore", "restore-all"]);
 const VALUE_OPTIONS = new Set(["project", "out", "port", "overwrite", "on-transport-failure", "on-failed-run"]);
 
 class UsageError extends Error {
@@ -149,6 +154,30 @@ function failurePolicy(options: ParsedArguments["options"], name: string): "stop
     throw new UsageError(`--${name} accepts "stop" or "continue"; received ${JSON.stringify(value)}.`);
   }
   return value;
+}
+
+/**
+ * The sync overwrite policy, resolved from the restore flags.
+ *
+ * `--restore` and `--restore-all` are boolean flags rather than a `--overwrite` value because they
+ * are #179's user-facing verbs and mean something narrower than `force` — and because a caller
+ * reaching for one should not have to know the policy enum. They are mutually exclusive, and
+ * exclusive with `--overwrite force` on the same command: passing both is a contradiction about
+ * what the sync may destroy, so it is refused rather than resolved by precedence.
+ */
+function syncOverwritePolicy(options: ParsedArguments["options"]): CellOverwritePolicy | undefined {
+  const restore = options["restore"] === true;
+  const restoreAll = options["restore-all"] === true;
+  const overwrite = overwritePolicy(options);
+  if (restore && restoreAll) {
+    throw new UsageError(`--restore and --restore-all are mutually exclusive: one keeps the event command bodies, the other clears them.`);
+  }
+  if ((restore || restoreAll) && overwrite !== undefined) {
+    throw new UsageError(`--restore/--restore-all cannot be combined with --overwrite: they are different decisions about what the sync may overwrite.`);
+  }
+  if (restoreAll) return "restore-all";
+  if (restore) return "restore";
+  return overwrite;
 }
 
 /**
@@ -245,9 +274,11 @@ async function runSync(options: ParsedArguments["options"]): Promise<number> {
   // The build is in memory: `sync` compiles from the project's source rather than trusting a file
   // a previous run may have left, so what it writes is what this project compiles to now.
   const build = await compileProject({ root, write: false });
+  const overwrite = syncOverwritePolicy(options);
   const report = await syncProject(build, {
     port: await loadPort(portSpecifier, root),
     portDescription: `--port ${portSpecifier}`,
+    ...(overwrite === undefined ? {} : { overwrite }),
     ...(failurePolicy(options, "on-transport-failure") === undefined
       ? {}
       : { onTransportFailure: failurePolicy(options, "on-transport-failure") }),

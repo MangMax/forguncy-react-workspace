@@ -44,7 +44,7 @@
  * drifts away from the one that was measured (#27's review reached the same rule).
  */
 
-import type { ExtensionLibraryListing, FrontendLibraryReference } from "@forguncy-react-workspace/core";
+import type { ExtensionLibraryListing, FrontendLibraryReference, NormalizedCellBindings } from "@forguncy-react-workspace/core";
 
 // ---------------------------------------------------------------------------
 // api.app.listFrontendLibraries
@@ -133,6 +133,17 @@ export type ReadCellSourceResult =
        * *empty* into one and never invents a value for *absent*.
        */
       readonly frontendLibraries: readonly FrontendLibraryReference[];
+      /**
+       * The Cell's binding-bearing `cellTypeProps`, verbatim from the read (#179).
+       *
+       * Carried because field-level drift detection compares the read-back against the
+       * repository declaration, and the `eventHandlers` command-body merge reads the designer's
+       * attached command trees out of it. Verbatim rather than pre-digested: the comparison and
+       * the merge each normalize what they need, and a transport that filtered keys here would be
+       * deciding — at the wrong layer — which binding fields exist. This is the raw props object
+       * the product returned for the cell, never a re-serialization of it.
+       */
+      readonly bindingProps: Readonly<Record<string, unknown>>;
     };
 
 // ---------------------------------------------------------------------------
@@ -202,13 +213,24 @@ export const REACT_CELL_TYPE_READ_BACK_NAMES = ["ReactCellType", "ReactCellTypeC
 /**
  * The `cellTypeProps` half of one Cell.
  *
- * Exactly the two fields #19 requires sync to write, and they are exactly the two
- * the evidence records: `code` (the generated source) and `frontendLibraries`
- * (canonicalized to `[{ libraryId }]` by #6/#12, never a display name).
+ * The two fields #19 requires sync to write — `code` (the generated source) and
+ * `frontendLibraries` (canonicalized to `[{ libraryId }]` by #6/#12, never a display name) —
+ * plus the host-binding fields the declared-field takeover writes or carries through (#179).
+ * Those are `unknown` because their wire shape is the platform's measured `cellTypeProps` schema
+ * rather than a type this contract re-asserts: the takeover produces them from the validated
+ * declaration and the read-back, and a narrower type here would either re-declare the schema a
+ * second time or force a cast at the write.
  */
 export interface SetCellsCellTypeProps {
   readonly code: string;
   readonly frontendLibraries: readonly FrontendLibraryReference[];
+  readonly dataSources?: unknown;
+  readonly permissions?: unknown;
+  readonly availableServerCommands?: unknown;
+  readonly properties?: unknown;
+  readonly eventHandlers?: unknown;
+  readonly uploadLimit?: unknown;
+  readonly libraries?: unknown;
 }
 
 /**
@@ -225,6 +247,22 @@ export interface SetCellsCell {
   readonly cell: string;
   readonly cellType: SetCellsCellType;
   readonly cellTypeProps: SetCellsCellTypeProps;
+  /**
+   * The host bindings this Cell is declared authoritative for (#178/#179), when it manages any.
+   *
+   * Carried on the write rather than consulted earlier because the transport is where the
+   * per-field takeover is applied: declared fields are written from this declaration, undeclared
+   * fields are carried through from the read-back. `undefined` is the all-pass-through default —
+   * a pre-#178 cell, or one that declares no `bindings` block — and the write then behaves exactly
+   * as #141's unconditional preserve.
+   */
+  readonly bindings?: NormalizedCellBindings;
+  /**
+   * `--restore-all`: clear the designer-side `eventHandlers` command bodies rather than merging
+   * them in. Absent/false is the default and `--restore`'s behaviour — the command tree the
+   * designer attached to a declared event survives the write.
+   */
+  readonly clearEventBodies?: boolean;
 }
 
 export interface SetCellsRequest {

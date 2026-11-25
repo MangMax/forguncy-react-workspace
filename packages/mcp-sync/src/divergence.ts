@@ -53,9 +53,11 @@
 
 import { frontendLibraryIds } from "@forguncy-react-workspace/cell-compiler";
 import type { CompileCellResult } from "@forguncy-react-workspace/cell-compiler";
-import type { FrontendLibraryReference } from "@forguncy-react-workspace/core";
+import type { FrontendLibraryReference, NormalizedCellBindings } from "@forguncy-react-workspace/core";
 
-import { fingerprintArtifact, fingerprintArtifactCode, readSyncMarker } from "./fingerprint.ts";
+import { diffDeclaredBindings } from "./bindings-sync.ts";
+import type { BindingFieldDrift } from "./bindings-sync.ts";
+import { fingerprintArtifact, fingerprintArtifactCode, fingerprintDeclaredBindings, readSyncMarker } from "./fingerprint.ts";
 
 // ---------------------------------------------------------------------------
 // The observed state
@@ -104,6 +106,17 @@ export type DeployedCellState =
       readonly kind: "read";
       readonly code: string;
       readonly frontendLibraries?: readonly FrontendLibraryReference[];
+      /**
+       * The read-back host bindings, keyed by field — present only when the read captured them.
+       *
+       * Added for #179's field-level drift detection: classifying *binding* drift needs the
+       * values the cell currently holds, not only its code. Optional because a read that reported
+       * only the source (a dry run, a test, a caller that did not capture the full `cellTypeProps`)
+       * genuinely has no binding observation, and omitting it is "not stated" — the same rule
+       * `frontendLibraries` already follows. When present it is the cell's `cellTypeProps` binding
+       * fields verbatim from the read; the comparison normalizes them, so this is never massaged.
+       */
+      readonly declaredBindings?: Readonly<Record<string, unknown>>;
     }
   /**
    * The Cell holds something that is not a managed ReactCellType.
@@ -136,6 +149,7 @@ export const CELL_DIVERGENCE_KINDS = [
   "duplicated-marker",
   "foreign-code",
   "unverifiable",
+  "binding-drifted",
 ] as const;
 
 export type CellDivergenceKind = (typeof CELL_DIVERGENCE_KINDS)[number];
@@ -160,6 +174,14 @@ export interface CellDivergence {
    * there", and recomputing it downstream would mean re-reading the Cell.
    */
   readonly deployedFingerprint?: string;
+  /**
+   * The declared binding fields whose read-back value differs from the repository declaration
+   * (#179). Empty when nothing declared was changed — including when the Cell declares no
+   * bindings at all, when the read-back was not captured, or when the cell is a v1 cell whose
+   * marker does not cover the binding axis. Present on every divergence so the report can name
+   * exactly which field drifted and to what.
+   */
+  readonly bindingDrift: readonly BindingFieldDrift[];
 }
 
 function sameLibrarySet(
@@ -193,12 +215,18 @@ function describeUnreadReason(reason: CellReadUnavailableReason): string {
  * edit happened to leave the artifact hash matching, which is precisely the case the
  * check exists to catch.
  */
-export function classifyCellDivergence(state: DeployedCellState, artifact: CompileCellResult): CellDivergence {
+export function classifyCellDivergence(
+  state: DeployedCellState,
+  artifact: CompileCellResult,
+  options: { readonly bindings?: NormalizedCellBindings; readonly pageName?: string } = {},
+): CellDivergence {
+  const noDrift: readonly BindingFieldDrift[] = [];
   if (state.kind === "unread") {
     return {
       kind: "unverifiable",
       detail: `The target's current source is unknown: ${describeUnreadReason(state.reason)}.`,
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
 
@@ -210,6 +238,7 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
       kind: "foreign-code",
       detail: `The target Cell holds something this flow did not write and that is not a managed React Cell (${state.detail}), so overwriting it would destroy work the repository cannot reproduce.`,
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
 
@@ -219,6 +248,7 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
       kind: "vacant",
       detail: "The target Cell holds no source, so there is nothing to preserve.",
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
 
@@ -229,6 +259,7 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
       detail:
         "The target Cell holds source that carries no sync marker, so it was not written by this flow — it is designer-authored or came from somewhere this repository does not know.",
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
   if (markerState.kind === "malformed") {
@@ -236,6 +267,7 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
       kind: "malformed-marker",
       detail: `The target Cell carries a sync marker that cannot be read (${markerState.reason}), so its provenance cannot be established.`,
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
   if (markerState.kind === "duplicated") {
@@ -243,12 +275,33 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
       kind: "duplicated-marker",
       detail: `The target Cell carries ${markerState.count} sync markers, which cannot all describe the same source.`,
       metadataComparison: "not-applicable",
+      bindingDrift: noDrift,
     };
   }
 
   const marker = markerState.marker;
   const deployedFingerprint = marker.artifact;
   const actualCodeHash = fingerprintArtifactCode(code);
+
+  // -------------------------------------------------------------------------
+  // Binding drift (#179). Computed before the code/artifact classification
+  // returns, because it applies to several of them — a cell can be `identical`
+  // on the code axis and still drifted on a declared binding.
+  //
+  // The v1 backward-compat rule lives here: a marker written before the bindings
+  // hash existed covers only the code, so its cell is *never* binding-drifted —
+  // judging it would misread every pre-#179 managed cell. Drift is computed only
+  // when three things all hold: the Cell declares bindings, the marker covers the
+  // binding axis (carries a `bindings` hash), and the read-back captured the
+  // binding values. Any one missing means the question cannot be honestly asked,
+  // and "cannot ask" is `no drift`, never a phantom report.
+  // -------------------------------------------------------------------------
+  const pageName = options.pageName ?? "";
+  const bindingsCoverable =
+    options.bindings !== undefined && marker.bindings !== undefined && state.declaredBindings !== undefined;
+  const bindingDrift: readonly BindingFieldDrift[] = bindingsCoverable
+    ? diffDeclaredBindings(options.bindings as NormalizedCellBindings, state.declaredBindings ?? {}, pageName)
+    : noDrift;
 
   if (marker.code !== actualCodeHash) {
     return {
@@ -257,30 +310,54 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
         "The target Cell carries a valid marker whose recorded source hash no longer matches its source, so the generated code was edited after it was written.",
       metadataComparison: "not-applicable",
       deployedFingerprint,
+      bindingDrift,
     };
   }
 
   const metadataStated = state.frontendLibraries !== undefined;
   const metadataComparison: CellMetadataComparison = metadataStated ? "compared" : "unstated";
   const metadataMatches = metadataStated && sameLibrarySet(state.frontendLibraries ?? [], artifact.frontendLibraries);
+  const artifactMatches = deployedFingerprint === fingerprintArtifact(artifact);
+  // The bindings fingerprint is the second equality axis: the cell is the current
+  // deployment only when both the artifact and the declared bindings match what was
+  // written. A v1 cell has no `bindings` hash, so this check is vacuously true for it —
+  // which is correct, because a v1 cell asserts nothing about bindings.
+  const bindingsHashMatches = marker.bindings === undefined || marker.bindings === fingerprintDeclaredBindings(options.bindings);
 
-  if (deployedFingerprint === fingerprintArtifact(artifact) && metadataMatches) {
+  if (bindingDrift.length > 0) {
+    // Binding drift outranks the artifact-equality kinds: a cell whose code is current
+    // but whose declared bindings were edited in the designer is drifted, full stop.
+    // Naming it separately is what lets the report say *which* field, instead of the
+    // generic "an earlier generation" that `previous-generation` would give.
+    return {
+      kind: "binding-drifted",
+      detail: `The target Cell's declared host bindings were edited in the designer: ${bindingDrift
+        .map(drift => drift.field)
+        .join(", ")}. The repository is authoritative for these, and overwriting them without an explicit restore would destroy designer work — or silently discard the designer's intent.`,
+      metadataComparison,
+      deployedFingerprint,
+      bindingDrift,
+    };
+  }
+
+  if (artifactMatches && metadataMatches && bindingsHashMatches) {
     return {
       kind: "identical",
       detail: "The target Cell already holds this artifact, source and library references both.",
       metadataComparison,
       deployedFingerprint,
+      bindingDrift,
     };
   }
 
   return {
     kind: "previous-generation",
-    detail:
-      deployedFingerprint === fingerprintArtifact(artifact)
-        ? "The target Cell holds this artifact's source, but its library references could not be confirmed as the same, so the write re-asserts both."
-        : "The target Cell holds generated output from an earlier artifact, which this sync replaces.",
+    detail: artifactMatches
+      ? "The target Cell holds this artifact's source, but its library references could not be confirmed as the same, so the write re-asserts both."
+      : "The target Cell holds generated output from an earlier artifact, which this sync replaces.",
     metadataComparison,
     deployedFingerprint,
+    bindingDrift,
   };
 }
 
@@ -299,7 +376,7 @@ export function classifyCellDivergence(state: DeployedCellState, artifact: Compi
  * {@link cellDivergenceOverride} makes a forced write carry the conflict it overrode,
  * which is what keeps "force" from being a way to make the check invisible.
  */
-export const CELL_OVERWRITE_POLICIES = ["preserve-designer-edits", "force"] as const;
+export const CELL_OVERWRITE_POLICIES = ["preserve-designer-edits", "force", "restore", "restore-all"] as const;
 
 export type CellOverwritePolicy = (typeof CELL_OVERWRITE_POLICIES)[number];
 
@@ -313,6 +390,11 @@ export type CellWriteAction = "write" | "skip" | "conflict";
  * A total `Record` rather than a switch, so a new state cannot be added without
  * deciding what it means — the failure mode of a `default:` branch here is a state
  * that quietly writes over something.
+ *
+ * `binding-drifted` is a **conflict** under the default policy: the repository being authoritative
+ * for a field does not mean a sync may silently overwrite the designer's edit — it means the sync
+ * must *refuse and report*, exactly as it refuses a code edit. The difference is only in what an
+ * explicit override does, and that is the policy's job below, not this table's.
  */
 export const CELL_DIVERGENCE_ACTIONS: Readonly<Record<CellDivergenceKind, CellWriteAction>> = {
   vacant: "write",
@@ -323,34 +405,83 @@ export const CELL_DIVERGENCE_ACTIONS: Readonly<Record<CellDivergenceKind, CellWr
   "duplicated-marker": "conflict",
   "foreign-code": "conflict",
   unverifiable: "conflict",
+  "binding-drifted": "conflict",
 };
+
+/**
+ * The policies that turn a conflict into a write, and what each one means.
+ *
+ * `force` is #19's pre-existing escape hatch: overwrite anything, designer work included. `restore`
+ * and `restore-all` are #179's * narrower * overrides, and the distinction is the whole feature:
+ *
+ * - **`restore`** writes the repository-authoritative declared bindings over the designer's edits,
+ *   but **preserves** the `eventHandlers` command body. It is the one-click "make the cell match
+ *   the repo again" — the designer keeps the command tree it attached, because the repository never
+ *   owned that tree.
+ * - **`restore-all`** additionally clears the command body. It exists for the case where the designer
+ *   work itself is the thing being thrown away, and it is deliberately the more destructive spelling.
+ *
+ * Neither touches *undeclared* bindings — those stay pass-through under every policy. And neither
+ * is a licence to overwrite **non-binding** designer work the way `force` is: `restore`/`restore-all`
+ * resolve only the conflicts a binding-drift or a managed-cell edit represents, never a foreign or
+ * unreadable cell. {@link resolveCellWriteAction} encodes exactly which.
+ */
+const RESTORE_OVERRIDABLE_KINDS: Readonly<Set<CellDivergenceKind>> = new Set([
+  "binding-drifted",
+  "edited-after-generation",
+  "previous-generation",
+]);
 
 export function resolveCellWriteAction(
   divergence: CellDivergence,
   policy: CellOverwritePolicy = DEFAULT_CELL_OVERWRITE_POLICY,
 ): CellWriteAction {
   const action = CELL_DIVERGENCE_ACTIONS[divergence.kind];
-  return policy === "force" && action === "conflict" ? "write" : action;
+  if (action !== "conflict") return action;
+  if (policy === "force") return "write";
+  // `restore`/`restore-all` override only the conflicts a managed cell can raise — never a foreign
+  // or unreadable target, which stay refused even under a restore. That boundary is what keeps
+  // `restore` from becoming a quieter `force`.
+  if ((policy === "restore" || policy === "restore-all") && RESTORE_OVERRIDABLE_KINDS.has(divergence.kind)) {
+    return "write";
+  }
+  return action;
 }
 
 /**
  * The conflict a policy overrode, or `undefined` when nothing was overridden.
  *
- * Returned rather than logged, so the plan can carry it: a forced sync's report has to
- * say what it overwrote, and a value that only reaches a log file is a value nobody
- * reads before the next sync.
+ * Returned rather than logged, so the plan can carry it: a forced or restored sync's report has to
+ * say what it overwrote, and a value that only reaches a log file is a value nobody reads before
+ * the next sync.
  */
 export function cellDivergenceOverride(
   divergence: CellDivergence,
   policy: CellOverwritePolicy = DEFAULT_CELL_OVERWRITE_POLICY,
 ): CellDivergence | undefined {
-  if (policy !== "force") return undefined;
-  return CELL_DIVERGENCE_ACTIONS[divergence.kind] === "conflict" ? divergence : undefined;
+  if (policy !== "force" && policy !== "restore" && policy !== "restore-all") return undefined;
+  return resolveCellWriteAction(divergence, policy) === "write" && CELL_DIVERGENCE_ACTIONS[divergence.kind] === "conflict"
+    ? divergence
+    : undefined;
 }
 
 /** A report block for a CI log or a PR body. */
 export function formatCellDivergence(divergence: CellDivergence): string {
   const fingerprint =
     divergence.deployedFingerprint === undefined ? "no readable fingerprint" : divergence.deployedFingerprint;
-  return `Target state: ${divergence.kind} (${fingerprint}; metadata ${divergence.metadataComparison}). ${divergence.detail}`;
+  const base = `Target state: ${divergence.kind} (${fingerprint}; metadata ${divergence.metadataComparison}). ${divergence.detail}`;
+  if (divergence.bindingDrift.length === 0) return base;
+  // The field-level report is the point of the feature: name exactly which declared field was
+  // changed in the designer, and to what, so a person can decide whether to restore.
+  const lines = divergence.bindingDrift.map(
+    drift =>
+      `  - ${drift.field}: designer changed it to ${truncateJson(drift.readBack)} (repository declares ${truncateJson(drift.declared)})`,
+  );
+  return `${base}\nBinding drift (${divergence.bindingDrift.length} declared field(s)):\n${lines.join("\n")}`;
+}
+
+/** A canonical-JSON value shortened for a one-line report. */
+function truncateJson(value: unknown): string {
+  const text = JSON.stringify(value);
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
 }

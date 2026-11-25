@@ -251,6 +251,12 @@ export async function executeCellSyncBatch(
         // the one place this run knows what `compileCell` planned the artifact against.
         mappings: planOptions.mappings ?? registry.extensionMappings.mappings,
         ...(planOptions.overwrite === undefined ? {} : { overwrite: planOptions.overwrite }),
+        // The binding declaration (#179): the caller's pin, or the registry entry's own — the same
+        // default `planCellSyncTargets` applies, so the sync takes over exactly the fields the
+        // project declared and no more.
+        ...((planOptions.bindings ?? registry.require(planOptions.cellId).bindings) === undefined
+          ? {}
+          : { bindings: planOptions.bindings ?? registry.require(planOptions.cellId).bindings }),
       });
       runs.push(run);
       outcomes.push({ ...ref, kind: "run", run });
