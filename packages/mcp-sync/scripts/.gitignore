@@ -1,0 +1,4 @@
+# Real-machine verification evidence JSON is reproducible output, not source:
+# every verify-autoh-*.mjs script can regenerate it against the live designer.
+# The scripts are committed; their evidence output is not.
+.verify-*-evidence/
