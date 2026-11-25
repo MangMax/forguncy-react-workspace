@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createServer } from "vite";
 
 import { normalizeAliasFind, projectAliasTarget } from "./alias-audit.ts";
+import { DEV_SERVER_LOOPBACK_HOST } from "./loopback.ts";
 import { devHarness, HARNESS_ENTRY_URL_PATH, HARNESS_MOUNT_ELEMENT_ID } from "./vite-plugin.ts";
 import { hostModuleAliases } from "./host-modules.ts";
 
@@ -136,8 +137,10 @@ async function serverFor(
     server:
       options.listening === true
         ? // Port 0 lets the OS pick a free one, so the suite collides neither with a developer's
-          // own dev server nor with a second concurrent run of this file.
-          { port: 0, strictPort: false, hmr: false, watch: null }
+          // own dev server nor with a second concurrent run of this file. `host` is the shared
+          // loopback (#187): the default `localhost` binds `::1` on a machine that lists IPv6
+          // first, which the fetches in these tests cannot reach when IPv6 loopback is intercepted.
+          { host: DEV_SERVER_LOOPBACK_HOST, port: 0, strictPort: false, hmr: false, watch: null }
         : { middlewareMode: true, hmr: false, watch: null },
   });
 }
