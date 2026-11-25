@@ -74,6 +74,7 @@ export {
 export type {
   BuildDiagnosticReport,
   BuildProjectOptions,
+  CellBindingsReport,
   ManifestArtifact,
   ManifestResource,
   ProjectBuild,

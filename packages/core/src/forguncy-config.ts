@@ -23,8 +23,24 @@
  * and their synonyms stay refused by name at every level.
  */
 
+import type { CellBindingsConfig } from "./bindings-config.ts";
 import type { ExtensionExternalMapping } from "./extension-externals.ts";
 import { isPlainRecord } from "./guards.ts";
+
+// Re-exported so `CellConfig`'s `bindings` field and a project authoring the block share one
+// declaration — the type is this module's contract surface even though its owner is
+// `bindings-config.ts`, where the measured-schema validation lives (#178).
+export type {
+  CellAvailableServerCommandBindingConfig,
+  CellBindingsConfig,
+  CellDataSourceBindingConfig,
+  CellDataSourceBindingInfoConfig,
+  CellEventArgConfig,
+  CellEventHandlerBindingConfig,
+  CellPermissionBindingConfig,
+  CellPropertyBindingConfig,
+  CellUploadLimitBindingConfig,
+} from "./bindings-config.ts";
 
 /** Schema revision of the config document itself. */
 export const FORGUNCY_CONFIG_SCHEMA_VERSION = 1 as const;
@@ -166,6 +182,18 @@ export interface CellConfig {
   readonly fixture?: string;
   /** Optional code-budget override; requires `justification`. */
   readonly output?: CellCodeBudgetOverrides;
+  /**
+   * The host bindings this Cell declares itself authoritative for (#178, Epic #175).
+   *
+   * Declared means managed: whichever of the seven `cellTypeProps` binding fields are
+   * present here, the repository is the source of truth for — #179 writes them on sync,
+   * detects designer-side drift and restores them. A field left out is pass-through:
+   * the sync never touches it, which is the backward-compatible default for projects
+   * that manage bindings in the designer. `bindings: {}` is legal and means "this Cell
+   * takes over nothing". The shape and the measured-schema validation live in
+   * `bindings-config.ts`; this module declares shape and intent and normalizes nothing.
+   */
+  readonly bindings?: CellBindingsConfig;
 }
 
 /**
@@ -256,7 +284,7 @@ export interface ForguncyConfig {
 
 /** Fields allowed at each level. Used verbatim in unknown-field diagnostics. */
 export const CONFIG_ALLOWED_FIELDS = ["schemaVersion", "cells", "runtime", "extensions", "resolve"] as const;
-export const CELL_ALLOWED_FIELDS = ["entry", "target", "fixture", "output"] as const;
+export const CELL_ALLOWED_FIELDS = ["entry", "target", "fixture", "output", "bindings"] as const;
 export const RUNTIME_ALLOWED_FIELDS = [
   "forguncyVersion",
   "projectAlias",
