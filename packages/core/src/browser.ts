@@ -119,6 +119,7 @@ export {
   CELL_RUNTIME_RENDER_FAILURE_BEHAVIOR,
   CELL_SERVER_COMMANDS_CONTRACT,
   CELL_SOURCE_VALIDATION_MECHANISM,
+  CELL_TYPE_PROPS_WRITE_SCHEMA,
   CELL_USER_SCOPE_BINDINGS,
   FRONTEND_LIBRARY_REFERENCE_CONTRACT,
   FRONTEND_LIBRARY_REFERENCE_EXAMPLE,
@@ -304,7 +305,31 @@ export {
   stagesSkippedOnEarlyExit,
 } from "./selection-policy.ts";
 export { TARGET_LOCATOR_FINALIZATION, defineForguncyConfig, isConfigRecord } from "./forguncy-config.ts";
-export type { ForguncyConfig } from "./forguncy-config.ts";
+export type {
+  CellAvailableServerCommandBindingConfig,
+  CellBindingsConfig,
+  CellConfig,
+  CellDataSourceBindingConfig,
+  CellDataSourceBindingInfoConfig,
+  CellEventArgConfig,
+  CellEventHandlerBindingConfig,
+  CellPermissionBindingConfig,
+  CellPropertyBindingConfig,
+  CellUploadLimitBindingConfig,
+  ForguncyConfig,
+} from "./forguncy-config.ts";
+export { BINDINGS_ALLOWED_FIELDS, cellBindingFieldState, cellBindingFieldStates } from "./bindings-config.ts";
+export type {
+  BindingsConfigWarning,
+  CellBindingFieldName,
+  CellBindingFieldState,
+  NormalizedCellBindings,
+  NormalizedCellDataSourceBinding,
+  NormalizedCellEventHandlerBinding,
+  NormalizedCellPermissionBinding,
+  NormalizedCellPropertyBinding,
+  NormalizedCellUploadLimitBinding,
+} from "./bindings-config.ts";
 export {
   CELL_CODE_BUDGET_DECISION,
   CELL_CODE_BUDGET_MEASUREMENT,

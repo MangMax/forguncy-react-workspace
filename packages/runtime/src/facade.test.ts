@@ -1051,8 +1051,13 @@ describe("the typed members #176's evidence pays for", () => {
     // The boundary is a forward: what is asserted is that the value the mock computed is
     // the value the cell receives, not that the façade recomputed anything.
     expect(runtimeFacade().convertToCssColor("#80FF0000")).toBe("rgba(255,0,0,0.50)");
-    const now = new Date();
-    expect(runtimeFacade().convertOADateToDate(runtimeFacade().convertDateToOADate(now)).getTime()).toBe(now.getTime());
+    // A spread of inputs rather than one wall-clock instant: the unrounded floating-point
+    // inverse was deterministically lossy for a fraction of inputs (see `mock-provider.test.ts`),
+    // so a single `new Date()` only sometimes reproduced it. The round-trip is asserted exact
+    // across millisecond boundaries so a regression is deterministic rather than flaky.
+    for (const input of [new Date(), ...Array.from({ length: 24 }, (_, index) => new Date(1795593657000 + index * 137 + (index % 4)))]) {
+      expect(runtimeFacade().convertOADateToDate(runtimeFacade().convertDateToOADate(input)).getTime()).toBe(input.getTime());
+    }
   });
 
   it("reads a declared property through cellProperty, typed only by the project", () => {

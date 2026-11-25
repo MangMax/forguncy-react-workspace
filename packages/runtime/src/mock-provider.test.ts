@@ -330,9 +330,23 @@ describe("measured member defaults", () => {
     const toOA = handle.ConvertDateToOADate as (date: Date) => number;
     const fromOA = handle.ConvertOADateToDate as (oadate: number) => Date;
 
-    const now = new Date();
-    // The measured round-trip guarantee: exact to the millisecond when composed.
-    expect(fromOA(toOA(now)).getTime() - now.getTime()).toBe(0);
+    // The measured round-trip guarantee: exact to the millisecond when composed. Asserted
+    // across a spread of inputs rather than one wall-clock instant, because the floating-point
+    // inverse is *deterministically* lossy for a fraction of inputs — `(asUtc - epoch) / 86400000`
+    // then `oadate * 86400000` drifted by up to 1ms before the millisecond count was rounded
+    // (caught by #182's CI), and a single `new Date()` only sometimes lands on a drifting value.
+    // A spread across millisecond boundaries makes the lossy direction deterministic rather
+    // than flaky, so a regression fails every run, not one run in three.
+    const inputs = [
+      new Date(),
+      // Wall-clock-scale values chosen to straddle millisecond boundaries and a spread of
+      // fractional-millisecond-producing magnitudes — the region where the unrounded inverse
+      // drifted. The exact values matter less than that they span many milliseconds.
+      ...Array.from({ length: 24 }, (_, index) => new Date(1795593657000 + index * 137 + (index % 4))),
+    ];
+    for (const input of inputs) {
+      expect(fromOA(toOA(input)).getTime() - input.getTime()).toBe(0);
+    }
     // And the measured timezone behaviour: the epoch is local, so `0` does not produce
     // `1899-12-30T00:00:00Z` except on a UTC host — what is asserted is the *local*
     // midnight, which is the conversion the host performs.

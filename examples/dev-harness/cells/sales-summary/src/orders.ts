@@ -112,17 +112,22 @@ export function readOrderPermissions(): Readonly<Partial<Record<string, boolean>
 }
 
 /**
- * The Cell's declared bindings, typed the way #178's declaration layer will pin them.
+ * The Cell's declared bindings, **projected from the config** rather than written twice.
  *
- * `Properties` and `Events` are the project's own declaration: which properties the
- * designer configured (`title`, `highlightColor`) and which events (`onExport`,
- * `onRowSelect`). The bare `runtimeFacade()` admits neither — `never` is the default
- * for both — so this type argument is the only place the names enter the type system,
+ * `forguncy.config.ts` declares the same names in `cells.salesSummary.bindings` — and #178's
+ * contract is that the two are *one* declaration. Projecting off `typeof config` is what
+ * keeps them that way: adding a property to the config adds it to this union in the same
+ * edit, and removing one breaks this file at compile time rather than letting the facade
+ * admit a binding the deployment no longer writes. `cellProperty` and `fireEvent` take
+ * these as their type arguments — `never` by default, so an undeclared name is un-callable,
  * which is the same discipline the command map already follows.
  */
+import type config from "../../forguncy.config.ts";
+
+type DeclaredBindings = (typeof config)["cells"]["salesSummary"]["bindings"];
 export type AppCellBindings = {
-  readonly properties: "title" | "highlightColor";
-  readonly events: "onExport" | "onRowSelect";
+  readonly properties: NonNullable<DeclaredBindings>["properties"] extends readonly { readonly propertyName: infer Name }[] ? Name : never;
+  readonly events: NonNullable<DeclaredBindings>["eventHandlers"] extends readonly { readonly eventName: infer Name }[] ? Name : never;
 };
 
 /** The façade typed for this Cell's commands *and* its declared bindings. */

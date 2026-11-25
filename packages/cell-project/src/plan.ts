@@ -47,7 +47,7 @@ import type {
 } from "@forguncy-react-workspace/mcp-sync";
 
 import { cellLockOf, deploymentWithheldOf } from "./project.ts";
-import type { ProjectBuild } from "./build.ts";
+import type { CellBindingsReport, ProjectBuild } from "./build.ts";
 import { requireCompiledCells } from "./compiled-cells.ts";
 import type { CompiledCell } from "./compiled-cells.ts";
 
@@ -75,6 +75,14 @@ export interface PlannedCellSync {
   readonly wouldWrite: boolean;
   readonly heldBecause: string | null;
   readonly diagnostics: readonly { readonly code: string; readonly message: string; readonly fixOwner: string }[];
+  /**
+   * The host bindings this Cell declared itself authoritative for (#178), carried through from
+   * the build verbatim. `undefined` is the pass-through default — the config declared no
+   * `bindings` block, and every binding field is left untouched by whatever consumes the plan.
+   * The plan only *reports* it: which fields a sync may write is #179's decision, and this
+   * module must never answer that itself.
+   */
+  readonly bindings: CellBindingsReport | undefined;
   /** True when the target state was actually read (connected mode) rather than assumed blank. */
   readonly targetStateRead: boolean;
   /** What the deployment gate (#8) still withholds for this Cell. Never blocks a build. */
@@ -149,6 +157,10 @@ function reportOf(
   targetStateRead: boolean,
 ): PlannedCellSync {
   const dispatch = planSetCellsDispatch(plan);
+  // The build's own per-Cell entry carries the declaration whether or not the cell compiled,
+  // and `requireArtifacts` has already guaranteed every entry compiled — so the lookup cannot
+  // miss; a missing one is a drifted project, not an undeclared Cell.
+  const bindings = build.report.cells.find(cell => cell.cellId === cellId)?.bindings;
   return {
     cellId,
     label: cellTargetLabel(plan.target),
@@ -177,6 +189,7 @@ function reportOf(
       fixOwner: diagnostic.fixOwner,
     })),
     targetStateRead,
+    bindings,
     deploymentWithheld: deploymentWithheldOf(build.project, cellId).map(entry => ({
       packageName: entry.packageName,
       strategy: entry.strategy,
@@ -357,6 +370,11 @@ export function formatProjectSyncPlan(report: ProjectSyncPlanReport): string {
     }
     if (!cell.targetStateRead) {
       lines.push("  target state: assumed blank — this plan did not read the target, so it cannot say whether the write would overwrite anything");
+    }
+    if (cell.bindings !== undefined) {
+      lines.push(
+        `  bindings: ${cell.bindings.declaredFields.length === 0 ? "declared, taking over nothing" : `managed ${cell.bindings.declaredFields.join("/")}`} — every undeclared field is pass-through and stays untouched`,
+      );
     }
     for (const problem of cell.extensionVerification.problems) {
       lines.push(`  EXTENSION ${problem.code} (fix owner: ${problem.fixOwner}): ${problem.message}`);

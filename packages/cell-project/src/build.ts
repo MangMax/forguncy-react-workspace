@@ -34,8 +34,8 @@ import type {
   CellProjectBuild,
   CellProjectWorkspace,
 } from "@forguncy-react-workspace/cell-compiler";
-import type { CellEntryKind, DependencyDecision } from "@forguncy-react-workspace/core";
-import { compareCodeUnits } from "@forguncy-react-workspace/core";
+import type { CellBindingFieldName, CellBindingFieldState, CellEntryKind, DependencyDecision, NormalizedCellBindings } from "@forguncy-react-workspace/core";
+import { cellBindingFieldStates, compareCodeUnits } from "@forguncy-react-workspace/core";
 import { fingerprintArtifact } from "@forguncy-react-workspace/mcp-sync";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -102,6 +102,27 @@ export interface UnobservableDecisionReport {
   readonly stalenessReasons: readonly string[];
 }
 
+/**
+ * One Cell's binding declaration, as the build report carries it (#178).
+ *
+ * This is the input #179's sync consumes: `declaredFields` says which of the seven
+ * `cellTypeProps` binding fields the repository is authoritative for, `states` marks each one
+ * `managed` / `managed-empty` / `pass-through`, and `content` carries the validated declaration
+ * itself — absent only when the Cell declares no `bindings` block at all, which is the
+ * backward-compatible default. The three are one object rather than three optional fields
+ * because they can never legitimately disagree: the states are derived off the content's key
+ * presence, and the manifest reader must not be handed a shape in which a field can be
+ * `managed` without content or vice versa.
+ */
+export interface CellBindingsReport {
+  /** The declared fields, in schema order. */
+  readonly declaredFields: readonly CellBindingFieldName[];
+  /** Every field's state, declared or not. */
+  readonly states: Readonly<Record<CellBindingFieldName, CellBindingFieldState>>;
+  /** The validated declaration, verbatim — the content #179 writes and compares. */
+  readonly content: NormalizedCellBindings;
+}
+
 /** One declared Cell's outcome, as the build report carries it. */
 export interface ProjectCellBuildReport {
   readonly cellId: string;
@@ -109,6 +130,14 @@ export interface ProjectCellBuildReport {
   readonly status: "compiled" | "rejected";
   readonly artifact: ManifestArtifact | null;
   readonly diagnostics: readonly BuildDiagnosticReport[];
+  /**
+   * The host bindings this Cell declared itself authoritative for, verbatim from the
+   * validated config — `undefined` when the Cell declares no `bindings` block, which is
+   * the pass-through default a pre-#178 project already has. Present **whether or not the
+   * Cell compiled**: the declaration is config truth, not a build product, so a consumer
+   * reconciling the manifest against the config must not lose it to a compile failure.
+   */
+  readonly bindings: CellBindingsReport | undefined;
   /** The dependency decisions the compile was handed: recorded ones, and the bridge's host rows. */
   readonly decisions: readonly {
     readonly packageName: string;
@@ -140,6 +169,14 @@ export interface ProjectBuildReport {
   /** The project-declared extension rows — never the built-in table alone (#85/#87). */
   readonly extensionMappings: readonly ProjectExtensionMapping[];
   readonly hasLock: boolean;
+  /**
+   * The non-blocking binding-declaration warnings the registry carried, verbatim (#178).
+   *
+   * Keyed by Cell id and present on the report rather than only inside it because a caller
+   * that never reads the per-Cell details — a CI gate, a CLI summary — is exactly the one
+   * the warning exists for. Empty for a project whose declarations raised none.
+   */
+  readonly projectBindingsWarnings: Readonly<Record<string, readonly { readonly code: string; readonly path: string; readonly message: string }[]>>;
   readonly cells: readonly ProjectCellBuildReport[];
 }
 
@@ -243,6 +280,19 @@ function diagnosticsOf(cell: BuiltCell): readonly BuildDiagnosticReport[] {
   ];
 }
 
+/** The Cell's binding declaration as the report carries it, or `undefined` for the pass-through default. */
+function bindingsReportOf(project: LoadedCellProject, cellId: string): CellBindingsReport | undefined {
+  const bindings = project.registry.get(cellId)?.bindings;
+  if (bindings === undefined) {
+    return undefined;
+  }
+  return {
+    declaredFields: bindings.declaredFields,
+    states: cellBindingFieldStates(bindings),
+    content: bindings,
+  };
+}
+
 /** The lock's view of one Cell, in the report's vocabulary. */
 function lockViewOf(project: LoadedCellProject, cellId: string): Pick<
   ProjectCellBuildReport,
@@ -300,7 +350,10 @@ function lockViewOf(project: LoadedCellProject, cellId: string): Pick<
  */
 function serializeManifest(report: ProjectBuildReport): string {
   const manifest = {
-    schemaVersion: 1,
+    // Bumped to 2 for #178: a v1 reader sees a version it does not understand rather than
+    // silently dropping the `bindings` half of each Cell — the presence of which is exactly
+    // what a consumer reconciling the manifest against the config cannot afford to lose.
+    schemaVersion: 2,
     generator: "@forguncy-react-workspace/cell-project",
     cells: report.cells.map(cell => ({
       cellId: cell.cellId,
@@ -308,6 +361,11 @@ function serializeManifest(report: ProjectBuildReport): string {
       status: cell.status,
       artifact: cell.artifact,
       diagnostics: cell.diagnostics,
+      // Written unconditionally — `null` for the pass-through default rather than an absent key —
+      // because the difference between "this Cell takes over nothing" and "this manifest predates
+      // the declaration feature" is the answer #179's backward-compatibility rule reads. An
+      // absent key would make the two indistinguishable.
+      bindings: cell.bindings ?? null,
     })),
   };
   return `${JSON.stringify(manifest, null, 2)}\n`;
@@ -344,6 +402,7 @@ export async function compileProject(options: BuildProjectOptions): Promise<Proj
       status: cell.outcome.status,
       artifact: artifactOf(cell, fileName),
       diagnostics: diagnosticsOf(cell),
+      bindings: bindingsReportOf(project, cell.cellId),
       ...lockViewOf(project, cell.cellId),
     };
   });
@@ -357,6 +416,7 @@ export async function compileProject(options: BuildProjectOptions): Promise<Proj
     alias: build.alias,
     extensionMappings: projectExtensionMappings(project),
     hasLock: project.hasLock,
+    projectBindingsWarnings: project.registry.bindingsWarnings,
     cells,
   };
 
@@ -397,11 +457,29 @@ export function formatProjectBuildReport(report: ProjectBuildReport): string {
         : report.extensionMappings.map(row => `${row.packageName} -> ${row.libraryId} (global ${row.globalName})`).join(", ")
     }`,
     `Lock: ${report.hasLock ? "recorded decisions present" : "no fgc.lock.json — every imported package must be a workspace source, a host module or undecided"}`,
-    "",
   ];
+
+  // Suspicious-declaration warnings the registry carried (#178). Non-blocking by construction —
+  // the build ran — so they are printed where the report is read rather than thrown where it
+  // is produced. `availableServerCommands` is the one current source, and it warns precisely
+  // because the platform performs no existence validation there: nothing else ever will.
+  for (const [cellId, warnings] of Object.entries(report.projectBindingsWarnings)) {
+    for (const warning of warnings) {
+      lines.push(`WARNING ${cellId}: [${warning.code}] ${warning.path} — ${warning.message}`);
+    }
+  }
+  lines.push("");
 
   for (const cell of report.cells) {
     lines.push(`Cell ${cell.cellId} -> ${cell.target.pageName}!${cell.target.cell}: ${cell.status}`);
+    if (cell.bindings !== undefined) {
+      const states = Object.entries(cell.bindings.states)
+        .map(([field, state]) => `${field}: ${state}`)
+        .join(", ");
+      lines.push(
+        `  bindings: ${cell.bindings.declaredFields.length === 0 ? "declared, taking over nothing" : `managed ${cell.bindings.declaredFields.join("/")}`} (${states})`,
+      );
+    }
     if (cell.artifact !== null) {
       lines.push(
         `  artifact ${cell.artifact.file}: ${cell.artifact.characters} chars, fingerprint ${cell.artifact.fingerprint.slice(0, 16)}…`,

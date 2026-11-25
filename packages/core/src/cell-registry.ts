@@ -38,6 +38,8 @@ import {
   targetLocatorKey,
 } from "./forguncy-config.ts";
 import type { CellCodeBudgetOverrides, ForguncyTargetLocator, TargetLocatorModel } from "./forguncy-config.ts";
+import { validateCellBindings } from "./bindings-config.ts";
+import type { BindingsConfigWarning, NormalizedCellBindings } from "./bindings-config.ts";
 import { normalizeExtensionMappings } from "./extension-mappings-config.ts";
 import type { NormalizedExtensionMappings } from "./extension-mappings-config.ts";
 import type { ExtensionExternalMapping } from "./extension-externals.ts";
@@ -108,6 +110,13 @@ export type ConfigDiagnosticCode =
   | "invalid-cell-id"
   | "invalid-cell"
   | "unknown-cell-field"
+  // Host-binding declarations (#178). Owned by `bindings-config.ts`, folded into this
+  // vocabulary like the extension-mappings and resolve codes above it.
+  | "invalid-bindings"
+  | "unknown-bindings-field"
+  | "invalid-binding-value"
+  | "unknown-binding-key"
+  | "duplicate-binding-name"
   | "missing-cell-entry"
   | "invalid-entry-path"
   | "entry-outside-project-root"
@@ -192,6 +201,14 @@ export interface RegisteredCell {
   readonly fixture?: string;
   readonly fixturePath?: string;
   readonly output?: CellCodeBudgetOverrides;
+  /**
+   * The host bindings this Cell declared itself authoritative for (#178) — validated,
+   * with every declared key present including the empty ones. `undefined` is the
+   * pass-through default: the config declared no `bindings` block at all, and every
+   * binding field is left untouched. Presence is the semantics, so a consumer reads
+   * "which fields are managed" off the keys, never off content truthiness.
+   */
+  readonly bindings?: NormalizedCellBindings;
 }
 
 /** Project/runtime target assumptions, with defaults applied. */
@@ -229,6 +246,17 @@ export interface CellRegistry {
    * to load `core`'s built-in table.
    */
   readonly extensionMappings: NormalizedExtensionMappings;
+  /**
+   * Non-blocking observations about binding declarations, keyed by Cell id (#178).
+   *
+   * Warnings are carried on the registry rather than logged because a CLI, a build
+   * report and a test all need to read them — stderr is where warnings go to be
+   * ignored. They are off the blocking path by construction: the registry exists when
+   * they are present. The one current source is `availableServerCommands`, whose
+   * measured schema performs no existence validation at all, so a suspicious name is
+   * the only check the entry gets before deploy.
+   */
+  readonly bindingsWarnings: Readonly<Record<string, readonly BindingsConfigWarning[]>>;
   /**
    * The project's module-resolution aliases, normalized once (Issue #97).
    *
@@ -485,6 +513,8 @@ interface ResolvedCell {
   readonly target: NormalizedCellTarget;
   readonly fixture?: ResolvedEntry;
   readonly output?: CellCodeBudgetOverrides;
+  readonly bindings?: NormalizedCellBindings;
+  readonly bindingsWarnings: readonly BindingsConfigWarning[];
 }
 
 function validateCell(
@@ -556,11 +586,35 @@ function validateCell(
 
   const output = validateOutputOverride(raw.output, `${path}.output`, out);
 
+  // The host-binding declaration (#178), validated through its own module and folded into the
+  // same diagnostics list — one error type, one round trip, the convention the extension
+  // mappings and the resolve block follow. The module's own codes are members of this module's
+  // vocabulary, which is what makes the fold a pass-through rather than a translation.
+  const bindingsResult = validateCellBindings(raw.bindings, `${path}.bindings`, out);
+  if (!bindingsResult.ok) {
+    out.push(...bindingsResult.diagnostics);
+  }
+
   if (entry === undefined || target === undefined) {
     return undefined;
   }
 
-  return { id, entry, target, fixture, output };
+  // A failed bindings validation keeps the cell out of the registry even when entry and target
+  // are fine: the diagnostics above already guarantee the registry construction throws, and the
+  // declaration must never reach a consumer half-validated — the deploy side reads "managed vs
+  // pass-through" off key presence, so a partially dropped block would silently demote valid
+  // declared fields. `bindings` is therefore present exactly when it validated, never otherwise.
+  const bindings = bindingsResult.ok ? bindingsResult.bindings : undefined;
+
+  return {
+    id,
+    entry,
+    target,
+    fixture,
+    output,
+    ...(bindings === undefined ? {} : { bindings }),
+    bindingsWarnings: bindingsResult.ok ? bindingsResult.warnings : [],
+  };
 }
 
 function validateTarget(
@@ -954,7 +1008,15 @@ export function createCellRegistry(config: unknown, options: CreateCellRegistryO
     fixture: cell.fixture?.authored,
     fixturePath: cell.fixture?.absolute,
     output: cell.output,
+    ...(cell.bindings === undefined ? {} : { bindings: cell.bindings }),
   }));
+
+  const bindingsWarnings: Record<string, readonly BindingsConfigWarning[]> = {};
+  for (const cell of resolvedCells) {
+    if (cell.bindingsWarnings.length > 0) {
+      bindingsWarnings[cell.id] = Object.freeze([...cell.bindingsWarnings]);
+    }
+  }
 
   const byId = new Map(cells.map(cell => [cell.id, cell]));
   const byLocator = new Map(cells.map(cell => [cell.target.locatorKey, cell]));
@@ -967,6 +1029,7 @@ export function createCellRegistry(config: unknown, options: CreateCellRegistryO
     runtime,
     extensionMappings,
     resolve: resolveConfig,
+    bindingsWarnings: Object.freeze(bindingsWarnings),
     cells,
     cellIds: cells.map(cell => cell.id),
     get: id => byId.get(id),
@@ -1114,6 +1177,13 @@ export function isCellRegistry(value: unknown): value is CellRegistry {
     // is the correct answer for a document that has one.
     isConfigRecord(value.extensionMappings) &&
     Array.isArray((value.extensionMappings as { readonly mappings?: unknown }).mappings) &&
+    // `bindingsWarnings` is required for the same reason as `extensionMappings` above: this
+    // predicate is what lets a host adopt a registry without re-validating it, and a registry
+    // from before #178 has no such field. Admitting it would hand the build report `undefined`
+    // where the warning list belongs — reading as "nothing suspicious was declared", the one
+    // answer that must never be invented. The field is unconditionally present on every registry
+    // this module mints (an empty record when nothing warned), so the check costs nothing.
+    isConfigRecord((value as { readonly bindingsWarnings?: unknown }).bindingsWarnings) &&
     // `resolve` is required for the same reason as `extensionMappings`: a value that passed
     // here is one every consumer reads `resolve` off, and a registry from an older shape has
     // no such field. Admitting it would hand the dev server and the build `undefined` where

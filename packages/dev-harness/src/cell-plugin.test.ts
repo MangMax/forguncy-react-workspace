@@ -264,6 +264,8 @@ describe("the virtual Cell module seam", () => {
       },
       extensionMappings: forgedExtensionMappings(),
       resolve: forgedResolve(),
+      // Required on the registry since #178; an empty record is the no-warnings answer.
+      bindingsWarnings: {},
       cells: [cell],
       cellIds: [cell.id],
       get: id => (id === cell.id ? cell : undefined),

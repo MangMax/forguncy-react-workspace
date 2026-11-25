@@ -23,7 +23,9 @@ import { defineForguncyConfig } from "@forguncy-react-workspace/core";
  * `runtime.forguncyVersion` is the version #5 measured. It is recorded rather than checked
  * here because this example does not talk to a Forguncy project at all.
  */
-export default defineForguncyConfig({
+// Bound to a const rather than exported inline, so `orders.ts` can project the facade's
+// type arguments off `typeof config` — see the `bindings` block below.
+const config = defineForguncyConfig({
   runtime: {
     forguncyVersion: "12.0.100",
     projectAlias: "dev-harness-example",
@@ -33,6 +35,24 @@ export default defineForguncyConfig({
       entry: "./cells/sales-summary/src/App.tsx",
       fixture: "./cells/sales-summary/fixture.ts",
       target: { pageName: "销售订单", cell: "A1" },
+      // The host-binding declaration (#178): the repository is authoritative for these
+      // fields, written once here — and `cells/sales-summary/src/orders.ts` derives the
+      // facade's `Properties`/`Events` type arguments from this very object, which is the
+      // linkage #178's header describes: one declaration drives the deploy-time binding
+      // *and* the typed surface the cell compiles against. `eventHandlers` carries the
+      // name + argument contract only — the command tree is the designer's (#179).
+      bindings: {
+        properties: [
+          { propertyName: "title", exampleValue: "本月销售" },
+          { propertyName: "highlightColor", exampleValue: "#80FF0000" },
+        ],
+        eventHandlers: [
+          { eventName: "onExport" },
+          { eventName: "onRowSelect", eventArgs: [{ name: "rowKey" }, { name: "index" }] },
+        ],
+      },
     },
   },
 });
+
+export default config;

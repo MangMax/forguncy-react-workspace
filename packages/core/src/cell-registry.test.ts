@@ -221,6 +221,127 @@ describe("normalized Cell registry", () => {
   });
 });
 
+describe("host-binding declarations (#178)", () => {
+  it("a Cell without a bindings key has no bindings on the registry — the backward-compatible default", () => {
+    const cell = registryOf(multiCellConfig()).require("orderList");
+
+    expect(cell.bindings).toBeUndefined();
+    expect(registryOf(multiCellConfig()).bindingsWarnings).toEqual({});
+  });
+
+  it("carries a declared bindings block onto the registered Cell, declared keys and empty values intact", () => {
+    const registry = registryOf({
+      cells: {
+        orderList: {
+          entry: "./cells/order-list/src/index.ts",
+          target: { pageName: "销售订单", cell: "A1" },
+          bindings: {
+            properties: [{ propertyName: "title", exampleValue: "订单总览" }],
+            eventHandlers: [{ eventName: "onSelect", eventArgs: [{ name: "rowId" }] }],
+            permissions: [],
+            libraries: "AntDesign",
+          },
+        },
+      },
+    });
+
+    const cell = registry.require("orderList");
+    expect(cell.bindings?.declaredFields).toEqual(["permissions", "properties", "eventHandlers", "libraries"]);
+    // `permissions: []` survives as a key — dropping it would demote the managed-empty declaration
+    // to pass-through, the one direction the Epic forbids.
+    expect(cell.bindings?.permissions).toEqual([]);
+    expect(cell.bindings?.properties?.[0]?.propertyName).toBe("title");
+    expect(cell.bindings?.libraries).toBe("AntDesign");
+  });
+
+  it("`bindings` is a known Cell field, not an unknown-field diagnostic", () => {
+    expect(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            bindings: {},
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("illegal declarations fail the registry with their own codes, at the config path", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            bindings: {
+              eventHandlers: [{ eventName: "onSelect", eventHandler: { commandName: "x" } }],
+              properties: [{ propertyName: "title", displayName: "标题" }],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toContain("invalid-binding-value");
+    expect(error.codes).toContain("unknown-binding-key");
+    expect(error.diagnostics.map(d => d.path)).toContain("cells.orderList.bindings.eventHandlers[0].eventHandler");
+    expect(error.diagnostics.map(d => d.path)).toContain("cells.orderList.bindings.properties[0].displayName");
+  });
+
+  it("an unknown bindings field is refused beside the Cell's other fields, in one pass", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/order-list/src/index.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            bindings: { code: "var x", dataSourcez: [] },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toEqual(["unknown-bindings-field", "unknown-bindings-field"]);
+  });
+
+  it("a bindings mistake and an entry mistake are reported together — one round trip", () => {
+    const error = captureConfigError(() =>
+      registryOf({
+        cells: {
+          orderList: {
+            entry: "./cells/does-not-exist.ts",
+            target: { pageName: "销售订单", cell: "A1" },
+            bindings: { libraries: "" },
+          },
+        },
+      }),
+    );
+
+    expect(error.codes).toContain("missing-entry-file");
+    expect(error.codes).toContain("invalid-binding-value");
+  });
+
+  it("suspicious server command names surface as non-blocking registry warnings keyed by Cell", () => {
+    const registry = registryOf({
+      cells: {
+        orderList: {
+          entry: "./cells/order-list/src/index.ts",
+          target: { pageName: "销售订单", cell: "A1" },
+          bindings: { availableServerCommands: [{ name: "Recalculate Orders" }] },
+        },
+      },
+    });
+
+    // The registry exists — the warning never blocks — and the warning is on the registry,
+    // not on stderr, where it would go to be ignored.
+    expect(registry.require("orderList").bindings?.availableServerCommands).toEqual([{ name: "Recalculate Orders" }]);
+    expect(registry.bindingsWarnings.orderList).toHaveLength(1);
+    expect(registry.bindingsWarnings.orderList?.[0]?.code).toBe("suspicious-server-command-name");
+  });
+});
+
 describe("registry validation", () => {
   it("requires an absolute project root", () => {
     expect(codesOf(() => createCellRegistry({ cells: {} }, { root: "" }))).toEqual(["invalid-project-root"]);
@@ -613,6 +734,9 @@ describe("mutation-boundary target guard", () => {
       // from the raw config and the mutation-boundary path under test would never run.
       extensionMappings: normalizedMappingsOf({}),
       resolve: normalizedResolveOf({}, validMultiRoot),
+      // Same adoption contract as the two fields above: required since #178, and unconditionally
+      // present on every registry `createCellRegistry` mints.
+      bindingsWarnings: {},
       cells,
       cellIds: cells.map(cell => cell.id),
       get: id => cells.find(cell => cell.id === id),
