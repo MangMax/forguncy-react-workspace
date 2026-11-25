@@ -357,7 +357,16 @@ function mockConvertDateToOADate(date: Date): number {
 }
 
 function mockConvertOADateToDate(oadate: number): Date {
-  const shifted = new Date(Date.UTC(1899, 11, 30) + oadate * 86400000);
+  // `Math.round` on the millisecond count, because the inverse is not exact in floating
+  // point: `(asUtc - epoch) / 86400000` followed by `oadate * 86400000` does not reliably
+  // return the original integer millisecond for wall-clock-scale inputs — IEEE-754 division
+  // then multiplication drifts the result by up to 1ms, so the round-trip the probe measured
+  // as "exact to the millisecond" came out one millisecond off for a large fraction of inputs
+  // (caught by the CI run of #182). The two directions are strict inverses in wall-clock space
+  // only once the millisecond count is re-an integral value, which rounding restores without
+  // changing the host's measured local-timezone arithmetic — the host's own epoch shift is a
+  // whole number of milliseconds, so no real value is ever fractional here.
+  const shifted = new Date(Date.UTC(1899, 11, 30) + Math.round(oadate * 86400000));
   return new Date(
     shifted.getUTCFullYear(),
     shifted.getUTCMonth(),
