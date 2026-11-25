@@ -40,6 +40,7 @@
 
 import type {
   CellEntryKind,
+  CellHeightMode,
   DependencyDecision,
   FrontendLibraryReference,
   NormalizedExtensionMappings,
@@ -430,6 +431,37 @@ export interface CompileCellOptions {
    * assets against the same threshold. Absent means the v1 default.
    */
   readonly assetInlineLimitBytes?: number;
+  /**
+   * The Cell's layout declaration as the compiler consumes it (#185, Epic #184).
+   *
+   * `heightMode: "fixed"` is the explicit opt-out: the artifact carries no
+   * ReactCellAutoHeight injection and is byte-identical to what this compiler
+   * produced before the injection existed. `"auto"` and absence both compile
+   * height-adaptive — absence reads as the default because `core`'s registry
+   * materializes `DEFAULT_CELL_HEIGHT_MODE` for every normalized Cell, so a caller
+   * omitting the option is either a probe/test or one that deliberately accepts the
+   * standard behaviour, never an opt-out it forgot to write.
+   *
+   * ## The default is a one-time migration event, and it is deliberate
+   *
+   * The first compile after a project picks up this compiler version produces a
+   * *larger artifact* for every height-adaptive Cell — the injection's characters,
+   * measured and pinned in `auto-height.test.ts`. That is a change in the artifact's
+   * bytes with no change in the project's source, which means the sync layer reads
+   * the next deployment as new generated content rather than a designer edit — the
+   * correct reading, and the reason the Epic's rollout note belongs in the release
+   * communication: `fgc sync` fingerprints compare artifact bytes, so the migration
+   * is visible exactly once per Cell, at the first compile after upgrade, and then
+   * never again. `heightMode: "fixed"` is the answer for a Cell whose layout is
+   * deliberately row-height-bound; everything else should take the migration once
+   * and be adaptive.
+   *
+   * Project callers should not assemble this object by hand: it travels from
+   * `forguncy.config.ts`'s `cells.<id>.layout` through the registry and
+   * `registry-plan.ts` (`CellCompilePlan.heightMode`), which is the one normalization
+   * of the declaration.
+   */
+  readonly layout?: { readonly heightMode?: CellHeightMode };
 }
 
 /**
@@ -778,6 +810,10 @@ export async function compileCell(
     ...(options.codeBudgetCharacters === undefined
       ? {}
       : { codeBudgetCharacters: options.codeBudgetCharacters }),
+    // The opt-out is the only thing assembly needs: everything else about the injection —
+    // what it is, what it names, how it stays idempotent — is `auto-height.ts`'s contract,
+    // not a per-compile decision. `"fixed"` is the sole spelling of "do not inject".
+    heightAdaptive: options.layout?.heightMode !== "fixed",
   });
 
   return workspace === undefined ? outcome : { ...outcome, workspace };

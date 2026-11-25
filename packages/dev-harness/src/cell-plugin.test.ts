@@ -287,6 +287,7 @@ describe("the virtual Cell module seam", () => {
       entry: "../stray.ts",
       entryPath: join(validMultiRoot, "..", "stray.ts"),
       target: { pageName: "销售订单", cell: "Z9", locatorKey: "销售订单#Z9" },
+      heightMode: "auto",
     };
     const strayFixture: RegisteredCell = {
       id: "strayFixture",
@@ -295,6 +296,7 @@ describe("the virtual Cell module seam", () => {
       fixture: "../stray-mock.ts",
       fixturePath: join(validMultiRoot, "..", "stray-mock.ts"),
       target: { pageName: "销售订单", cell: "Z10", locatorKey: "销售订单#Z10" },
+      heightMode: "auto",
     };
 
     for (const cell of [strayEntry, strayFixture]) {
@@ -328,6 +330,7 @@ describe("the virtual Cell module seam", () => {
       entry: "./cells/cross-drive.ts",
       entryPath: `${otherDrive}\\forguncy-issue28-outside\\cell.ts`,
       target: { pageName: "销售订单", cell: "Y9", locatorKey: "销售订单#Y9" },
+      heightMode: "auto",
     };
     const plugin = forguncy({ config: registryWithStrayPaths(crossDrive) });
     plugin.configResolved({ root: validMultiRoot });

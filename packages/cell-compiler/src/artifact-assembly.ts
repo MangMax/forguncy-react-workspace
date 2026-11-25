@@ -24,6 +24,7 @@ import {
   auditInlinedResourceUrls,
 } from "./artifact-audits.ts";
 import type { BundledCellModule, CompileCellOutcome, CompileCellResult } from "./artifact.ts";
+import { renderAutoHeightInjection } from "./auto-height.ts";
 import { cellResourcesNeedStyleInstaller, renderCellStyleInstaller } from "./cell-resources.ts";
 import { dedupeCellArtifactDiagnostics } from "./diagnostics.ts";
 import { renderCellEntryWrapper } from "./entry.ts";
@@ -69,6 +70,18 @@ export interface AssembleCellArtifactInput {
   readonly dependencies: readonly DependencyDecision[];
   readonly entryKind?: CellEntryKind;
   readonly codeBudgetCharacters?: number;
+  /**
+   * Whether this Cell compiles height-adaptive (#185, Epic #184).
+   *
+   * `true` injects the ReactCellAutoHeight patch into the artifact head; `false`
+   * (the explicit `heightMode: "fixed"` opt-out) omits it, and the artifact is
+   * byte-identical to what this compiler produced before the injection existed.
+   * Absent is **not** the opt-out: it reads as `true`, because `core`'s registry
+   * materializes the default for every normalized Cell — an assembler caller that
+   * says nothing is a test or a probe, and the injection is the behaviour the Epic
+   * makes standard rather than a knob each caller re-decides.
+   */
+  readonly heightAdaptive?: boolean;
 }
 
 /**
@@ -126,9 +139,31 @@ export function assembleCellArtifact(input: AssembleCellArtifactInput): CompileC
   // `code` for a marker — a fixture port that reports no resources therefore gets the plain
   // artifact, exactly as it gets no live-props declaration.
   const styleInstaller = cellResourcesNeedStyleInstaller(module.resources ?? []) ? renderCellStyleInstaller() : "";
-  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${styleInstaller}${module.code}\n${wrapperSource}\n`;
+  // The auto-height injection (#185) goes before the bundle too, but for a different reason than
+  // the two declarations above: it is not a shared binding, it is *earlier execution*. The patch
+  // is three timing-tolerant mechanisms (prototype wrap, repair pass, observer — see
+  // `auto-height.ts`), and artifact evaluation precedes the platform's own instantiation of this
+  // cell, so the primary path is served no matter where in the artifact the block sits. Before
+  // the bundle is still the deliberate choice: the injection is environment wiring in the same
+  // family as the host-provider install, a reviewer expects platform-shaping code ahead of the
+  // Cell's own, and an evaluation-time throw inside the bundle cannot then leave the patch
+  // unapplied — the failure ordering reads correctly in either direction.
+  //
+  // It is deliberately *not* a bundler interception: #82's binding reaches the artifact because
+  // a façade import pulls the virtual module in, while this patch must exist even in a Cell that
+  // never imports the façade — a façade-free artifact is still a ReactCellType cell with the
+  // same hardcoded container. Emitted once, here, the block is single by construction within one
+  // artifact; across artifacts and re-compiles the prototype guard carries idempotency.
+  const heightAdaptive = input.heightAdaptive ?? true;
+  const autoHeight = heightAdaptive ? renderAutoHeightInjection() : "";
+  const code = `${CELL_ARTIFACT_BANNER}\n${livePropsDeclaration}${styleInstaller}${autoHeight}${module.code}\n${wrapperSource}\n`;
 
-  const sourceDiagnostics = auditArtifactSource(code, artifactOriginOf(module.code));
+  // The origin arithmetic needs the prefix's real length, because the bundle no longer
+  // starts at "banner + newline" once a declaration, an installer or the injection sits
+  // between them — see `artifactOriginOf` for why the length travels rather than being
+  // re-derived.
+  const prefixLength = livePropsDeclaration.length + styleInstaller.length + autoHeight.length;
+  const sourceDiagnostics = auditArtifactSource(code, artifactOriginOf(module.code, prefixLength));
   const budgetDiagnostics = auditCodeBudget(code, input.codeBudgetCharacters);
   const metadataDiagnostics = auditFrontendLibraries(collection.libraries);
   const resourceDiagnostics = auditInlinedResourceUrls(module.resources ?? []);

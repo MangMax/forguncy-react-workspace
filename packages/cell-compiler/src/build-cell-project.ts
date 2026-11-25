@@ -380,6 +380,10 @@ export async function buildCellProject(options: BuildCellProjectOptions): Promis
     const outcome = await compileCell(plan.input, {
       bundler,
       extensionMappings: plan.extensionMappings,
+      // The registry materialized the height mode for exactly this consumption (#185):
+      // the plan carries it per Cell, so two Cells of one project can differ — a
+      // row-height-bound Cell declares `fixed` while the rest compile adaptive.
+      layout: { heightMode: plan.heightMode },
       ...(options.entryKind === undefined ? {} : { entryKind: options.entryKind }),
       ...(codeBudgetCharacters === undefined ? {} : { codeBudgetCharacters }),
       ...(workspace === undefined ? {} : { workspace: workspace.graph }),

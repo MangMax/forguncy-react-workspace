@@ -206,6 +206,17 @@ export {
   runtimeBindingNamesAreVerified,
 } from "./runtime-binding.ts";
 
+// The auto-height injection (#185, Epic #184): the compile-time patch source that makes
+// every height-adaptive Cell's container track content height — the sibling of the
+// runtime binding, injected unconditionally rather than on a façade import.
+export {
+  AUTO_HEIGHT_DIAGNOSTIC_GLOBAL,
+  AUTO_HEIGHT_GENERATED_BANNER,
+  autoHeightNamesAreVerified,
+  CELL_AUTO_HEIGHT_HOST_NAMES,
+  renderAutoHeightInjection,
+} from "./auto-height.ts";
+
 // The workspace-source contract (#14): workspace packages are source, not runtime modules,
 // and the pnpm/Vite+ workspace graph it is resolved against (#15).
 export {

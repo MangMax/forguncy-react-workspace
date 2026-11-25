@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { CELL_ARTIFACT_BANNER, compileCell } from "./artifact.ts";
 import type { CellBundlerPort } from "./artifact.ts";
+import { renderAutoHeightInjection } from "./auto-height.ts";
 import { CELL_ENTRY_COMPONENT_BINDING, renderCellEntryWrapper } from "./entry.ts";
 
 /**
@@ -82,13 +83,27 @@ describe("the probe's characters and the compiler's are different documents", ()
     const composed = outcome.artifact.code;
     const overhead = composed.length - bundle.length;
 
-    // The overhead is the banner, the wrapper, and the **three** separators the
-    // composition adds (after the banner, after the bundle, after the wrapper) — all
-    // present, none of them the bundle. Asserted as a decomposition rather than a magic
-    // number, so a banner edit changes this test's arithmetic rather than its verdict.
+    // The overhead is the banner, the auto-height injection (#185 — present in a default
+    // compile, since the registry's materialized default is height-adaptive), the wrapper,
+    // and the **three** separators the composition adds (after the banner, after the bundle,
+    // after the wrapper) — all present, none of them the bundle. Asserted as a decomposition
+    // rather than a magic number, so a banner or injection edit changes this test's arithmetic
+    // rather than its verdict.
     const wrapper = renderCellEntryWrapper({});
     if (wrapper.status !== "emitted") throw new Error("the default entry shape must be emittable");
-    expect(overhead).toBe(CELL_ARTIFACT_BANNER.length + wrapper.source.length + 3);
+    expect(overhead).toBe(CELL_ARTIFACT_BANNER.length + renderAutoHeightInjection().length + wrapper.source.length + 3);
+
+    // The opt-out control, measured beside it: a `fixed` Cell carries no injection, and its
+    // overhead shrinks by exactly the injection's length. This is the assertion that keeps
+    // the decomposition honest in both directions — a compile that always injected (ignoring
+    // the opt-out) would pass the line above and fail this one.
+    const fixedOutcome = await compileCell(
+      { entry: "cells/bench/App.tsx", dependencies: [] },
+      { bundler: bundlerEmitting(bundle), layout: { heightMode: "fixed" } },
+    );
+    if (fixedOutcome.status !== "compiled") throw new Error(`expected a compile, got ${fixedOutcome.status}`);
+    const fixedOverhead = fixedOutcome.artifact.code.length - bundle.length;
+    expect(fixedOverhead).toBe(CELL_ARTIFACT_BANNER.length + wrapper.source.length + 3);
 
     // And the composed source really is longer than what the probe would have measured,
     // which is the direction that matters: the compiler's cap sees *more* than the probe.

@@ -991,6 +991,143 @@ export function cellUserScopeBinding(name: string): CellUserScopeBinding | undef
 }
 
 // ---------------------------------------------------------------------------
+// Ambient page/browser globals
+// ---------------------------------------------------------------------------
+
+/**
+ * A name that exists on a real Forguncy page outside any cell scope.
+ *
+ * Deliberately separate from {@link CELL_USER_SCOPE_BINDINGS}: membership there is
+ * what `artifact-audits.ts` reads as permission to map a `host` *dependency* onto a
+ * global, and nothing here is a module identity a package may assume. `document` is
+ * the working example — a dependency mapped onto `document` would be nonsense, yet
+ * the compile-time auto-height injection (#185) legitimately references it as an
+ * ambient browser global. The two tables answer different questions: user-scope
+ * bindings are "what a cell's *module* may resolve to", these are "what a cell's
+ * *generated runtime code* may name without importing anything".
+ */
+export interface CellBrowserHostGlobal {
+  readonly name: string;
+  readonly note: string;
+  readonly evidence: readonly RuntimeEvidenceChannel[];
+}
+
+/**
+ * The ambient globals a generated artifact may reference, with their evidence.
+ *
+ * Kept deliberately short: every entry is a name the compile-time auto-height patch
+ * (#185, Epic #184) references, verified on the live 12.0.102.0 page or inherent to
+ * the browser environment the artifact is only ever evaluated in. A name belongs
+ * here only when generated code needs it *and* it is not already a user-scope
+ * binding — `React` is a user-scope binding, so it is not repeated here.
+ *
+ * `Forguncy` is the one platform-owned entry, and it is distinct from
+ * `props.Forguncy`: the props member is the facade handle injected per render, while
+ * the bare global is the host application object whose `Plugin.CellTypeHelper`
+ * registry the platform itself populates. #176 measured the props member; the bare
+ * global's registry shape was measured on the live page for this record — see
+ * {@link REACTCELLTYPE_CREATE_CONTENT_CONTRACT}.
+ */
+export const CELL_BROWSER_HOST_GLOBALS: readonly CellBrowserHostGlobal[] = [
+  {
+    name: "Forguncy",
+    note: "The host application object, a page global independent of the per-render `props.Forguncy` facade handle. `Forguncy.Plugin.CellTypeHelper._registedCellTypes` is the cell-type registry the platform populates as plugin scripts load; the auto-height patch reaches the ReactCellType constructor through it.",
+    evidence: ["product-runtime-source", "generated-runtime-browser"],
+  },
+  {
+    name: "document",
+    note: "The browser document of the page the artifact is evaluated on. Never a host-dependency identity — see this table's header for why membership must not extend `CELL_USER_SCOPE_BINDINGS`.",
+    evidence: ["generated-runtime-browser"],
+  },
+  {
+    name: "MutationObserver",
+    note: "Browser constructor used to follow SPA-later-mounted cell containers. Observed constructible and firing against `document.documentElement` on the live dev site (the same run that measured the containers below), not merely assumed ambient.",
+    evidence: ["generated-runtime-browser"],
+  },
+  {
+    name: "setInterval",
+    note: "Browser timer the patch polls the cell-type registry with — load-bearing for the external-library form, an invariant guard for the injected artifact (see `auto-height.ts`'s header for why the race differs). The exact poll-then-clear pattern was exercised on the live dev site: fires on cadence, stops on `clearInterval`.",
+    evidence: ["generated-runtime-browser"],
+  },
+  {
+    name: "clearInterval",
+    note: "The `setInterval` pair; stops the registry poll once the constructor is patched or the attempt budget is exhausted. Verified in the same exercise as `setInterval` — a two-fire poll stopped exactly at two.",
+    evidence: ["generated-runtime-browser"],
+  },
+];
+
+export function cellBrowserHostGlobal(name: string): CellBrowserHostGlobal | undefined {
+  return CELL_BROWSER_HOST_GLOBALS.find(entry => entry.name === name);
+}
+
+// ---------------------------------------------------------------------------
+// The ReactCellType container contract
+// ---------------------------------------------------------------------------
+
+/**
+ * How the official ReactCellType builds its outermost container, and why generated
+ * artifacts patch it.
+ *
+ * Decision source: Epic #184 — "ReactCellType 高度自适应沉淀为 cell-compiler 内置能力"
+ * (https://github.com/MangMax/forguncy-react-workspace/issues/184) and its Ticket 1
+ * #185, downstream of #5 whose plugin read this record extends.
+ *
+ * Every fact below was confirmed on the live 12.0.102.0 in the probe recorded at
+ * `packages/mcp-sync/scripts/probe-autoh-evidence-185.mjs` (evidence JSON beside it),
+ * which is what the `generated-runtime-browser` channel on the entries means:
+ *
+ * - **[SRC]** the shipped plugin resource
+ *   (`Plugins/96205a31-0c2e-4b98-9ce5-6555088e6cbd/Resources/ReactCellTypeCellType.js`)
+ *   builds the container as `$("<div style='width: 100%;height: 100%'/>")` — jQuery,
+ *   hardcoded `height: 100%` — then sets `div.attr("id", this.ID)` and returns the
+ *   jQuery object. The class registers through
+ *   `Forguncy.Plugin.CellTypeHelper.registerCellType("ReactCellType.ReactCellTypeCellType, ReactCellType", ReactCellTypeCellType)`.
+ * - **[RT]** on a generated page, `_registedCellTypes[key]` is an array whose `[0]`
+ *   carries exactly `{ cellTypeCtor, match }`, `cellTypeCtor.prototype.createContent`
+ *   is a function, and the mounted container's id matched `/^r\d+c\d+p$/`
+ *   (`r0c0p` for a cell anchored at A1). The blank tail was measured rather than
+ *   asserted: the unpatched container reported 32px against a content extent of
+ *   ~58.6px (tall content clipped), and after applying the patch the container
+ *   tracked the content exactly (blank tail 0).
+ *
+ * The jQuery reliance is real and deliberately recorded: the prototype patch calls
+ * `.css()`/`.addClass()` on whatever the original `createContent` returns, wrapped in
+ * a `try/catch` that degrades to native behaviour rather than blocking the render.
+ * If a future build returns a plain element the patch becomes a no-op on the
+ * prototype path — and the position-independent repair/observer paths, which use
+ * native `style`/`classList`, are the reason that degradation stays adaptive rather
+ * than broken.
+ */
+export const REACTCELLTYPE_CREATE_CONTENT_CONTRACT = {
+  /** The registry key `registerCellType` is called with, verbatim from the plugin source. */
+  registryKey: "ReactCellType.ReactCellTypeCellType, ReactCellType",
+  /** The entry shape at `_registedCellTypes[key][0]`, as measured on the live page. */
+  entryKeys: ["cellTypeCtor", "match"] as const,
+  /** The prototype member the patch wraps. */
+  createContentMember: "createContent",
+  /** The container the unpatched plugin builds: jQuery, hardcoded width/height 100%. */
+  unpatchedContainerInlineStyle: "width: 100%;height: 100%",
+  /**
+   * The position-independent id pattern the container carries.
+   *
+   * `this.ID` is assigned by the platform's own cell instantiation, and the measured
+   * value for a cell at A1 was `r0c0p` — row, column, `p` suffix. The patch's repair
+   * and observer passes key on this pattern precisely so no cell id is ever
+   * hardcoded: the same artifact adapts at any grid position.
+   */
+  containerIdPattern: "^r\\d+c\\d+p$",
+  /**
+   * The marker class the patch adds, so its repair/observer passes never re-apply
+   * and a second cell's patch short-circuits.
+   */
+  markerClass: "fgc-reactcell-autoh",
+  /** The prototype guard property that makes re-patching a no-op page-wide. */
+  patchedGuard: "__reactCellAutoHeightPatched",
+  note: "The blank tail is measured fact, not motive: on 12.0.102.0 an unpatched short-content cell reported a 32px container over a 58.6px content extent, and the patched container tracked the content exactly. The three mechanisms (prototype wrap, repair pass, MutationObserver) are complementary rather than redundant — the wrap serves cells instantiated after it lands, the repair pass the ones that already exist, the observer the ones the SPA mounts later.",
+  evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
+};
+
+// ---------------------------------------------------------------------------
 // Preset libraries
 // ---------------------------------------------------------------------------
 
