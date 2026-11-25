@@ -6,6 +6,7 @@ import { createServer } from "vite";
 import type { UserConfig } from "vite";
 
 import { hostModuleAliases, hostModuleDedupePackages } from "./host-modules.ts";
+import { DEV_SERVER_LOOPBACK_HOST } from "./loopback.ts";
 import { defineForguncyViteConfig } from "./vite-config.ts";
 import { DEV_HARNESS_PLUGIN_NAME, REACT_FAST_REFRESH_PLUGIN_NAME, reactFastRefresh } from "./vite-plugin.ts";
 
@@ -233,9 +234,11 @@ describe("a project's own configuration keeps precedence over the defaults", () 
     expect(composed.optimizeDeps?.include).toEqual(
       [...new Set(["user-dependency", ...hostModuleDedupePackages()])],
     );
-    // Pass-through: everything this helper does not assemble is preserved untouched.
+    // Pass-through: everything this helper does not assemble is preserved untouched. `server` is
+    // the one exception: the helper supplies the loopback host (#187) and merges the project's own
+    // `server` over it, so the project's `port` survives beside the host rather than replacing it.
     expect(composed.optimizeDeps?.exclude).toEqual(["never-bundle"]);
-    expect(composed.server).toEqual({ port: 1234 });
+    expect(composed.server).toEqual({ host: DEV_SERVER_LOOPBACK_HOST, port: 1234 });
     expect(composed.root).toBe("project-root");
   });
 

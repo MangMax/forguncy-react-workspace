@@ -10,6 +10,7 @@ import type { ForguncyConfig } from "@forguncy-react-workspace/core";
 import { readToolchainIdentity } from "@forguncy-react-workspace/dependency-resolver/local";
 
 import { canonicalTempProject, removeTempProject, writePnpmInstallFixture } from "./temp-project.ts";
+import { DEV_SERVER_LOOPBACK_HOST } from "./loopback.ts";
 import { devHarness } from "./vite-plugin.ts";
 
 /**
@@ -222,7 +223,10 @@ async function loadedForSubstitutedImport(root: string, choices: readonly unknow
     logLevel: "silent",
     appType: "spa",
     plugins: [devHarness({ config: configFor(), extensionChoices: choices as never }) as never],
-    server: { port: 0, strictPort: false, hmr: false, watch: null, preTransformRequests: false },
+    // `host` is the shared loopback (#187): without it the server binds `::1` on a machine that
+    // lists IPv6 first, and the fetches below fail with EACCES/ECONNREFUSED on a host whose IPv6
+    // loopback is intercepted — not a defect in what this test measures.
+    server: { host: DEV_SERVER_LOOPBACK_HOST, port: 0, strictPort: false, hmr: false, watch: null, preTransformRequests: false },
   });
 
   try {

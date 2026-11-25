@@ -78,6 +78,7 @@
 import type { Alias, AliasOptions, PluginOption, UserConfig } from "vite";
 
 import { normalizeAliasFind } from "./alias-audit.ts";
+import { DEV_SERVER_LOOPBACK_HOST } from "./loopback.ts";
 import {
   devHarness,
   harnessHostModulePlan,
@@ -122,9 +123,21 @@ export function defineForguncyViteConfig(
   const dedupe = unique([...(userConfig.resolve?.dedupe ?? []), ...hostDedupe]);
   const include = unique([...(userConfig.optimizeDeps?.include ?? []), ...hostDedupe]);
 
+  // The loopback host (#187): left to Vite's default the server binds `localhost`, which Node
+  // resolves to the system's first address family — `::1` on a machine that lists IPv6 first —
+  // and a machine whose IPv6 loopback is intercepted (a TUN-mode proxy) then serves a banner it
+  // cannot answer. Binding the IPv4 loopback keeps the loop reachable on every machine and does
+  // not expose the local-only preview on external interfaces. A project may still override it:
+  // its own `server` spreads after, so an explicit `server.host` wins.
+  const server = {
+    host: DEV_SERVER_LOOPBACK_HOST,
+    ...userConfig.server,
+  };
+
   return {
     ...userConfig,
     plugins,
+    server,
     resolve: {
       ...userConfig.resolve,
       alias: [...userAliases, ...unclaimedHostAliases],
