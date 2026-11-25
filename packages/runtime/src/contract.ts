@@ -279,6 +279,7 @@ export function runtimeFacadePortChannelOfBinding(
   switch (binding.kind) {
     case "cell-prop":
     case "forguncy-member":
+    case "declared-prop":
       return "cell-props";
     case "cell-hook":
       return binding.hook === RUNTIME_FACADE_PORT_HOOK_NAME ? "use-data-source" : undefined;

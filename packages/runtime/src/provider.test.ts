@@ -84,14 +84,14 @@ describe("the provider slot", () => {
   // look like "install again with the same kind", and both must take effect.
   it("replaces a provider of the same kind, so a second render is visible", () => {
     installRuntimeFacadeProvider(
-      createMockRuntimeFacadeProvider({ cellProps: { Permissions: ["first"] } }),
+      createMockRuntimeFacadeProvider({ cellProps: { ImageContext: { marker: "first" } } }),
     );
-    expect(runtimeFacade().cellProp("Permissions")).toEqual(["first"]);
+    expect(runtimeFacade().cellProp("ImageContext")).toEqual({ marker: "first" });
 
     installRuntimeFacadeProvider(
-      createMockRuntimeFacadeProvider({ cellProps: { Permissions: ["second"] } }),
+      createMockRuntimeFacadeProvider({ cellProps: { ImageContext: { marker: "second" } } }),
     );
-    expect(runtimeFacade().cellProp("Permissions")).toEqual(["second"]);
+    expect(runtimeFacade().cellProp("ImageContext")).toEqual({ marker: "second" });
   });
 
   // Installing over the other kind would move a Cell from the mock to the host —
@@ -231,7 +231,7 @@ describe("the absence taxonomy", () => {
       note: "no provider installed, so the call discovers it before any address is asked for",
       produce: async () => {
         uninstallRuntimeFacadeProvider();
-        return runtimeFacade().cellProp("Permissions");
+        return runtimeFacade().cellProp("ImageContext");
       },
     },
     "provider-kind-conflict": {
@@ -281,18 +281,18 @@ describe("the absence taxonomy", () => {
       note: "a provider carrying no bindings record at all",
       produce: async () => {
         installRuntimeFacadeProvider({ kind: "mock" } as never);
-        return runtimeFacade().cellProp("Permissions");
+        return runtimeFacade().cellProp("ImageContext");
       },
     },
     "base-prop-not-supplied": {
       address: "Permissions",
-      note: "a bindings record that carries the handle but not a base prop",
+      note: "a bindings record that carries the handle but not a base prop — read through the typed snapshot member, which is the base prop's owner since #177",
       produce: async () => {
         installRuntimeFacadeProvider({
           kind: "mock",
           bindings: { cellProps: { Forguncy: {} }, useDataSource: noSuchSource } as never,
         });
-        return runtimeFacade().cellProp("Permissions");
+        return runtimeFacade().permissionSnapshot();
       },
     },
     "handle-not-supplied": {
@@ -330,9 +330,11 @@ describe("the absence taxonomy", () => {
     },
     "called-member-not-callable": {
       address: "hasPermission",
-      note: "a mock that fills the handle's keys and supplies none of them: present, not callable",
+      note: "a mock that fills the handle's keys but supplies a non-function where a measured call belongs: present, not callable. The explicit undefined stands in since #177 — the mock now defaults every measured member, so the failure has to be opted into rather than being what an empty fixture produces",
       produce: async () => {
-        installRuntimeFacadeProvider(createMockRuntimeFacadeProvider());
+        installRuntimeFacadeProvider(
+          createMockRuntimeFacadeProvider({ forguncyMembers: { hasPermission: undefined } }),
+        );
         return runtimeFacade().hasPermission("ProbePermission");
       },
     },
@@ -508,7 +510,7 @@ describe("the absence taxonomy", () => {
 
     let caught: unknown;
     try {
-      runtimeFacade().cellProp("Permissions");
+      runtimeFacade().permissionSnapshot();
     } catch (error) {
       caught = error;
     }

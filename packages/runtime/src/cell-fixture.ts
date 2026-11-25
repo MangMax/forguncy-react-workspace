@@ -78,12 +78,24 @@ export type CellFixtureErrorCode = (typeof CELL_FIXTURE_ERROR_CODES)[number];
 export const CELL_FIXTURE_OPTION_FIELDS = [
   "forguncyMembers",
   "cellProps",
+  "properties",
+  "eventHandlers",
   "serverCommands",
   "dataSources",
 ] as const;
 
 /** Fields whose values must themselves be functions (the host's call shapes). */
 const CALLABLE_FIELDS = ["serverCommands", "dataSources"] as const;
+
+/**
+ * Fields whose entries may be a function **or `undefined`**.
+ *
+ * `eventHandlers` is the one case: omitting the handler is how a fixture declares an event
+ * with no command attached, which is a real page configuration — #176 measured the firing
+ * function existing as a no-op in exactly that state. Treating a missing handler as
+ * `fixture-invalid-field` would forbid a page shape the host produces.
+ */
+const CALLABLE_OR_ABSENT_FIELDS = ["eventHandlers"] as const;
 
 /**
  * What the harness knows about the Cell asking for the fixture.
@@ -256,6 +268,19 @@ export function resolveCellFixtureOptions(
             `${subject} field "${field}" entry "${name}" must be a function, the same call shape the host injects; it is ${describeValue(
               binding,
             )}. A non-function here would silently behave as unconfigured at call time.`,
+            context,
+          );
+        }
+      }
+    }
+    if ((CALLABLE_OR_ABSENT_FIELDS as readonly string[]).includes(field)) {
+      for (const [name, binding] of Object.entries(value)) {
+        if (typeof binding !== "function" && binding !== undefined) {
+          throw new CellFixtureError(
+            "fixture-invalid-field",
+            `${subject} field "${field}" entry "${name}" must be a function or undefined — an event with no command attached is a real page configuration, anything else is not a call shape the host injects; it is ${describeValue(
+              binding,
+            )}.`,
             context,
           );
         }

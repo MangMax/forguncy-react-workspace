@@ -60,6 +60,8 @@ describe("façade capability registry", () => {
       "cell-method-exposure",
       "forguncy-value-conversions",
       "image-context",
+      "cell-property-binding",
+      "cell-event-firing",
     ]);
     expect(RUNTIME_FACADE_CAPABILITIES.map(capability => capability.id)).toEqual([
       ...RUNTIME_FACADE_CAPABILITY_IDS,
@@ -152,6 +154,13 @@ describe("evidence linkage", () => {
             break;
           case "cell-hook":
             expect(cellUserScopeBinding(binding.hook), `${capability.id}:${name}`).toBeDefined();
+            break;
+          case "declared-prop":
+            // No `core` literal union can confirm a designer-chosen name — the *family* is
+            // what #176 measured. What is asserted instead is the marker discipline: the
+            // registry carries a placeholder, never a real-looking name a reader could
+            // mistake for a confirmed address.
+            expect(binding.name, `${capability.id}:${name}`).toMatch(/^<.+>$/);
             break;
         }
       }
@@ -252,6 +261,8 @@ describe("confirmation levels", () => {
       "upload-limit",
       "cell-method-exposure",
       "forguncy-value-conversions",
+      "cell-property-binding",
+      "cell-event-firing",
     ]);
   });
 

@@ -153,7 +153,18 @@ export const RUNTIME_FACADE_EVIDENCE_SOURCES: Readonly<
 export type RuntimeFacadeHostBinding =
   | { readonly kind: "cell-prop"; readonly prop: CellPropKey }
   | { readonly kind: "forguncy-member"; readonly member: ForguncyPropMember }
-  | { readonly kind: "cell-hook"; readonly hook: string };
+  | { readonly kind: "cell-hook"; readonly hook: string }
+  /**
+   * A declared property or event, injected on `props` under its own designer-chosen name.
+   *
+   * #176 measured both: `properties[].propertyName` becomes `props.<name>` holding the
+   * evaluated formula result, and each `eventHandlers[i].eventName` becomes
+   * `props[eventName] = (...args) => void`. Neither name can be typed against a `core`
+   * literal union — the designer, not the platform, decides them — so this variant carries
+   * `string` and the guard treats it the way it treats `cell-hook`: the *address family* is
+   * what is confirmed, not any particular name.
+   */
+  | { readonly kind: "declared-prop"; readonly name: string };
 
 /**
  * How far #5's evidence actually goes for a capability.
@@ -283,6 +294,8 @@ export const RUNTIME_FACADE_FAMILIES: readonly RuntimeFacadeFamily[] = [
       "cell-method-exposure",
       "forguncy-value-conversions",
       "image-context",
+      "cell-property-binding",
+      "cell-event-firing",
     ],
   },
   {
@@ -365,6 +378,8 @@ export const RUNTIME_FACADE_CAPABILITY_IDS = [
   "cell-method-exposure",
   "forguncy-value-conversions",
   "image-context",
+  "cell-property-binding",
+  "cell-event-firing",
 ] as const;
 
 export type RuntimeFacadeCapabilityId = (typeof RUNTIME_FACADE_CAPABILITY_IDS)[number];
@@ -552,6 +567,41 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
     hostBindings: [{ kind: "cell-prop", prop: "ImageContext" }],
     evidenceSources: ["cell-props-key-order"],
   },
+  {
+    id: "cell-property-binding",
+    family: "cell-props-and-context",
+    summary: "Read a declared cell property's current value, re-rendered in place when the host's SetPropertyValue runs.",
+    scope: {
+      kind: "application",
+      concern: "business-data-source",
+      basis:
+        "A declared property's value is the evaluated result of the formula the page configured — page data, which #4 puts on Forguncy's side of the boundary; the cell consumes it, it does not own a second copy of it.",
+    },
+    confirmation: "call-shape",
+    // The address family is the measured fact, and a marker name rather than a real one:
+    // the designer chooses each property's name, so no literal can be recorded here the way
+    // `CELL_PROPS_BASE_KEYS` records the base props. `runtimeFacadeBindingShadowsCellScope`
+    // treats `declared-prop` like `cell-hook` for the same reason — a name the project
+    // declares is the address, not a second spelling of one the cell already has.
+    hostBindings: [{ kind: "declared-prop", name: "<properties[].propertyName>" }],
+    evidenceSources: ["cell-props-key-order"],
+    note: "#176 measured both halves on `12.0.102.0`. The read half: the declared `propertyValue` is evaluated as a formula and `props.<propertyName>` is the result. The change half: `SetPropertyValue` re-renders the existing tree **without re-executing the cell entry** (`execCount` unchanged while `appCalls` incremented), so a component reading the prop during render sees the current value on every render. An unknown name passed to `SetPropertyValue` still re-renders without error; empty or null names are silently ignored. What stays open is `property-change-component-state-survival` — whether `useState` survives the re-render — owned by #6, not by this façade.",
+  },
+  {
+    id: "cell-event-firing",
+    family: "cell-props-and-context",
+    summary: "Fire a declared event so the host's configured command tree runs with the gathered arguments.",
+    scope: {
+      kind: "application",
+      concern: "server-commands",
+      basis:
+        "#176 measured the firing path end-to-end: the positional arguments are gathered into an object keyed by `eventArgs[].name` and handed to `executeCustomCommandObject` — the host's command pipeline, which #4 assigns to Forguncy. The cell emits into that pipeline; it does not own a second command channel.",
+    },
+    confirmation: "call-shape",
+    hostBindings: [{ kind: "declared-prop", name: "<eventHandlers[].eventName>" }],
+    evidenceSources: ["cell-props-key-order"],
+    note: "#176 measured the injection and the firing on `12.0.102.0`: for each declared `eventHandlers[i].eventName` the runtime assigns `props[eventName] = (...args) => void`, and calling it gathers the positional args into the keyed object. The function is a no-op in the designer preview, and the outcome of the command — including its failure shape (`event-handler-executeCustomCommandObject-error-shape`, still open) — is the host pipeline's, never observable through the firing call. The command tree itself is stored under `eventHandlers[i].eventHandler` and belongs to the designer; what the cell owns is the emission, which is why this capability types the firing and not the tree.",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -678,6 +728,8 @@ export function runtimeFacadeBindingName(binding: RuntimeFacadeHostBinding): str
       return binding.member;
     case "cell-hook":
       return binding.hook;
+    case "declared-prop":
+      return binding.name;
   }
 }
 
@@ -694,7 +746,7 @@ export function runtimeFacadeBindingName(binding: RuntimeFacadeHostBinding): str
  * confirmed address, and the façade re-exports it rather than renaming it.
  */
 export function runtimeFacadeBindingShadowsCellScope(binding: RuntimeFacadeHostBinding): boolean {
-  if (binding.kind === "cell-hook") {
+  if (binding.kind === "cell-hook" || binding.kind === "declared-prop") {
     return false;
   }
   return cellUserScopeBinding(runtimeFacadeBindingName(binding)) !== undefined;
@@ -706,6 +758,20 @@ function assertHostBindingConfirmed(binding: RuntimeFacadeHostBinding, capabilit
       throw new RuntimeFacadeContractError(
         "unknown-host-binding",
         `Façade capability "${capabilityId}" binds cell hook "${binding.hook}", which is not a name #5 verified inside cell source.`,
+      );
+    }
+    return;
+  }
+  if (binding.kind === "declared-prop") {
+    // The *family* is what #176 confirmed — `properties[].propertyName` and
+    // `eventHandlers[].eventName` both land on `props` under their own names — so any
+    // non-empty name is a legitimate instance of it. What is refused is the empty string:
+    // the host silently ignores empty names (measured for `SetPropertyValue`), so a binding
+    // carrying one would be confirming a no-op as an address.
+    if (binding.name.trim().length === 0) {
+      throw new RuntimeFacadeContractError(
+        "unknown-host-binding",
+        `Façade capability "${capabilityId}" binds a declared prop with an empty name, which is not an address the host can inject.`,
       );
     }
     return;

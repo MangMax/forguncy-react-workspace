@@ -40,6 +40,8 @@ describe("the fixture module export contract", () => {
     expect([...CELL_FIXTURE_OPTION_FIELDS]).toEqual([
       "forguncyMembers",
       "cellProps",
+      "properties",
+      "eventHandlers",
       "serverCommands",
       "dataSources",
     ]);
@@ -172,7 +174,7 @@ describe("the fixture module export contract", () => {
 
     expect(error.code).toBe("fixture-unknown-field");
     expect(error.message).toContain('"serverCommand"');
-    expect(error.message).toContain("forguncyMembers, cellProps, serverCommands, dataSources");
+    expect(error.message).toContain("forguncyMembers, cellProps, properties, eventHandlers, serverCommands, dataSources");
     // The reason is part of the contract: silently ignoring the field would let
     // the fixture stand in for less than the page does.
     expect(error.message).toContain("silently ignored");

@@ -41,11 +41,31 @@
 
 import { useState } from "react";
 
-import { canReadOrders, readOrderPermissions, refreshOrders, useOrdersSummary } from "./orders.ts";
+import {
+  canReadOrders,
+  exposeSalesMethodOnce,
+  fireExport,
+  fireRowSelect,
+  readCurrentUser,
+  readHighlightColor,
+  readOrderPermissions,
+  readTitle,
+  readUploadLimit,
+  refreshOrders,
+  uploadSalesEvidence,
+  useOrdersSummary,
+} from "./orders.ts";
 
 export function App() {
   // Survives a Fast Refresh pass, resets on a full reload — see the file docstring.
   const [clicks, setClicks] = useState(0);
+  const [uploadState, setUploadState] = useState("未上传");
+
+  // The exposed method is registered once per module evaluation — see `orders.ts` for why
+  // this is not a render effect. Called here rather than at module top level because the
+  // façade's provider is installed before the first render and module evaluation order
+  // under the harness does not guarantee that.
+  exposeSalesMethodOnce();
 
   const summary = useOrdersSummary(3);
   // Synchronous, because #5 recorded these as synchronous calls: `hasPermission(...)` →
@@ -55,9 +75,24 @@ export function App() {
   const mayRead = canReadOrders();
   const permissions = readOrderPermissions();
 
+  // The bidirectional bindings #177 types. `readTitle()` is read during render, which *is*
+  // the reactive half: the host's `SetPropertyValue` re-renders this tree without
+  // re-executing the entry, so the render-time read sees the current value — locally the
+  // harness re-render plays the same role.
+  const title = readTitle();
+  const highlight = readHighlightColor();
+  const user = readCurrentUser();
+  const uploadLimit = readUploadLimit();
+
   return (
     <section data-dev-harness="sales-summary">
-      <h2>本月销售</h2>
+      {/* The property value arrives through `cellProperty` — the binding is the point, so
+          the literal is the fixture's initial value rather than a hard-coded string. */}
+      <h2 style={{ color: highlight }}>{title}（本月销售）</h2>
+
+      <p>
+        当前用户：{user.UserName ?? "（未登录）"}（{user.Role ?? "无角色"}）
+      </p>
 
       {mayRead ? null : <p role="alert">当前用户没有 Orders.Read 权限。</p>}
 
@@ -72,7 +107,11 @@ export function App() {
             // mistake would surface locally — #22 records that the local loop resolves the
             // *published* JSX runtime, never #9's generated adapter, which is exactly why a
             // green render here says nothing about the adapter.
-            <li key={index}>{JSON.stringify(row)}</li>
+            <li key={index}>
+              <button type="button" onClick={() => fireRowSelect(JSON.stringify(row), index)}>
+                {JSON.stringify(row)}
+              </button>
+            </li>
           ))}
         </ul>
       )}
@@ -85,10 +124,33 @@ export function App() {
       </p>
 
       <p>
+        上传限制：{uploadLimit.extensionFilter}，单文件 {uploadLimit.sizeLimit === 0 ? "不限" : `${uploadLimit.sizeLimit} MB`}，
+        单次 {uploadLimit.maxUploadFileCount === 0 ? "不限" : `${uploadLimit.maxUploadFileCount} 个`}
+      </p>
+
+      <p>
         <button type="button" onClick={() => setClicks(count => count + 1)}>
           交互计数 {clicks}
+        </button>{" "}
+        <button type="button" onClick={() => fireExport()}>
+          触发 onExport（无命令）
+        </button>{" "}
+        <button
+          type="button"
+          onClick={() => {
+            const file = new File(["probe"], "销售凭证.txt", { type: "text/plain" });
+            void uploadSalesEvidence(file)
+              .then(result => setUploadState(`已上传：${result.fileNames.join("、")}（${result.attachmentValue}）`))
+              .catch(error => {
+                console.error(error);
+              });
+          }}
+        >
+          上传凭证
         </button>
       </p>
+
+      <p>上传状态：{uploadState}</p>
 
       <ExportButton />
     </section>

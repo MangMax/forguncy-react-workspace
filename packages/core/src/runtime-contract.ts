@@ -1262,6 +1262,7 @@ export const CELL_FORGUNCY_FACADE_MEMBER_SHAPES = {
     shapeKind: "exact",
     behavior: {
       sixDigitHex: "passed through verbatim (`#FF0000` → `#FF0000`)",
+      eightDigitHexByteOrder: "the 8-digit form is **alpha-leading** (`#AARRGGBB`, the ARGB ordering the host's CLR colour model uses) — `#80FF0000` places `FF` at the red position, which is what `rgba(255,0,0,0.50)` confirms. #177 pinned the byte order from the three measured cases; a `#RRGGBBAA` reading contradicts all three.",
       eightDigitHexFullAlpha: "alpha `FF` is dropped (`#FFFF0000` → `#FF0000`)",
       eightDigitHexPartialAlpha: "converted to `rgba(r,g,b,a)` with the alpha quantized to two decimals (`#80FF0000` → `rgba(255,0,0,0.50)`)",
       eightDigitHexZeroAlpha: "converted to `rgba(r,g,b,0.00)` (`#00FF0000` → `rgba(255,0,0,0.00)`)",
@@ -1276,6 +1277,8 @@ export const CELL_FORGUNCY_FACADE_MEMBER_SHAPES = {
     shape: "(date: Date) => number",
     shapeKind: "exact",
     epochBehavior: "the OLE Automation epoch `1899-12-30T00:00:00Z` does not map to 0 because the conversion runs in the local timezone — observed `0.33730324074074075` for that input on a UTC+8 host",
+    arithmeticRefinement:
+      "#177 derived the exact arithmetic from the probe's two data points: the conversion reinterprets the date's **local wall-clock components as UTC** and measures days since `1899-12-30` in that space. The noon measurement (`46023.833333333336` for a UTC-noon input) is what rules out the naive epoch-milliseconds formula, which misses by the local-timezone offset on every non-UTC host; `inv(0)` = local midnight `1899-12-30` (`1899-12-29T15:54:17.000Z` in UTC on a UTC+8 LMT host) confirms the inverse. The round-trip is exact to the millisecond because the two directions are strict inverses in wall-clock space.",
     roundtripWithinMs: "a `ConvertDateToOADate` → `ConvertOADateToDate` round-trip is exact to the millisecond",
     evidence: ["product-runtime-source", "generated-runtime-browser"] as readonly RuntimeEvidenceChannel[],
   },

@@ -208,3 +208,246 @@ describe("mock cell props typing", () => {
     expect(Object.keys(props).length).toBe(CELL_PROPS_BASE_KEYS.length);
   });
 });
+
+// Since #177 the mock is not just shape-parity but behaviour-parity for the members #176
+// measured: the defaults reproduce the measured call shapes, so a fixture declares what it
+// cares about instead of restating the whole handle. These tests pin the measured
+// behaviours — not conveniences — so a mock that started out-behaving or under-behaving
+// the host fails here rather than in a project.
+describe("measured member defaults", () => {
+  function handleOf(provider: { readonly bindings: RuntimeFacadeHostBindings }): Record<string, unknown> {
+    return provider.bindings.cellProps.Forguncy as unknown as Record<string, unknown>;
+  }
+
+  it("answers getCurrentUser with the six-key shape #176 measured, synchronously", () => {
+    const getCurrentUser = handleOf(createMockRuntimeFacadeProvider()).getCurrentUser as () => Record<string, unknown>;
+    const user = getCurrentUser();
+    expect(Object.keys(user).sort()).toEqual(["Email", "FullName", "HasPicture", "PictureUrl", "Role", "UserName"]);
+    // The default-avatar fallback is part of the measured shape, not a detail:
+    // `HasPicture: false` and the built-in path travel together.
+    expect(user.HasPicture).toBe(false);
+    expect(user.PictureUrl).toBe("/Forguncy/Resources/Images/SiteBuiltInImages/DefaultCurrentUser.png");
+    expect(user).not.toBeInstanceOf(Promise);
+  });
+
+  it("makes both session verbs fire-and-forget no-ops, because navigation is the host's", () => {
+    const handle = handleOf(createMockRuntimeFacadeProvider());
+    // #176 measured arity 0 and 1 and no Promise on either. The mock cannot reproduce the
+    // navigation — there is no host page to navigate away from — so the honest stand-in is
+    // the inert call with the measured arity and the measured absence of a Promise.
+    expect((handle.logIn as (...args: unknown[]) => unknown).length).toBe(0);
+    expect((handle.logOut as (...args: unknown[]) => unknown).length).toBe(1);
+    expect((handle.logIn as () => unknown)()).toBeUndefined();
+    expect((handle.logOut as (navigateToHomePage?: boolean) => unknown)(false)).toBeUndefined();
+  });
+
+  it("resolves uploadFiles with the measured files/attachmentValue shape, trailing pipe included", async () => {
+    const uploadFiles = handleOf(createMockRuntimeFacadeProvider()).uploadFiles as (
+      files?: unknown,
+      options?: { uploadFolder?: string },
+    ) => Promise<{ files: readonly { filePath: string; fileName: string; downloadUrl: string }[]; attachmentValue: string }>;
+
+    const file = new File(["probe-bytes"], "probe.png");
+    const result = await uploadFiles(file);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]?.fileName).toBe("probe.png");
+    expect(result.files[0]?.filePath).toMatch(/^[a-z0-9-]+_probe\.png$/);
+    expect(result.files[0]?.downloadUrl).toBe(
+      `/Forguncy/FileDownloadUpload/Download?file=${encodeURIComponent(result.files[0]!.filePath)}`,
+    );
+    // The trailing pipe is the measured format, not a typo: `<filePath>|`.
+    expect(result.attachmentValue).toBe(`${result.files[0]?.filePath}|`);
+
+    // The uploadFolder prefix, measured: `<folder>/<uuid>_<name>`.
+    const foldered = await uploadFiles([file], { uploadFolder: "probe176" });
+    expect(foldered.files[0]?.filePath).toMatch(/^probe176\/[a-z0-9-]+_probe\.png$/);
+  });
+
+  it("resolves the empty upload result for no arguments and for an empty array, without rejecting", async () => {
+    const uploadFiles = handleOf(createMockRuntimeFacadeProvider()).uploadFiles as (
+      files?: unknown,
+    ) => Promise<{ files: readonly unknown[]; attachmentValue: string }>;
+    expect(await uploadFiles()).toEqual({ files: [], attachmentValue: "" });
+    expect(await uploadFiles([])).toEqual({ files: [], attachmentValue: "" });
+  });
+
+  it("accepts an array-like the way the measured FileList path does", async () => {
+    const uploadFiles = handleOf(createMockRuntimeFacadeProvider()).uploadFiles as (
+      files?: unknown,
+    ) => Promise<{ files: readonly { fileName: string }[] }>;
+    const arrayLike = { 0: new File(["a"], "a.png"), 1: new File(["b"], "b.png"), length: 2 };
+    const result = await uploadFiles(arrayLike);
+    expect(result.files.map(file => file.fileName)).toEqual(["a.png", "b.png"]);
+  });
+
+  it("answers getUploadLimit with the measured defaults, synchronously", () => {
+    const getUploadLimit = handleOf(createMockRuntimeFacadeProvider()).getUploadLimit as () => Record<string, unknown>;
+    const limit = getUploadLimit();
+    // Unset means `0`, and `0` means unlimited on both numeric fields — measured, and
+    // `accept` always equals `extensionFilter`.
+    expect(limit.sizeLimit).toBe(0);
+    expect(limit.maxUploadFileCount).toBe(0);
+    expect(limit.accept).toBe(limit.extensionFilter);
+    expect(limit).not.toBeInstanceOf(Promise);
+  });
+
+  it("reproduces the exposeMethod registration semantics #176 measured", () => {
+    const handle = handleOf(createMockRuntimeFacadeProvider());
+    const exposeMethod = handle.exposeMethod as (name: unknown, method: unknown) => void;
+    const registry = handle.__exposedMethods as Record<string, unknown>;
+
+    // Invalid input is silently ignored — no throw, no registration.
+    expect(() => exposeMethod("", () => undefined)).not.toThrow();
+    expect(() => exposeMethod("x", "not-a-function")).not.toThrow();
+    expect(() => exposeMethod(null, () => undefined)).not.toThrow();
+    expect(Object.keys(registry)).toEqual([]);
+
+    // Overwrite wins: the second registration replaces the first.
+    const first = () => "first";
+    const second = () => "second";
+    exposeMethod("run", first);
+    exposeMethod("run", second);
+    expect(registry.run).toBe(second);
+  });
+
+  it("quantizes an 8-digit hex alpha exactly as measured", () => {
+    const convert = handleOf(createMockRuntimeFacadeProvider()).ConvertToCssColor as (color: string) => string;
+    // The measured matrix, verbatim — the two-decimal quantization is the behaviour a
+    // cell can come to depend on, so a mock that rounded differently would be lying.
+    expect(convert("#FF0000")).toBe("#FF0000");
+    expect(convert("#FFFF0000")).toBe("#FF0000");
+    expect(convert("#80FF0000")).toBe("rgba(255,0,0,0.50)");
+    expect(convert("#00FF0000")).toBe("rgba(255,0,0,0.00)");
+    expect(convert("rgb(255,0,0)")).toBe("rgb(255,0,0)");
+    expect(convert("red")).toBe("red");
+    expect(convert("#f00")).toBe("#f00");
+    expect(convert("not-a-color")).toBe("not-a-color");
+    expect(convert("")).toBe("");
+  });
+
+  it("round-trips the OADate pair exact to the millisecond, in the local timezone", () => {
+    const handle = handleOf(createMockRuntimeFacadeProvider());
+    const toOA = handle.ConvertDateToOADate as (date: Date) => number;
+    const fromOA = handle.ConvertOADateToDate as (oadate: number) => Date;
+
+    const now = new Date();
+    // The measured round-trip guarantee: exact to the millisecond when composed.
+    expect(fromOA(toOA(now)).getTime() - now.getTime()).toBe(0);
+    // And the measured timezone behaviour: the epoch is local, so `0` does not produce
+    // `1899-12-30T00:00:00Z` except on a UTC host — what is asserted is the *local*
+    // midnight, which is the conversion the host performs.
+    const roundTrippedEpoch = fromOA(0);
+    expect(roundTrippedEpoch.getFullYear()).toBe(1899);
+    expect(roundTrippedEpoch.getMonth()).toBe(11);
+    expect(roundTrippedEpoch.getDate()).toBe(30);
+  });
+
+  it("uses the local-wall-clock arithmetic the probe's data points pin, not the naive formula", () => {
+    const handle = handleOf(createMockRuntimeFacadeProvider());
+    const toOA = handle.ConvertDateToOADate as (date: Date) => number;
+    // The noon measurement is what distinguishes the two candidate formulas: the naive
+    // epoch-milliseconds reading misses it by the local-timezone offset, while the
+    // wall-clock reinterpretation hits it exactly. Asserted as the *difference* the two
+    // formulas disagree by rather than as one absolute number, because the absolute value
+    // is timezone-dependent — the probe recorded it on a UTC+8 host — and this suite has
+    // to pass on any machine. What is machine-independent is that the wall-clock formula
+    // is the one the mock implements: the UTC-instant noon input converts to exactly the
+    // day count the probe recorded plus the probe machine's own offset, which is what
+    // reproducing the arithmetic means.
+    const noonUtc = new Date(Date.UTC(2026, 0, 1, 12, 0, 0));
+    // On any machine, the local wall clock of a UTC-noon instant reinterpreted as UTC is
+    // offset from the naive epoch formula by exactly the local-timezone shift — so the
+    // two candidate answers differ, and the mock must give the wall-clock one. Computing
+    // the wall-clock expectation here (rather than writing 46023.833…​3 down) is what
+    // keeps the test about the arithmetic instead of about one machine's timezone.
+    const wallClockAsUtc =
+      (Date.UTC(
+        noonUtc.getFullYear(), noonUtc.getMonth(), noonUtc.getDate(),
+        noonUtc.getHours(), noonUtc.getMinutes(), noonUtc.getSeconds(), noonUtc.getMilliseconds(),
+      ) - Date.UTC(1899, 11, 30)) / 86400000;
+    expect(toOA(noonUtc)).toBe(wallClockAsUtc);
+    // And the discriminating half: the naive formula's answer, which the mock must NOT
+    // give — it is the wrong arithmetic, off by the timezone offset on every non-UTC host.
+    const naive = (noonUtc.getTime() - new Date(1899, 11, 30).getTime()) / 86400000;
+    if (new Date().getTimezoneOffset() !== 0) {
+      expect(toOA(noonUtc)).not.toBe(naive);
+    }
+  });
+
+  it("lets a project override any default verbatim", () => {
+    const custom = () => ({ UserName: "Custom" });
+    const handle = handleOf(createMockRuntimeFacadeProvider({ forguncyMembers: { getCurrentUser: custom } }));
+    expect(handle.getCurrentUser).toBe(custom);
+  });
+
+  it("keeps the handle key list exactly the fourteen core verified, with internals hidden", () => {
+    const handle = handleOf(createMockRuntimeFacadeProvider());
+    // The registry the exposeMethod stand-in writes into is non-enumerable, because the
+    // host's own key list is the fourteen and nothing else — a cell enumerating the
+    // handle locally must see what it would see on the page.
+    expect(Object.keys(handle).sort()).toEqual([...CELL_FORGUNCY_PROP_KEYS].sort());
+    expect(Object.hasOwn(handle, "__exposedMethods")).toBe(true);
+  });
+});
+
+// The bidirectional surface area #177 adds: properties land as base-prop-sibling keys and
+// events as callable firings, the same injection the host performs.
+describe("declared properties and events", () => {
+  function propsOf(options: Parameters<typeof createMockRuntimeFacadeProvider>[0]): Record<string, unknown> {
+    return cellPropsOf(createMockRuntimeFacadeProvider(options));
+  }
+
+  it("injects declared properties onto props under their own names", () => {
+    const props = propsOf({ properties: { title: "销售总览", threshold: 500 } });
+    expect(props.title).toBe("销售总览");
+    expect(props.threshold).toBe(500);
+  });
+
+  it("refuses a property that collides with a base prop, because the host cannot produce that", () => {
+    expect(() => createMockRuntimeFacadeProvider({ properties: { Forguncy: {} } })).toThrow(/collides with a base prop/);
+    expect(() => createMockRuntimeFacadeProvider({ properties: { ServerCommands: {} } })).toThrow(/collides with a base prop/);
+  });
+
+  it("assigns a callable firing for every declared event, handler or not", () => {
+    const props = propsOf({ eventHandlers: { onClick: () => undefined, onIdle: undefined } });
+    expect(typeof props.onClick).toBe("function");
+    // The no-handler case is a function too: #176 measured the runtime assigning
+    // `props[eventName] = (...args) => void` for every declared entry, and an uncommanded
+    // event is a no-op rather than an absent key.
+    expect(typeof props.onIdle).toBe("function");
+    expect(() => (props.onIdle as () => void)()).not.toThrow();
+  });
+
+  it("routes the firing's positional arguments to the declared handler", () => {
+    const seen: readonly unknown[][] = [];
+    const props = propsOf({
+      eventHandlers: {
+        onSelect: (...args: readonly unknown[]) => {
+          (seen as unknown[][]).push([...args]);
+        },
+      },
+    });
+    (props.onSelect as (...args: unknown[]) => void)("row-3", 42);
+    expect(seen).toEqual([["row-3", 42]]);
+  });
+
+  it("refuses an event that collides with a base prop or a declared property", () => {
+    expect(() =>
+      createMockRuntimeFacadeProvider({ eventHandlers: { Permissions: () => undefined } }),
+    ).toThrow(/collides/);
+    expect(() =>
+      createMockRuntimeFacadeProvider({
+        properties: { title: "x" },
+        eventHandlers: { title: () => undefined },
+      }),
+    ).toThrow(/collides/);
+  });
+
+  it("keeps the permission identity between the base prop and the handle", () => {
+    // #176 measured identity equality, not deep equality: `props.Permissions` *is*
+    // `props.Forguncy.Permissions`. A copy would let the two disagree, which is the
+    // exact drift the measurement rules out.
+    const props = propsOf({ cellProps: { Permissions: { "Orders.Read": true } } });
+    expect((props.Forguncy as Record<string, unknown>).Permissions).toBe(props.Permissions);
+  });
+});

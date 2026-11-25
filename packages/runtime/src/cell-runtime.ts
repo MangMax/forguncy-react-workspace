@@ -56,6 +56,17 @@ import type {
   ServerCommandParameterMap,
   ServerCommandResult,
 } from "./contract.ts";
+// Erased at compile time: these are the shapes #176 measured, and they cost a production
+// Cell nothing because `import type` leaves no runtime edge. See `facade-types.ts` for why
+// the shapes live in their own module rather than in this one.
+import type {
+  ForguncyCellMethod,
+  ForguncyCurrentUser,
+  ForguncyEventFiring,
+  ForguncyUploadFilesInput,
+  ForguncyUploadLimit,
+  ForguncyUploadResult,
+} from "./facade-types.ts";
 
 // ---------------------------------------------------------------------------
 // The surface
@@ -66,6 +77,18 @@ export const RUNTIME_FACADE_SURFACE_MEMBER_IDS = [
   "useDataSource",
   "hasPermission",
   "getPermissions",
+  "permissionSnapshot",
+  "getCurrentUser",
+  "logIn",
+  "logOut",
+  "uploadFiles",
+  "getUploadLimit",
+  "exposeMethod",
+  "convertDateToOADate",
+  "convertOADateToDate",
+  "convertToCssColor",
+  "cellProperty",
+  "fireEvent",
   "cellProp",
   "forguncyMember",
 ] as const;
@@ -84,9 +107,17 @@ export type RuntimeFacadeSurfaceMemberId = (typeof RUNTIME_FACADE_SURFACE_MEMBER
  * the exclusion that matters: `ServerCommands` is a confirmed base prop and is
  * deliberately not here, because the member that exposes it is
  * `invokeServerCommand`.
+ *
+ * Since #177 the tuple is a single entry: `ImageContext` is the one capability whose
+ * evidence still stops at `member-presence` (its populated shape was read from the runtime
+ * source but never executed — `image-context-populated-shape`), so it is the one address
+ * the declared-shape accessor still owns. `Permissions` moved out: #176 measured its
+ * identity-equality with `props.Forguncy.Permissions` and lifted `permission-snapshot` to
+ * `call-shape`, which is what `permissionSnapshot` now types. An address whose evidence
+ * supports a typed member does not stay in the weak accessor's domain — reaching it there
+ * would be the second-address failure this tuple's exclusions exist to refuse.
  */
 export const RUNTIME_FACADE_CELL_PROP_ADDRESSES = [
-  "Permissions",
   "ImageContext",
 ] as const satisfies readonly CellPropKey[];
 
@@ -94,27 +125,18 @@ export const RUNTIME_FACADE_CELL_PROP_ADDRESSES = [
  * The handle members `forguncyMember` reaches, in `CELL_FORGUNCY_PROP_KEYS`
  * order.
  *
- * Nine of #5's fourteen, and the five omitted ones are omitted for reasons the
- * registry already records: `DataSourceCompareType` and
- * `DataSourceRelationType` are wrapper-locals a Cell can already name,
- * `Permissions` is the base prop `cellProp` exposes, and `hasPermission` and
- * `getPermissions` are the two members #5 *called*, which is why each has a typed
- * member of its own. Addressing any of them here would be the second-address
- * failure `binding-shadows-cell-scope` refuses at the capability level, one level
- * down. The derivation test asserts the exclusion rather than trusting it, and the
- * number of omissions is the number of entries missing from `CELL_FORGUNCY_PROP_KEYS`
- * — a count the test also checks, so a sixth reason has to be written down.
+ * **Empty since #177**, and deliberately kept rather than deleted. Every member of this
+ * tuple's original domain is now exposed through a typed member — #176 measured all nine
+ * call shapes, and a confirmed address whose signature the evidence pins is the exact
+ * input the typed half of the surface is for. What remains is the *machinery*: the empty
+ * tuple is the type-level statement that there is currently no handle member whose shape a
+ * caller must declare for themselves, and keeping the accessor in place is what lets the
+ * next probed member land somewhere honest — a presence-only address that arrives later
+ * goes here first instead of being typed on a guess or left unreachable. The derivation
+ * test still compares this tuple against the registry's answer for `forguncyMember`, so a
+ * member that re-enters the domain is picked up by both.
  */
 export const RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRESSES = [
-  "ConvertDateToOADate",
-  "ConvertOADateToDate",
-  "ConvertToCssColor",
-  "exposeMethod",
-  "getCurrentUser",
-  "getUploadLimit",
-  "logIn",
-  "logOut",
-  "uploadFiles",
 ] as const satisfies readonly ForguncyPropMember[];
 
 export type ExposedCellPropKey = (typeof RUNTIME_FACADE_CELL_PROP_ADDRESSES)[number];
@@ -139,7 +161,11 @@ export type ExposedForguncyMember = (typeof RUNTIME_FACADE_FORGUNCY_MEMBER_ADDRE
  * follows the host shape — commands are a map keyed by designer-chosen names,
  * props and handle members are single addresses.
  */
-export interface RuntimeFacade<Commands extends ServerCommandParameterMap = Record<never, never>> {
+export interface RuntimeFacade<
+  Commands extends ServerCommandParameterMap = Record<never, never>,
+  Properties extends string = never,
+  Events extends string = never,
+> {
   invokeServerCommand<Name extends keyof Commands & string>(
     name: Name,
     ...parameters: Commands[Name]
@@ -195,10 +221,152 @@ export interface RuntimeFacade<Commands extends ServerCommandParameterMap = Reco
    */
   getPermissions(): Readonly<Partial<Record<string, boolean>>>;
 
+  /**
+   * The permission snapshot the host resolved before the page rendered, read as a base prop.
+   *
+   * #176 measured on `12.0.102.0` that `props.Permissions` is identity-equal to
+   * `props.Forguncy.Permissions` and carries one boolean per configured `permissions[].name`,
+   * which is what lifts this out of the declared-shape accessor: the shape is the same
+   * `Partial<Record<string, boolean>>` `getPermissions()` returns, and the `Partial` is load-bearing
+   * in the same way — an unconfigured name is absent, so the type may not promise a boolean
+   * there. Reading it as a value rather than calling it as a method is the measured difference
+   * between this member and `getPermissions`: the snapshot is captured at cell initialization,
+   * not consulted per call.
+   */
+  permissionSnapshot(): Readonly<Partial<Record<string, boolean>>>;
+
+  /**
+   * The signed-in user the host already resolved, under the host's own member name.
+   *
+   * Synchronous — #176 measured the object being returned directly, not a Promise. Every
+   * field of `ForguncyCurrentUser` is optional because the signed-out shape is still an open
+   * question (`signed-out-user-shape`): requiring `UserName` would promise that a signed-out
+   * read cannot produce a partially-empty record, which is exactly the shape of claim this
+   * façade exists to refuse.
+   */
+  getCurrentUser(): ForguncyCurrentUser;
+
+  /**
+   * Navigate the browser to the host's login page. Arity 0, fire-and-forget.
+   *
+   * #176 measured `logIn.length === 0` and the wrapper forwarding to
+   * `Forguncy.AccountEx_ForApi.navigateToLogin()` with no arguments and no Promise: the
+   * redirect *is* the outcome, so there is nothing to await. A return type of `Promise` here
+   * would teach authored source to await a navigation that has already started.
+   */
+  logIn(): void;
+
+  /**
+   * End the session through the host's own sign-out, forwarding `navigateToHomePage` verbatim.
+   *
+   * Arity 1, fire-and-forget — #176 measured `logOut.length === 1` and the wrapper forwarding
+   * the single argument to `Forguncy.logOut` untouched. What the redirect matrix is, and
+   * whether `false` suppresses the navigation, is the host's own contract
+   * (`logOut-redirect-observability`), which is why the parameter is typed `boolean | undefined`
+   * rather than required: the host forwards whatever it is given, and this façade pins the
+   * arity, not the host's navigation decisions.
+   */
+  logOut(navigateToHomePage?: boolean): void;
+
+  /**
+   * Upload files through the host rather than posting to a cell-invented endpoint.
+   *
+   * #176 executed the full matrix: a single `File`, an array, or a `FileList` are all
+   * accepted; no arguments or an empty array resolve the empty result rather than rejecting;
+   * validation failures reject with the localized messages
+   * `CELL_FORGUNCY_FACADE_MEMBER_SHAPES` records verbatim. This is the one typed member that
+   * is genuinely asynchronous — the host's own contract is a Promise, so awaiting here is
+   * correct rather than permissive.
+   */
+  uploadFiles(files?: ForguncyUploadFilesInput, options?: { readonly uploadFolder?: string }): Promise<ForguncyUploadResult>;
+
+  /**
+   * The host's declared upload limit, synchronous.
+   *
+   * `sizeLimit` is **megabytes** and `0` means unlimited on both numeric fields — measured,
+   * not documented. The shape is returned verbatim rather than narrowed because there is
+   * nothing to refuse: #176 measured a plain object with these four keys, so the type is the
+   * measurement rather than a claim about it.
+   */
+  getUploadLimit(): ForguncyUploadLimit;
+
+  /**
+   * Publish a cell-provided method so a configured Forguncy command can reach it.
+   *
+   * #176 measured the registration half end-to-end: invalid input (a falsy name, a
+   * non-function method) is silently ignored rather than throwing, and re-registering the
+   * same name replaces the previous registration. The invocation half — the host reaching
+   * the cell through `page.getCell(name).getCellType().ExecuteMethod` — is the host's
+   * command pipeline, and the cell's half of it ends here: this façade registers, it does
+   * not invoke.
+   */
+  exposeMethod(methodName: string, method: ForguncyCellMethod): void;
+
+  /**
+   * The host's own date conversion, running in the local timezone.
+   *
+   * #176 measured the pair as local-timezone-shifted: a round-trip composed with
+   * `convertOADateToDate` is exact to the millisecond, but the OLE Automation epoch does not
+   * map to `0` because the conversion is not UTC. The return is `number` rather than a
+   * branded type because the value is the host's own currency — a cell passing it back to
+   * the host needs the number, not a refinement of it.
+   */
+  convertDateToOADate(date: Date): number;
+
+  /** The inverse conversion, with the same local-timezone behaviour as its pair. */
+  convertOADateToDate(oadate: number): Date;
+
+  /**
+   * The host's own colour conversion.
+   *
+   * #176 measured the passthrough matrix verbatim: 6-digit hex, `rgb()` and named colours
+   * pass through unchanged; an `FF` alpha is dropped from 8-digit hex; a partial alpha is
+   * quantized to `rgba(r,g,b,a)` with two decimals; non-string input throws a `TypeError`
+   * in the host's own code. The cell-facing contract is the type, not the behaviour —
+   * reproducing the quantization in the façade would be a second implementation of a host
+   * value.
+   */
+  convertToCssColor(color: string): string;
+
+  /**
+   * A declared cell property's current value.
+   *
+   * `Properties` defaults to `never`, so a bare `runtimeFacade()` admits **no** property read
+   * — the same discipline `invokeServerCommand` applies to commands, because which properties
+   * exist is a project declaration (#178), not something this contract can know. The value is
+   * `unknown` until the caller declares its shape: the host evaluates the property's formula
+   * and hands the cell the result, and what a given property carries is the project's claim,
+   * not the façade's. What *is* measured is the re-render half: when the host's
+   * `SetPropertyValue` runs, the existing tree re-renders with the new value **without**
+   * re-executing the cell entry, so a component reading this member during render sees the
+   * current value on every render.
+   */
+  cellProperty<Shape = unknown>(propertyName: Properties): Shape;
+
+  /**
+   * Fire a declared event, gathering the positional arguments for the host's command pipeline.
+   *
+   * `Events` defaults to `never` for the same reason `Properties` does. The firing call is
+   * `void` even when the designer attached a command tree: #176 measured the runtime gathering
+   * the positional arguments into an object keyed by `eventArgs[].name` and handing it to
+   * `executeCustomCommandObject`, and the command's outcome is the host pipeline's business —
+   * it is not observable through the firing call. An event with no command attached is a
+   * no-op, which is the host's own behaviour in the designer preview rather than an absence
+   * the façade refuses.
+   */
+  fireEvent(eventName: Events, ...args: readonly unknown[]): void;
+
   /** A confirmed base prop, under the name `core` verified. */
   cellProp<Shape = unknown>(key: ExposedCellPropKey): Shape;
 
-  /** A confirmed `props.Forguncy` member, under the name `core` verified. */
+  /**
+   * A confirmed `props.Forguncy` member, under the name `core` verified.
+   *
+   * Since #177 every measured member has a typed surface member of its own, so this accessor's
+   * domain is empty: it exists for the next presence-only address, and until one arrives it
+   * admits nothing — which is the type system saying "no member currently needs its shape
+   * declared by hand" rather than the accessor being broken.
+   */
   forguncyMember<Signature = unknown>(member: ExposedForguncyMember): Signature;
 }
 
@@ -223,6 +391,18 @@ interface RuntimeFacadeImplementation {
   useDataSource(dataSourceName: string, options?: DataSourceQueryOptions): DataSourceResult;
   hasPermission(permissionName: string): boolean;
   getPermissions(): Readonly<Partial<Record<string, boolean>>>;
+  permissionSnapshot(): Readonly<Partial<Record<string, boolean>>>;
+  getCurrentUser(): ForguncyCurrentUser;
+  logIn(): void;
+  logOut(navigateToHomePage?: boolean): void;
+  uploadFiles(files?: ForguncyUploadFilesInput, options?: { readonly uploadFolder?: string }): Promise<ForguncyUploadResult>;
+  getUploadLimit(): ForguncyUploadLimit;
+  exposeMethod(methodName: string, method: ForguncyCellMethod): void;
+  convertDateToOADate(date: Date): number;
+  convertOADateToDate(oadate: number): Date;
+  convertToCssColor(color: string): string;
+  cellProperty(propertyName: string): unknown;
+  fireEvent(eventName: string, ...args: readonly unknown[]): void;
   cellProp(key: ExposedCellPropKey): unknown;
   forguncyMember(member: ExposedForguncyMember): unknown;
 }
@@ -382,6 +562,139 @@ function buildRuntimeFacadeSurface(): RuntimeFacadeImplementation {
     getPermissions: () => {
       const read = hostHandleMethod(requireRuntimeFacadeProvider(), "getPermissions") as () => unknown;
       return permissionMap(read());
+    },
+
+    // Reads the base prop rather than the handle because that is the snapshot's measured
+    // address — captured at initialization, identity-equal to `props.Forguncy.Permissions` —
+    // and the narrowing is the same `permissionMap` the other two permission members run.
+    permissionSnapshot: () => {
+      const provider = requireRuntimeFacadeProvider();
+      const snapshot = ownValue(portBinding(provider, "cellProps"), "Permissions", "Permissions", "base-prop-not-supplied");
+      return permissionMap(snapshot);
+    },
+
+    // The members below all resolve through `hostHandleMethod` — every one was *called* in
+    // #176's probe, so callability is paid for — and each narrows only what separates the
+    // measured shape from one the evidence does not describe. The behaviours inside the
+    // shapes (the timezone shift, the alpha quantization, the pipe joining) stay the host's
+    // own: reproducing them here would be the second implementation `no-host-api-mirror`
+    // refuses.
+    getCurrentUser: () => {
+      const read = hostHandleMethod(requireRuntimeFacadeProvider(), "getCurrentUser") as () => unknown;
+      const user = read();
+      if (user === null || typeof user !== "object" || Array.isArray(user) || isThenable(user)) {
+        throw refuseAbsence(
+          "called-member-answered-wrong-shape",
+          "getCurrentUser",
+          `props.Forguncy.getCurrentUser() answered ${answerShape(user)} rather than the user record #176 measured, so the call cannot be reported as having returned one.`,
+        );
+      }
+      return user as ForguncyCurrentUser;
+    },
+
+    logIn: () => {
+      const navigate = hostHandleMethod(requireRuntimeFacadeProvider(), "logIn");
+      // Fire-and-forget as measured: no return inspection, because awaiting or refusing a
+      // return the host never promised would invent a shape. The `void` is the type
+      // system's copy of that measurement.
+      void navigate();
+    },
+
+    logOut: navigateToHomePage => {
+      const logout = hostHandleMethod(requireRuntimeFacadeProvider(), "logOut");
+      // Verbatim, including `undefined` when the caller omitted it — coalescing a default
+      // would be a navigation decision the host owns.
+      void logout(navigateToHomePage);
+    },
+
+    uploadFiles: (files, options) => {
+      const upload = hostHandleMethod(requireRuntimeFacadeProvider(), "uploadFiles") as (
+        files?: unknown,
+        options?: unknown,
+      ) => unknown;
+      // Arguments forward exactly as they arrived: the input normalization is the host's
+      // own, and the no-arguments case is the host's empty result, not an error this member
+      // may pre-empt.
+      const result = upload(files, options);
+      if (!isThenable(result)) {
+        throw refuseAbsence(
+          "called-member-answered-wrong-shape",
+          "uploadFiles",
+          `props.Forguncy.uploadFiles() answered ${answerShape(result)} rather than the Promise #176 measured, so the upload cannot be reported as having started.`,
+        );
+      }
+      return (result as Promise<unknown>).then(settled => {
+        if (settled === null || typeof settled !== "object" || Array.isArray(settled)) {
+          throw refuseAbsence(
+            "called-member-answered-wrong-shape",
+            "uploadFiles",
+            `props.Forguncy.uploadFiles() resolved to ${answerShape(settled)} rather than the upload result #176 measured, so the upload cannot be reported as having returned one.`,
+          );
+        }
+        return settled as ForguncyUploadResult;
+      });
+    },
+
+    getUploadLimit: () => {
+      const read = hostHandleMethod(requireRuntimeFacadeProvider(), "getUploadLimit") as () => unknown;
+      const limit = read();
+      if (limit === null || typeof limit !== "object" || Array.isArray(limit) || isThenable(limit)) {
+        throw refuseAbsence(
+          "called-member-answered-wrong-shape",
+          "getUploadLimit",
+          `props.Forguncy.getUploadLimit() answered ${answerShape(limit)} rather than the upload limit record #176 measured, so the call cannot be reported as having returned one.`,
+        );
+      }
+      return limit as ForguncyUploadLimit;
+    },
+
+    exposeMethod: (methodName, method) => {
+      const expose = hostHandleMethod(requireRuntimeFacadeProvider(), "exposeMethod");
+      // Forwarded as written, invalid input included: the host silently ignores it, so
+      // refusing here would make the façade stricter than the host.
+      void expose(methodName, method);
+    },
+
+    convertDateToOADate: date => {
+      const convert = hostHandleMethod(requireRuntimeFacadeProvider(), "ConvertDateToOADate");
+      return convert(date) as number;
+    },
+
+    convertOADateToDate: oadate => {
+      const convert = hostHandleMethod(requireRuntimeFacadeProvider(), "ConvertOADateToDate");
+      return convert(oadate) as Date;
+    },
+
+    convertToCssColor: color => {
+      const convert = hostHandleMethod(requireRuntimeFacadeProvider(), "ConvertToCssColor");
+      return convert(color) as string;
+    },
+
+    cellProperty: propertyName => {
+      const provider = requireRuntimeFacadeProvider();
+      // Presence, not definedness — a property whose formula currently evaluates to
+      // `undefined` is a state the host allows. No confirmation check: property names are
+      // the project's declaration, not anything #5 enumerated. The re-render half needs no
+      // machinery either: this read runs during render, and the host's `SetPropertyValue`
+      // re-renders without re-executing the entry, so the current render's value is what it
+      // sees.
+      return ownValue(portBinding(provider, "cellProps"), propertyName, propertyName, "base-prop-not-supplied");
+    },
+
+    fireEvent: (eventName, ...args) => {
+      const provider = requireRuntimeFacadeProvider();
+      const firing = ownValue(portBinding(provider, "cellProps"), eventName, eventName, "base-prop-not-supplied");
+      if (typeof firing !== "function") {
+        throw refuseAbsence(
+          "called-member-not-callable",
+          eventName,
+          `props.${eventName} is not callable, so the event cannot be fired: #176 measured the host assigning a function for each declared eventHandlers entry. Declare the event in the Cell's eventHandlers, or supply it in the mock provider.`,
+        );
+      }
+      // Called bare, matching the measured `props[eventName](...args)` form: the gather into
+      // the keyed object is inside the function the host assigned, so the positional
+      // arguments go over exactly as written.
+      (firing as (...args: readonly unknown[]) => unknown)(...args);
     },
 
     cellProp: key => {
@@ -614,11 +927,13 @@ function permissionMap(value: unknown): Readonly<Partial<Record<string, boolean>
  * two provider kinds depend on is that authorization happens once, in one body,
  * so a host and a mock cannot differ in it.
  */
-export function runtimeFacade<Commands extends ServerCommandParameterMap = Record<never, never>>(): RuntimeFacade<
-  Commands
-> {
+export function runtimeFacade<
+  Commands extends ServerCommandParameterMap = Record<never, never>,
+  Properties extends string = never,
+  Events extends string = never,
+>(): RuntimeFacade<Commands, Properties, Events> {
   requireRuntimeFacadeProvider();
-  return surface as unknown as RuntimeFacade<Commands>;
+  return surface as unknown as RuntimeFacade<Commands, Properties, Events>;
 }
 
 const surface: RuntimeFacade = buildRuntimeFacadeSurface() as unknown as RuntimeFacade;
@@ -692,9 +1007,32 @@ function claimForguncyMemberAddress(
  * address reached through the wrong member, and the fix is the same shape in all
  * three cases — name the member the registry names for it.
  */
+/**
+ * The handle members whose owning surface member is not spelled the same way.
+ *
+ * Two kinds of rename, each with its own reason: the three conversions drop the PascalCase
+ * the host uses because façade member ids are camelCase by convention (the conversion names
+ * are verbs, and the host's capitalization is a CLR-ism rather than part of the measured
+ * contract — what #176 measured is the call shape, which the member keeps exactly); and
+ * `Permissions` is not a method at all but the snapshot whose other, measured address is the
+ * base prop. Data rather than branches so the derivation test can compare this table against
+ * the surface members directly: a conversion renamed away from its host spelling is a
+ * deliberate act, not a drift.
+ */
+const HANDLE_ADDRESS_TYPED_OWNERS: Readonly<Record<string, { readonly member: string; readonly basis: string }>> = {
+  ConvertDateToOADate: { member: "convertDateToOADate", basis: "#176 measured props.Forguncy.ConvertDateToOADate()" },
+  ConvertOADateToDate: { member: "convertOADateToDate", basis: "#176 measured props.Forguncy.ConvertOADateToDate()" },
+  ConvertToCssColor: { member: "convertToCssColor", basis: "#176 measured props.Forguncy.ConvertToCssColor()" },
+  Permissions: { member: "permissionSnapshot", basis: "#176 measured it as identity-equal to the base prop the snapshot lives at" },
+};
+
 function handleAddressOwner(member: string): string {
   if ((RUNTIME_FACADE_SURFACE_MEMBER_IDS as readonly string[]).includes(member)) {
     return `#5 executed props.Forguncy.${member}(), so the façade calls it under the host's own name as runtimeFacade().${member}(), and a second address is a second way for the façade to be wrong.`;
+  }
+  const renamed = HANDLE_ADDRESS_TYPED_OWNERS[member];
+  if (renamed !== undefined) {
+    return `${renamed.basis}, so the façade exposes it as runtimeFacade().${renamed.member}(), and a second address is a second way for the façade to be wrong.`;
   }
   if ((RUNTIME_FACADE_CELL_PROP_ADDRESSES as readonly string[]).includes(member)) {
     return `it is the base prop "${member}", so cellProp("${member}") is the member that exposes it, and a second address is a second way for the façade to be wrong.`;
