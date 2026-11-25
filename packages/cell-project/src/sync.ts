@@ -32,6 +32,7 @@
 
 import { cellTargetLabel, executeCellSyncBatch } from "@forguncy-react-workspace/mcp-sync";
 import type {
+  CellOverwritePolicy,
   CellSyncBatchReport,
   CellSyncRun,
   ForguncySyncPort,
@@ -87,6 +88,16 @@ export interface SyncProjectOptions {
   readonly onTransportFailure?: "stop" | "continue";
   /** Whether a resolved failure (a refusal, a declined save) stops the batch. Defaults to `continue`. */
   readonly onFailedRun?: "stop" | "continue";
+  /**
+   * What to do about a target that diverged from the repository declaration (#179).
+   *
+   * Defaults to `preserve-designer-edits` — refuse, and report the field-level drift. `restore`
+   * overwrites the declared bindings from the repository while preserving the `eventHandlers`
+   * command body; `restore-all` additionally clears that body; `force` overwrites everything
+   * including undeclared designer work. The policy is the caller's decision, never the config's:
+   * a restore is an explicit act, not a project default.
+   */
+  readonly overwrite?: CellOverwritePolicy;
 }
 
 /**
@@ -190,6 +201,13 @@ export async function syncProject(build: ProjectBuild, options: SyncProjectOptio
       // `(packageName, cellTarget)`, and the artifact was compiled against exactly this list.
       decisions: cellLockOf(build.project, cell.cellId).decisions,
       port: options.port,
+      // The binding declaration the registry carries (#178). Passed per Cell so the sync takes over
+      // exactly the declared fields; the batch executor defaults to this same registry value, so an
+      // explicit pass here is what keeps the two reading the one declaration.
+      ...(build.project.registry.require(cell.cellId).bindings === undefined
+        ? {}
+        : { bindings: build.project.registry.require(cell.cellId).bindings }),
+      ...(options.overwrite === undefined ? {} : { overwrite: options.overwrite }),
     })),
     {
       ...(options.onTransportFailure === undefined ? {} : { onTransportFailure: options.onTransportFailure }),

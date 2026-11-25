@@ -481,7 +481,7 @@ describe("mapping a read", () => {
       const result = await readWith([{ row: 0, col: 0, cellType, cellTypeProps: { code: "x" } }]);
 
       expect(result.kind, cellType).toBe("react-cell");
-      expect(result).toEqual({ kind: "react-cell", code: "x", frontendLibraries: [] });
+      expect(result).toEqual({ kind: "react-cell", code: "x", frontendLibraries: [], bindingProps: { code: "x" } });
     }
   });
 
@@ -514,6 +514,7 @@ describe("mapping a read", () => {
       kind: "react-cell",
       code: AWKWARD_CODE,
       frontendLibraries: [{ libraryId: "es-toolkit" }],
+      bindingProps: { code: AWKWARD_CODE, frontendLibraries: [{ libraryId: "es-toolkit" }] },
     });
   });
 
@@ -522,7 +523,7 @@ describe("mapping a read", () => {
   it("reads a dropped reference list as an empty one", async () => {
     const result = await readWith([{ row: 0, col: 0, cellType: "ReactCellType", cellTypeProps: { code: "x" } }]);
 
-    expect(result).toEqual({ kind: "react-cell", code: "x", frontendLibraries: [] });
+    expect(result).toEqual({ kind: "react-cell", code: "x", frontendLibraries: [], bindingProps: { code: "x" } });
   });
 
   it("refuses an answer with no cells array rather than guessing", async () => {

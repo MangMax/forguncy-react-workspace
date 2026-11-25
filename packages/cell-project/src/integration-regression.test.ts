@@ -1055,7 +1055,7 @@ function recordingDesignerPort(): {
       const found = cells.get(keyOf(request.pageName, request.cell));
       return found === undefined
         ? { kind: "blank" }
-        : { kind: "react-cell", code: found.code, frontendLibraries: found.frontendLibraries };
+        : { kind: "react-cell", code: found.code, frontendLibraries: found.frontendLibraries, bindingProps: {} };
     },
     setCells: async request => {
       for (const cell of request.cells) {
@@ -1289,7 +1289,7 @@ describe("local / mock MCP port — fault injection (d): partial write, retry, a
         const found = cells.get(keyOf(request.pageName, request.cell));
         return found === undefined
           ? { kind: "blank" }
-          : { kind: "react-cell", code: found.code, frontendLibraries: found.frontendLibraries };
+          : { kind: "react-cell", code: found.code, frontendLibraries: found.frontendLibraries, bindingProps: {} };
       },
       setCells: async request => {
         for (const cell of request.cells) {

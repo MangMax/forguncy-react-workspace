@@ -119,7 +119,7 @@ function recordingPort(): {
       const written = [...writes].reverse().find(entry => entry.pageName === request.pageName && entry.cell === request.cell);
       return written === undefined
         ? { kind: "blank" }
-        : { kind: "react-cell", code: written.code, frontendLibraries: [] };
+        : { kind: "react-cell", code: written.code, frontendLibraries: [], bindingProps: {} };
     },
     setCells: async request => {
       for (const cell of request.cells) {

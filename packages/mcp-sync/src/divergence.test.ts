@@ -177,7 +177,7 @@ describe("what may be done about it", () => {
 
   it("defaults to preserving designer edits", () => {
     expect(DEFAULT_CELL_OVERWRITE_POLICY).toBe("preserve-designer-edits");
-    expect([...CELL_OVERWRITE_POLICIES]).toEqual(["preserve-designer-edits", "force"]);
+    expect([...CELL_OVERWRITE_POLICIES]).toEqual(["preserve-designer-edits", "force", "restore", "restore-all"]);
   });
 
   it("turns a conflict into a write only under an explicit force", () => {
@@ -239,10 +239,10 @@ describe("the state a caller supplies", () => {
   });
 });
 
-// Kept as a list so a ninth state cannot be added without the table above being revisited.
+// Kept as a list so a tenth state cannot be added without the table above being revisited.
 describe("the state vocabulary", () => {
-  it("has exactly the eight states the classification reports", () => {
+  it("has exactly the nine states the classification reports", () => {
     const kinds: readonly CellDivergenceKind[] = CELL_DIVERGENCE_KINDS;
-    expect(kinds).toHaveLength(8);
+    expect(kinds).toHaveLength(9);
   });
 });

@@ -166,6 +166,13 @@ export interface CellSyncTargetPlan extends Pick<PlanCellSyncOptions, "artifact"
    */
   readonly mappings?: PlanCellSyncOptions["mappings"];
   readonly overwrite?: PlanCellSyncOptions["overwrite"];
+  /**
+   * The host bindings this Cell is declared authoritative for (#178/#179). When omitted the batch
+   * planner reads them off the registry entry — the registry is the single place the declaration
+   * lives — so a caller need not thread them by hand. An explicit value is for a caller pinning a
+   * different declaration than the registry carries.
+   */
+  readonly bindings?: PlanCellSyncOptions["bindings"];
 }
 
 /**
@@ -207,6 +214,13 @@ export function planCellSyncTargets(
       // (`extension-decision-unusable`), refusing a Cell the compile had accepted.
       mappings: plan.mappings ?? registry.extensionMappings.mappings,
       ...(plan.overwrite === undefined ? {} : { overwrite: plan.overwrite }),
+      // The binding declaration (#178/#179): the caller's pin, or the registry entry's own. The
+      // registry is the single place the declaration lives, so defaulting to it here is what lets
+      // every consumer read the same declaration the compiler saw. `undefined` (neither pinned nor
+      // declared) is simply omitted — the all-pass-through default.
+      ...((plan.bindings ?? registry.require(plan.cellId).bindings) === undefined
+        ? {}
+        : { bindings: plan.bindings ?? registry.require(plan.cellId).bindings }),
     });
   });
 }

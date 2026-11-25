@@ -104,7 +104,7 @@ const PLAIN_APP = "export function App() {\n  return null;\n}\n";
 const UNCOVERED_APP = 'import { sumBy } from "es-toolkit";\n\nexport function App() {\n  return sumBy([1, 2]);\n}\n';
 
 /** A port whose target read is supplied per case; every write is refused loudly. */
-function portReading(read: () => Promise<{ kind: "blank" } | { kind: "occupied"; code: string } | { kind: "react-cell"; code: string; frontendLibraries: readonly { libraryId: string }[] }>): ForguncySyncPort {
+function portReading(read: () => Promise<{ kind: "blank" } | { kind: "occupied"; code: string } | { kind: "react-cell"; code: string; frontendLibraries: readonly { libraryId: string }[], bindingProps: {} }>): ForguncySyncPort {
   const refuse = (operation: string) => async (): Promise<never> => {
     throw new Error(`the test expected no write, but ${operation} was called`);
   };
@@ -230,7 +230,7 @@ describe("plan classifies a read target the way sync does", () => {
     const recording: ForguncySyncPort = {
       ...portReading(async () => ({ kind: "blank" })),
       readCellSource: async () =>
-        writes.length === 0 ? { kind: "blank" } : { kind: "react-cell", code: writes[0]!, frontendLibraries: [] },
+        writes.length === 0 ? { kind: "blank" } : { kind: "react-cell", code: writes[0]!, frontendLibraries: [], bindingProps: {} },
       setCells: async request => {
         for (const cell of request.cells) {
           writes.push(cell.cellTypeProps.code);
