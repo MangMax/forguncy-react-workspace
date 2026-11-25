@@ -222,16 +222,24 @@ describe("surface audit", () => {
     expect(findingsFrom(members)).toContain("capability-not-admitted");
   });
 
-  it("refuses a signature that outruns the confirmation, in both directions", () => {
-    const downgraded = RUNTIME_FACADE_SURFACE.map(member =>
-      member.id === "invokeServerCommand" ? { ...member, signature: "caller-declared-shape" as const } : member,
-    );
-    expect(findingsFrom(downgraded)).toContain("signature-outruns-confirmation");
-
+  it("refuses a signature that outruns the confirmation", () => {
+    // The only direction the rule now refuses: typing what the evidence does not pin.
+    // `caller-declared-shape` is the floor rather than a ceiling (#176), so a member
+    // whose evidence has since been upgraded does not produce a finding — the rule
+    // would otherwise punish every legitimate evidence upgrade by forcing a
+    // simultaneous accessor redesign.
     const upgraded = RUNTIME_FACADE_SURFACE.map(member =>
       member.id === "cellProp" ? { ...member, signature: "confirmed-call-shape" as const } : member,
     );
     expect(findingsFrom(upgraded)).toContain("signature-outruns-confirmation");
+
+    // The other direction is now admissible: declaring `caller-declared-shape` for a
+    // capability already at `call-shape` is the steady state between #176 (evidence
+    // upgraded) and #177 (typed members added), and must not produce a finding.
+    const downgraded = RUNTIME_FACADE_SURFACE.map(member =>
+      member.id === "invokeServerCommand" ? { ...member, signature: "caller-declared-shape" as const } : member,
+    );
+    expect(findingsFrom(downgraded)).not.toContain("signature-outruns-confirmation");
   });
 
   it("names a capability no member exposes", () => {

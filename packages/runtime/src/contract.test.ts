@@ -264,10 +264,14 @@ describe("the data-source result", () => {
   const base: DataSourceResult = { data: [], totalCount: 0, loading: false, error: null };
 
   it("requires exactly the result fields #5 executed against", () => {
+    // #5 pinned `data`/`totalCount`/`loading`/`error`; #176 measured `reload` present
+    // and `typeof … === 'function'` on the synchronous return value in a live browser,
+    // so the executed set is now five fields.
     expect([...CELL_DATA_SOURCE_CONTRACT.resultFieldsExecuted].sort()).toEqual([
       "data",
       "error",
       "loading",
+      "reload",
       "totalCount",
     ]);
 
@@ -276,7 +280,9 @@ describe("the data-source result", () => {
     // The interface writes these four out instead of deriving them from `core`,
     // because `resultFieldsExecuted` is a mutable `string[]` rather than a literal
     // tuple. Each one is therefore asserted required by name, so the written-down
-    // list cannot rot into optionals.
+    // list cannot rot into optionals. `reload` stays optional in the interface —
+    // it is *present* on every result the probe captured but the hook's own typing
+    // does not pin it as non-optional in userland.
     // @ts-expect-error `totalCount` is part of the executed result
     const missingTotalCount: DataSourceResult = { data: [], loading: false, error: null };
     // @ts-expect-error `data` is part of the executed result

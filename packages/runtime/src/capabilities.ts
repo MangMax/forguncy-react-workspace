@@ -410,10 +410,10 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "#4 records permissions as host-resolved context a cell must consume rather than recompute; `Permissions` is a base prop key, and #5 records its emptiness as an open question instead of a second meaning.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [{ kind: "cell-prop", prop: "Permissions" }],
     evidenceSources: ["cell-props-key-order", "forguncy-prop-facade"],
-    note: "#5 leaves it open whether the snapshot can come back empty for a configured permission, so the façade must not treat an empty snapshot as a decided negative. The handle's `getPermissions()` returns the same map and *was* called, which is why it is not this capability's second address: a value prop and an executed call cannot share one confirmation level, so filing both here recorded the call as a mere name. It is `permission-map-read`.",
+    note: "#176 measured the snapshot on `12.0.102.0`: it carries one boolean per configured `permissions[].name`, it is identity-equal to `props.Forguncy.Permissions`, and it is read once at cell initialization rather than consulted per call. #5 leaves it open whether the snapshot can come back empty for a configured permission (unreproduced on the live probe), so the façade must not treat an empty snapshot as a decided negative. The handle's `getPermissions()` returns the same map by copy and *was* called, which is why it is not this capability's second address: a value prop and an executed call cannot share one confirmation level. It is `permission-map-read`.",
   },
   {
     id: "permission-check",
@@ -427,7 +427,7 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
     confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "hasPermission" }],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "#5 executed `props.Forguncy.hasPermission(\"ProbePermission\")` and recorded the returned value — `true` for a configured, permitted name — **without** `await`, unlike the `ServerCommands` call recorded beside it, which the same section reports as `await … resolved in 185 ms`. So the call is synchronous and returns a boolean. What stays unpinned is the negative: the probe only ran a granted permission, so `false` for a denied name is what the return type implies rather than a case that was executed.",
+    note: "#5 executed `props.Forguncy.hasPermission(\"ProbePermission\")` and recorded the returned value — `true` for a configured, permitted name — **without** `await`, unlike the `ServerCommands` call recorded beside it, which the same section reports as `await … resolved in 185 ms`. So the call is synchronous and returns a boolean. #176 confirmed the negative matrix on `12.0.102.0`: an undeclared name returns `false`, an empty/`null`/`undefined` argument returns `false` rather than throwing, and the lookup is case-sensitive.",
   },
   {
     id: "permission-map-read",
@@ -442,7 +442,7 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
     confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "getPermissions" }],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "#5 executed `props.Forguncy.getPermissions()` and recorded `{\"ProbePermission\": true}` without `await`, so this is the synchronous map form of `permission-snapshot`. It is filed as its own capability because a confirmation is a property of the call, and this is a different call: the snapshot has no invocation to confirm, so one level could not honestly cover both — the same over-claim `data-source-binding` was corrected for, one address over.",
+    note: "#5 executed `props.Forguncy.getPermissions()` and recorded `{\"ProbePermission\": true}` without `await`, so this is the synchronous map form of `permission-snapshot`. #176 confirmed on `12.0.102.0` that the call returns a fresh shallow copy each time — mutating the returned object does not affect the snapshot other callers see. It is filed as its own capability because a confirmation is a property of the call, and this is a different call.",
   },
   {
     id: "current-user",
@@ -454,9 +454,10 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "The identity a permission snapshot is relative to is host-owned context; #4 puts permissions and auth context on Forguncy's side of the boundary.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "getCurrentUser" }],
     evidenceSources: ["forguncy-prop-facade"],
+    note: "#176 measured the signed-in shape on `12.0.102.0` — the call is synchronous and returns `{ UserName, FullName, Email, Role, HasPicture, PictureUrl }`, with `PictureUrl` falling back to the built-in default avatar when the user has no uploaded image. The signed-out shape is recorded as an open question (`signed-out-user-shape`); the underlying `Forguncy.Page.getUserInfo()` returns undefined fields in that case but the exact fallback shape was not separately executed.",
   },
   {
     id: "session-control",
@@ -468,13 +469,13 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "#4 lists auth context as host-provided and #27 lists implementing an auth framework as a non-goal, so the façade may only delegate to the host's session verbs.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [
       { kind: "forguncy-member", member: "logIn" },
       { kind: "forguncy-member", member: "logOut" },
     ],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "#5 pins these as members of the handle; it does not pin what they return or whether they resolve their own redirects.",
+    note: "#176 read the implementations on `12.0.102.0`. `logIn` has arity 0 and forwards to `Forguncy.AccountEx_ForApi.navigateToLogin()` — it navigates the browser rather than returning a session. `logOut` has arity 1 and forwards its `navigateToHomePage` argument verbatim to `Forguncy.logOut`. Neither returns a promise the cell can await; the redirect target and whether `navigateToHomePage: false` suppresses navigation is the host's contract (`logOut-redirect-observability`), not the facade's.",
   },
   {
     id: "file-upload",
@@ -486,10 +487,10 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "An upload stores data the application owns and that its server-side rules govern, so #4's data-source ownership applies rather than the cell owning a second write path.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "uploadFiles" }],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "`getUploadLimit` is recorded separately because #5 pins neither the unit nor the source of that limit, so it cannot be folded into this capability's contract.",
+    note: "#176 executed the full matrix on `12.0.102.0`. Accepts a single `File`, an array of `File`s, or a `FileList`; returns `Promise<{ files: [{ filePath, fileName, downloadUrl }], attachmentValue }>` where `attachmentValue` is the pipe-separated trailing-pipe concatenation of the server-side `filePath`s. `options.uploadFolder` prefixes the storage path. Validation is client-side with localized error messages: empty file, extension outside the configured `extensionFilter`, size above `sizeLimit` (megabytes), count above `maxUploadFileCount`. No arguments or an empty array resolves `{ files: [], attachmentValue: \"\" }` rather than rejecting.",
   },
   {
     id: "upload-limit",
@@ -500,23 +501,25 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "It reports a host configuration value and neither reads nor mutates application-owned state, so filing it under a #4 concern would claim a boundary it does not sit on.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "getUploadLimit" }],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "#5 pins the member name only; the unit and whether the limit is per file or per request are unconfirmed, so a wrapper must not convert it into a byte count.",
+    note: "#176 measured the shape and units on `12.0.102.0`: the call is synchronous and returns `{ extensionFilter, accept, sizeLimit, maxUploadFileCount }` where `accept` is always equal to `extensionFilter`. `sizeLimit` is **megabytes** — the runtime validates `sizeLimit * 1024 * 1024 < file.size`. Both numeric fields default to `0` when unset, and `0` means unlimited. `maxUploadFileCount` is per call, not per request batch.",
   },
   {
     id: "cell-method-exposure",
     family: "cell-props-and-context",
     summary: "Publish a cell-provided method so a configured Forguncy command can reach it.",
     scope: {
-      kind: "unclassified",
-      reason:
-        "#5 pins `exposeMethod` as a member name and nothing else. Its signature, and which host-side actor may invoke the exposed method, are both unprobed — and either answer decides whether this is cross-cell communication, page lifecycle, or neither. Assigning a concern now would pick one of those answers before it has been observed.",
+      kind: "application",
+      concern: "server-commands",
+      basis:
+        "#176 measured the invocation path on `12.0.102.0`: the host reaches the cell through `page.getCell(name).getCellType().ExecuteMethod`, which is the same channel a configured Forguncy page command uses to invoke a cell — the method is the cell's half of the command pipeline #4 assigns to Forguncy, not a cross-cell pub/sub channel.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [{ kind: "forguncy-member", member: "exposeMethod" }],
     evidenceSources: ["forguncy-prop-facade"],
+    note: "#176 measured the full call shape on `12.0.102.0`. `(methodName, method) => void`; silently ignores a falsy name or a non-function method rather than throwing. Re-registering the same name replaces the previous registration. The invocation side is `CellType.ExecuteMethod(name, methodParameters)` — it returns `Promise<{ Result }>` where a Promise-returning method is awaited before being placed on `Result`. Each entry in `methodParameters` is unwrapped as `.parameterValue` / `.ParameterValue` when either key is present, otherwise passed through verbatim. Unknown or empty names throw `ReactCellType exposed method was not found: <name>` / `ReactCellType ExecuteMethod requires an exposed method name.`",
   },
   {
     id: "forguncy-value-conversions",
@@ -527,14 +530,14 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
       basis:
         "The three conversions are mechanical format transforms over their arguments; they neither read nor mutate application-owned state, and reproducing them in a cell would create a second implementation of a host value for no ownership gain.",
     },
-    confirmation: "member-presence",
+    confirmation: "call-shape",
     hostBindings: [
       { kind: "forguncy-member", member: "ConvertDateToOADate" },
       { kind: "forguncy-member", member: "ConvertOADateToDate" },
       { kind: "forguncy-member", member: "ConvertToCssColor" },
     ],
     evidenceSources: ["forguncy-prop-facade"],
-    note: "One capability over three members: splitting them would produce three records whose only difference is a name. The OADate pair is a single round-trip contract and is only safe to expose together.",
+    note: "One capability over three members, measured on `12.0.102.0`. `ConvertToCssColor` passes through 6-digit hex, `rgb()` and named colours verbatim, drops an `FF` alpha from 8-digit hex, converts a partial alpha to `rgba(r,g,b,a)` with two-decimal quantization, and throws `TypeError: n.startsWith is not a function` on non-string input. `ConvertDateToOADate`/`ConvertOADateToDate` are a local-timezone-shifted round-trip pair — exact to the millisecond when composed, but the OLE Automation epoch does not map to `0` because the conversion runs in local time. Splitting them would produce three records whose only difference is a name.",
   },
   {
     id: "image-context",
@@ -543,7 +546,7 @@ export const RUNTIME_FACADE_CAPABILITIES: readonly RuntimeFacadeCapability[] = [
     scope: {
       kind: "unclassified",
       reason:
-        "#5 pins `ImageContext` as a base prop key and says nothing about its contents or when it is populated, so the façade can carry the value but cannot describe it.",
+        "#5 pins `ImageContext` as a base prop key and #176 measured the empty-path shape (a plain object, `{}` when no image data sources are declared), but the populated shape — what keys and value forms it carries once images are bound — is read from the runtime source rather than executed, so the façade can carry the value but cannot describe its contents.",
     },
     confirmation: "member-presence",
     hostBindings: [{ kind: "cell-prop", prop: "ImageContext" }],

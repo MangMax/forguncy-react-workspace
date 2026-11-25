@@ -464,7 +464,10 @@ describe("evidence discipline", () => {
   it("lets a downstream Issue find the questions it owns", () => {
     const forBudget = openRuntimeContractQuestions("#21");
     expect(forBudget.map(unknown => unknown.id)).toContain("absolute-source-ceiling");
-    expect(openRuntimeContractQuestions("#6").map(unknown => unknown.id)).toContain("property-change-re-render");
+    expect(openRuntimeContractQuestions("#6").map(unknown => unknown.id)).toContain("property-change-component-state-survival");
+    expect(openRuntimeContractQuestions("#177").map(unknown => unknown.id)).toEqual(
+      expect.arrayContaining(["signed-out-user-shape", "logOut-redirect-observability", "image-context-populated-shape", "event-handler-executeCustomCommandObject-error-shape"]),
+    );
   });
 });
 
@@ -836,14 +839,15 @@ describe("the generated runtime binding contract", () => {
 
   it("records the re-render question as narrower than it was, and still open", () => {
     // #83's execution settled half of this: the artifact now reads props per render
-    // through the artifact-scope variable, so it is correct under both branches. What
-    // remains — which branch the product takes, and whether teardown reaches the artifact
-    // — cannot be observed from this repository, which is why it is still open and now
-    // owned by the real-page validation (#84) rather than by #83.
-    const open = RUNTIME_CONTRACT_UNKNOWNS.find(unknown => unknown.id === "artifact-re-evaluated-per-render");
+    // through the artifact-scope variable, so it is correct under both branches. #176
+    // then settled the other observable half — `SetPropertyValue` re-renders the
+    // existing tree without re-executing the entry — so what remains is only the
+    // teardown-observability question, which cannot be measured from this repository
+    // and is owned by the real-page validation (#84).
+    const open = RUNTIME_CONTRACT_UNKNOWNS.find(unknown => unknown.id === "artifact-teardown-observability");
     expect(open).toBeDefined();
     expect(open?.ownedBy).toBe("#84");
-    expect(open?.whyOpen ?? "").toContain("Settled locally (#83)");
+    expect(open?.whyOpen ?? "").toContain("#176");
   });
 
   it("names a live-props binding that the two generated modules share", () => {

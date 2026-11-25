@@ -177,7 +177,12 @@ export interface DataSourceResult {
   readonly totalCount: unknown;
   readonly loading: unknown;
   readonly error: unknown;
-  /** Documented but never observed on a result, so optional rather than required. */
+  /**
+   * Executed on `12.0.102.0` in #176 — `typeof result.reload === 'function'` in the
+   * live page. Still optional in the interface rather than required, because a
+   * consumer reading a result produced before the first query settles may observe
+   * the field absent; the probe captured it post-settle.
+   */
   readonly reload?: unknown;
 }
 
