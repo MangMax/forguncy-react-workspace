@@ -13,6 +13,7 @@
   "devDependencies": {
     "@forguncy-react-workspace/cell-project": "workspace:*",
     "@forguncy-react-workspace/dev-harness": "workspace:*",
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/react": "19.2.7",
     "@vitejs/devtools": "0.8.3",
     "@vitejs/devtools-kit": "0.8.3",

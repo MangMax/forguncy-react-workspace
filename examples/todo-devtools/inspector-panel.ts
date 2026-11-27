@@ -1,15 +1,20 @@
 import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
 import type { CellBindingsConfig } from "../../packages/core/src/browser.ts";
-import config from "./forguncy.config.ts";
+import type { DesignerPage } from "./designer-reader.ts";
 import { mockSaveError, scenarioTasks, scenarios, type Scenario, type Trace } from "./preview.ts";
 
-export const views = { cells: "接管单元格", page: "页面级", debug: "模拟与日志" } as const;
+export const views = {
+  cells: "接管单元格",
+  page: "页面级",
+  debug: "模拟与日志",
+  designer: "设计器",
+} as const;
 export type View = keyof typeof views;
-export const mountedCell = "todo";
-const pageName = config.cells[mountedCell].target.pageName;
-export const pageCells = Object.entries(config.cells).filter(
-  ([, cell]) => cell.target.pageName === pageName,
-);
+export interface InspectorScope {
+  pageName: string;
+  cells: readonly [string, { target: { cell: string }; bindings?: CellBindingsConfig }][];
+  demo: boolean;
+}
 
 const bindingLabels = {
   dataSources: "数据源",
@@ -80,15 +85,32 @@ export function inspectorPanel(
   selected: string,
   scenario: Scenario,
   traces: readonly Trace[],
+  designer: { target: string; page?: DesignerPage; status?: string },
+  scope: InspectorScope,
 ): JsonRenderSpec {
+  const { pageName, cells: pageCells, demo } = scope;
+  const page = designer.page?.name === pageName ? designer.page : undefined;
   const elements: JsonRenderSpec["elements"] = {
     root: {
       type: "Stack",
       props: { gap: 12, padding: 16 },
       children: ["page-name", "source", "tabs", "body"],
     },
-    "page-name": { type: "Text", props: { text: pageName, variant: "heading" } },
-    source: { type: "Text", props: { text: "本地预览 · 设计器未连接" } },
+    "page-name": {
+      type: "Text",
+      props: { text: view === "designer" ? designer.target : pageName, variant: "heading" },
+    },
+    source: {
+      type: "Text",
+      props: {
+        text:
+          view === "designer"
+            ? "活字格设计器 · 只读"
+            : page
+              ? "本地预览 · 已读取设计器配置"
+              : "本地预览",
+      },
+    },
     tabs: { type: "Stack", props: { direction: "row", gap: 8, wrap: true }, children: [] },
     body: { type: "Stack", props: { gap: 8 }, children: [] },
   };
@@ -101,6 +123,7 @@ export function inspectorPanel(
     };
   }
   for (const [id, title] of Object.entries(views)) {
+    if (!demo && id === "debug") continue;
     button(`view-${id}`, title, id === view, `view-${id}`);
     elements.tabs.children?.push(`view-${id}`);
   }
@@ -121,13 +144,36 @@ export function inspectorPanel(
     elements[parent].children?.push(key);
   }
 
-  if (view === "page") {
-    elements["snapshot-note"] = {
-      type: "Text",
-      props: { text: "虚构样例快照" },
-    };
-    elements.body.children?.push("snapshot-note");
-    for (const [title, values] of pageSnapshot) card(title, title, values);
+  if (view === "designer") {
+    button("read-designer", "读取设计器", true, "read-designer");
+    elements.body.children?.push("read-designer");
+    if (designer.status) {
+      elements["designer-status"] = { type: "Text", props: { text: designer.status } };
+      elements.body.children?.push("designer-status");
+    }
+    if (designer.page) {
+      card("designer-page", "页面设置与加载命令", designer.page.settings);
+      for (const cell of designer.page.cells) {
+        card(`designer-${cell.position}`, `${cell.position} · React AI 单元格`, cell.capabilities);
+      }
+    }
+  } else if (view === "page") {
+    if (page) {
+      card("designer-page", "页面设置与加载命令", page.settings);
+    } else if (!demo) {
+      elements["snapshot-note"] = {
+        type: "Text",
+        props: { text: designer.status ?? "尚未读取设计器配置" },
+      };
+      elements.body.children?.push("snapshot-note");
+    } else {
+      elements["snapshot-note"] = {
+        type: "Text",
+        props: { text: "虚构样例快照" },
+      };
+      elements.body.children?.push("snapshot-note");
+      for (const [title, values] of pageSnapshot) card(title, title, values);
+    }
   } else if (view === "cells") {
     elements["cell-layout"] = {
       type: "Stack",
@@ -158,7 +204,7 @@ export function inspectorPanel(
     const cell = pageCells.find(([id]) => id === selected)?.[1];
     if (cell) {
       const fixture: Record<string, string> =
-        selected === mountedCell
+        demo && selected === "todo"
           ? {
               dataSources: `Tasks · ${scenarioTasks(scenario).length} 行`,
               availableServerCommands: `SaveTask · errorCode ${mockSaveError(scenario)}`,
@@ -166,13 +212,24 @@ export function inspectorPanel(
             }
           : {};
       const summaries = bindingSummary(cell.bindings ?? {});
+      const actual = page?.cells.find((item) => item.position === cell.target.cell)?.capabilities;
+      const actualBindings = actual && {
+        dataSources: actual["数据源"],
+        permissions: actual["权限"],
+        availableServerCommands: actual["可用服务端命令"],
+        properties: actual["属性"],
+        eventHandlers: actual["事件处理"],
+        uploadLimit: actual["上传限制"],
+        libraries: `预置类库：${actual["预置类库"]}；前端扩展库：${actual["前端扩展库"]}`,
+      };
       for (const key of Object.keys(bindingLabels) as (keyof typeof bindingLabels)[]) {
         card(
           key,
           bindingLabels[key],
           {
             同步配置: summaries[key] ?? "未配置 · 同步时保留设计器设置",
-            本地模拟: fixture[key] ?? "未设置模拟值",
+            ...(demo ? { 本地模拟: fixture[key] ?? "未设置模拟值" } : {}),
+            ...(actualBindings ? { 设计器配置: actualBindings[key] } : {}),
           },
           key !== "dataSources" && key !== "eventHandlers",
           "cell-detail",
