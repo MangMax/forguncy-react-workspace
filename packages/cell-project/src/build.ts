@@ -456,7 +456,7 @@ export function formatProjectBuildReport(report: ProjectBuildReport): string {
         ? "(none declared; the built-in table is all a compile sees)"
         : report.extensionMappings.map(row => `${row.packageName} -> ${row.libraryId} (global ${row.globalName})`).join(", ")
     }`,
-    `Lock: ${report.hasLock ? "recorded decisions present" : "no fgc.lock.json — every imported package must be a workspace source, a host module or undecided"}`,
+    `Lock: ${report.hasLock ? "recorded decisions present" : "no recorded decisions. Workspace source and host-provided modules can be used directly. Record a decision in fgc.lock.json before using other packages."}`,
   ];
 
   // Suspicious-declaration warnings the registry carried (#178). Non-blocking by construction —
@@ -499,10 +499,12 @@ export function formatProjectBuildReport(report: ProjectBuildReport): string {
         );
       }
     }
-    for (const decision of cell.decisions) {
-      lines.push(
-        `  decision ${decision.packageName}: ${decision.strategy}${decision.source === "host-bridge" ? " (from #9's host bridge — undecided by this project)" : ""}`,
-      );
+    const hostDefaults = cell.decisions.filter(decision => decision.source === "host-bridge");
+    if (hostDefaults.length > 0) {
+      lines.push(`  host defaults (available mappings): ${hostDefaults.map(decision => decision.packageName).join(", ")}`);
+    }
+    for (const decision of cell.decisions.filter(decision => decision.source === "lock")) {
+      lines.push(`  recorded decision ${decision.packageName}: ${decision.strategy}`);
     }
     for (const entry of cell.withheld) {
       lines.push(

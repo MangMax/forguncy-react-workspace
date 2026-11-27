@@ -70,6 +70,7 @@ export interface PlannedCellSync {
     readonly references: readonly string[];
     readonly problems: readonly { readonly code: string; readonly message: string; readonly fixOwner: string }[];
   };
+  /** In offline mode this describes the assumed target. Check targetStateRead for actual reads. */
   readonly divergence: CellDivergence;
   /** Whether `planSetCellsDispatch` would issue a `setCells` call. The one answer permission-bearing. */
   readonly wouldWrite: boolean;
@@ -178,7 +179,12 @@ function reportOf(
         fixOwner: diagnostic.fixOwner,
       })),
     },
-    divergence: plan.divergence,
+    divergence: targetStateRead
+      ? plan.divergence
+      : {
+          ...plan.divergence,
+          detail: "The plan assumes a blank target. The target was not read.",
+        },
     // `dispatch.kind === "issue"` is the only permission-bearing answer `mcp-sync` mints
     // (#19): the plan's payload is a report shape, and the executor is the only writer.
     wouldWrite: dispatch.kind === "issue",
