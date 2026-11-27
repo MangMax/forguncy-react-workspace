@@ -75,7 +75,7 @@ export function inspectorPanel(
   if (view === "page") {
     elements["snapshot-note"] = {
       type: "Text",
-      props: { text: "虚构样例快照 · 页面级设计器配置待接入" },
+      props: { text: "虚构样例快照" },
     };
     elements.body.children?.push("snapshot-note");
     for (const [title, values] of pageSnapshot) card(title, title, values);
@@ -128,7 +128,6 @@ export function inspectorPanel(
                 ? "未配置 · 同步时保留设计器设置"
                 : JSON.stringify(declaration),
             本地模拟: fixture[key] ?? "未设置模拟值",
-            设计器: "未连接",
           },
           key !== "dataSources" && key !== "eventHandlers",
           "cell-detail",
