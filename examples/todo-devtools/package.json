@@ -1,0 +1,22 @@
+{
+  "name": "@examples/todo-devtools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "fgc-cell build",
+    "plan": "fgc-cell plan"
+  },
+  "dependencies": {
+    "@forguncy-react-workspace/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@forguncy-react-workspace/cell-project": "workspace:*",
+    "@forguncy-react-workspace/dev-harness": "workspace:*",
+    "@types/react": "19.2.7",
+    "@vitejs/devtools": "0.8.3",
+    "@vitejs/devtools-kit": "0.8.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000",
+    "vite-plus": "1.7.0"
+  }
+}
