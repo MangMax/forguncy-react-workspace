@@ -1,6 +1,7 @@
 import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
 import type { CellBindingsConfig } from "../../packages/core/src/browser.ts";
 import type { DesignerPage } from "./designer-reader.ts";
+import { designerModules, moduleNames, type InspectorModule } from "./designer-modules.ts";
 import { mockSaveError, scenarioTasks, scenarios, type Scenario, type Trace } from "./preview.ts";
 
 export const views = {
@@ -87,6 +88,7 @@ export function inspectorPanel(
   traces: readonly Trace[],
   designer: { target: string; page?: DesignerPage; status?: string },
   scope: InspectorScope,
+  selectedModule?: InspectorModule,
 ): JsonRenderSpec {
   const { pageName, cells: pageCells, demo } = scope;
   const page = designer.page?.name === pageName ? designer.page : undefined;
@@ -94,7 +96,12 @@ export function inspectorPanel(
     root: {
       type: "Stack",
       props: { gap: 12, padding: 16 },
-      children: ["page-name", "source", "tabs", "body"],
+      children: ["header", "tabs", "body"],
+    },
+    header: {
+      type: "Stack",
+      props: { direction: "row", align: "center", wrap: true, gap: 8 },
+      children: ["page-name", "source"],
     },
     "page-name": {
       type: "Text",
@@ -123,9 +130,21 @@ export function inspectorPanel(
     };
   }
   for (const [id, title] of Object.entries(views)) {
-    if (!demo && id === "debug") continue;
+    if (!demo && (id === "debug" || id === "designer")) continue;
     button(`view-${id}`, title, id === view, `view-${id}`);
     elements.tabs.children?.push(`view-${id}`);
+  }
+  if (!demo && view !== "designer") {
+    button("refresh-designer", "刷新设计器配置", false, "read-designer");
+    elements.header.children?.push("refresh-designer");
+  }
+  if (selectedModule) {
+    button("module-back", "← 返回模块总览", false, "module-back");
+    elements["module-name"] = {
+      type: "Text",
+      props: { text: moduleNames[selectedModule], variant: "heading" },
+    };
+    elements.body.children?.push("module-back", "module-name");
   }
 
   function card(
@@ -152,14 +171,30 @@ export function inspectorPanel(
       elements.body.children?.push("designer-status");
     }
     if (designer.page) {
-      card("designer-page", "页面设置与加载命令", designer.page.settings);
+      elements.body.children?.push(
+        ...designerModules(elements, "designer-page", undefined, false).page(
+          designer.page.settings,
+        ),
+      );
       for (const cell of designer.page.cells) {
-        card(`designer-${cell.position}`, `${cell.position} · React AI 单元格`, cell.capabilities);
+        const key = `designer-${cell.position}`;
+        elements[key] = {
+          type: "Card",
+          props: {
+            title: `${cell.position} · React AI 单元格`,
+            collapsible: true,
+            defaultCollapsed: true,
+          },
+          children: designerModules(elements, key, undefined, false).cell(cell.capabilities),
+        };
+        elements.body.children?.push(key);
       }
     }
   } else if (view === "page") {
     if (page) {
-      card("designer-page", "页面设置与加载命令", page.settings);
+      elements.body.children?.push(
+        ...designerModules(elements, "page", selectedModule).page(page.settings),
+      );
     } else if (!demo) {
       elements["snapshot-note"] = {
         type: "Text",
@@ -177,28 +212,31 @@ export function inspectorPanel(
   } else if (view === "cells") {
     elements["cell-layout"] = {
       type: "Stack",
-      props: { direction: "row", align: "start", gap: 12, wrap: true },
+      props: { gap: 12 },
       children: ["cells", "cell-detail"],
     };
     elements.cells = {
       type: "Stack",
-      props: { gap: 6, padding: 8, flex: "1 1 124px", variant: "secondary" },
+      props: { direction: "row", align: "center", wrap: true, gap: 6 },
       children: ["cell-list-title"],
     };
     elements["cell-list-title"] = { type: "Text", props: { text: "单元格" } };
     elements["cell-detail"] = {
       type: "Stack",
-      props: { gap: 8, flex: "4 1 320px" },
-      children: ["cell-detail-title"],
-    };
-    elements["cell-detail-title"] = {
-      type: "Text",
-      props: { text: "能力与绑定", variant: "heading" },
+      props: { gap: 8 },
+      children: [],
     };
     elements.body.children?.push("cell-layout");
     for (const [id, cell] of pageCells) {
       const key = `cell-${id}`;
-      button(key, `${cell.target.cell} · ${id}`, id === selected, key);
+      if (pageCells.length === 1) {
+        elements[key] = {
+          type: "Text",
+          props: { text: `${cell.target.cell} · ${id}`, variant: "code" },
+        };
+      } else {
+        button(key, `${cell.target.cell} · ${id}`, id === selected, key);
+      }
       elements.cells.children?.push(key);
     }
     const cell = pageCells.find(([id]) => id === selected)?.[1];
@@ -213,23 +251,32 @@ export function inspectorPanel(
           : {};
       const summaries = bindingSummary(cell.bindings ?? {});
       const actual = page?.cells.find((item) => item.position === cell.target.cell)?.capabilities;
-      const actualBindings = actual && {
-        dataSources: actual["数据源"],
-        permissions: actual["权限"],
-        availableServerCommands: actual["可用服务端命令"],
-        properties: actual["属性"],
-        eventHandlers: actual["事件处理"],
-        uploadLimit: actual["上传限制"],
-        libraries: `预置类库：${actual["预置类库"]}；前端扩展库：${actual["前端扩展库"]}`,
-      };
-      for (const key of Object.keys(bindingLabels) as (keyof typeof bindingLabels)[]) {
+      const declared = Object.keys(bindingLabels) as (keyof typeof bindingLabels)[];
+      const configured = declared.filter((key) => summaries[key] !== undefined);
+      if (actual) {
+        elements["binding-source"] = {
+          type: "Text",
+          props: {
+            text: configured.length
+              ? `设计器当前值 · ${configured.length} 项另有同步配置`
+              : "设计器当前值 · 同步时保留",
+          },
+        };
+        elements["cell-detail"].children?.push(
+          "binding-source",
+          ...designerModules(elements, "cell", selectedModule).cell(actual),
+        );
+      } else if (!demo && designer.status) {
+        elements["designer-status"] = { type: "Text", props: { text: designer.status } };
+        elements["cell-detail"].children?.push("designer-status");
+      }
+      for (const key of selectedModule ? [] : actual ? configured : declared) {
         card(
           key,
           bindingLabels[key],
           {
-            同步配置: summaries[key] ?? "未配置 · 同步时保留设计器设置",
-            ...(demo ? { 本地模拟: fixture[key] ?? "未设置模拟值" } : {}),
-            ...(actualBindings ? { 设计器配置: actualBindings[key] } : {}),
+            ...(summaries[key] !== undefined ? { 同步配置: summaries[key] } : {}),
+            ...(fixture[key] ? { 本地模拟: fixture[key] } : {}),
           },
           key !== "dataSources" && key !== "eventHandlers",
           "cell-detail",

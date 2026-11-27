@@ -1,4 +1,5 @@
 import type { PluginWithDevTools } from "@vitejs/devtools-kit";
+import { moduleNames, type InspectorModule } from "./designer-modules.ts";
 import { readDesignerPage, type DesignerPage } from "./designer-reader.ts";
 import config from "./forguncy.config.ts";
 import { inspectorPanel, views, type InspectorScope, type View } from "./inspector-panel.ts";
@@ -22,6 +23,7 @@ export function todoDevTools(
         let scenario: Scenario = "populated";
         const traces: Trace[] = [];
         let view: View = "cells";
+        let module: InspectorModule | undefined;
         let selected = scope.cells[0]?.[0] ?? "";
         const designer: { target: string; page?: DesignerPage; status?: string } = {
           target: scope.demo ? process.env.FGC_INSPECTOR_PAGE || scope.pageName : scope.pageName,
@@ -30,7 +32,9 @@ export function todoDevTools(
           inspectorPanel(view, selected, scenario, traces, designer, scope),
         );
         const refresh = () =>
-          ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces], designer, scope));
+          ui.updateSpec(
+            inspectorPanel(view, selected, scenario, [...traces], designer, scope, module),
+          );
         const register = (id: string, handler: () => void | Promise<void>) => {
           ctx.rpc.register({
             name: `forguncy-todo:${id}`,
@@ -41,15 +45,27 @@ export function todoDevTools(
         for (const id of Object.keys(views) as View[]) {
           register(`view-${id}`, () => {
             view = id;
+            module = undefined;
             refresh();
           });
         }
         for (const [id] of scope.cells) {
           register(`cell-${id}`, () => {
             selected = id;
+            module = undefined;
             refresh();
           });
         }
+        for (const id of Object.keys(moduleNames) as InspectorModule[]) {
+          register(`module-${id}`, () => {
+            module = id;
+            refresh();
+          });
+        }
+        register("module-back", () => {
+          module = undefined;
+          refresh();
+        });
         let reading = false;
         const refreshDesigner = async () => {
           if (reading) return;
