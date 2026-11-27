@@ -56,14 +56,20 @@ export function inspectorPanel(
     elements.tabs.children?.push(`view-${id}`);
   }
 
-  function card(key: string, title: string, value: Record<string, string>, collapsed = false) {
+  function card(
+    key: string,
+    title: string,
+    value: Record<string, string>,
+    collapsed = false,
+    parent = "body",
+  ) {
     elements[key] = {
       type: "Card",
       props: { title, collapsible: true, defaultCollapsed: collapsed },
       children: [`${key}-values`],
     };
     elements[`${key}-values`] = { type: "KeyValueTable", props: { data: value } };
-    elements.body.children?.push(key);
+    elements[parent].children?.push(key);
   }
 
   if (view === "page") {
@@ -74,12 +80,27 @@ export function inspectorPanel(
     elements.body.children?.push("snapshot-note");
     for (const [title, values] of pageSnapshot) card(title, title, values);
   } else if (view === "cells") {
+    elements["cell-layout"] = {
+      type: "Stack",
+      props: { direction: "row", align: "start", gap: 12, wrap: true },
+      children: ["cells", "cell-detail"],
+    };
     elements.cells = {
       type: "Stack",
-      props: { direction: "row", gap: 8, wrap: true },
-      children: [],
+      props: { gap: 6, padding: 8, flex: "1 1 124px", variant: "secondary" },
+      children: ["cell-list-title"],
     };
-    elements.body.children?.push("cells");
+    elements["cell-list-title"] = { type: "Text", props: { text: "单元格" } };
+    elements["cell-detail"] = {
+      type: "Stack",
+      props: { gap: 8, flex: "4 1 320px" },
+      children: ["cell-detail-title"],
+    };
+    elements["cell-detail-title"] = {
+      type: "Text",
+      props: { text: "能力与绑定", variant: "heading" },
+    };
+    elements.body.children?.push("cell-layout");
     for (const [id, cell] of pageCells) {
       const key = `cell-${id}`;
       button(key, `${cell.target.cell} · ${id}`, id === selected, key);
@@ -108,6 +129,7 @@ export function inspectorPanel(
             设计器: "未连接",
           },
           key !== "dataSources" && key !== "eventHandlers",
+          "cell-detail",
         );
       }
     }
