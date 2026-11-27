@@ -42,6 +42,8 @@
 
 ## 快速上手（可执行）
 
+在 Agent 中可以从 [`using-forguncy-react`](.agents/skills/using-forguncy-react/SKILL.md) 开始。它会根据当前项目和设计器连接，引导本地开发、构建、计划或同步。
+
 ### 试用全局 CLI
 
 已安装本仓库开发依赖的维护者可以用 Node.js 24 或更新版本打包试用版：
