@@ -1,40 +1,6 @@
 import type { PluginWithDevTools } from "@vitejs/devtools-kit";
-import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
+import { inspectorPanel, mountedCell, pageCells, views, type View } from "./inspector-panel.ts";
 import { previewPath, scenarios, traceChannel, type Scenario, type Trace } from "./preview.ts";
-
-function panel(scenario: Scenario, traces: readonly Trace[]): JsonRenderSpec {
-  const elements: JsonRenderSpec["elements"] = {
-    root: {
-      type: "Stack",
-      props: { gap: 12, padding: 16 },
-      children: ["status", "actions", "trace"],
-    },
-    status: {
-      type: "KeyValueTable",
-      props: { data: { Cell: "TodoList · todo", 场景: scenarios[scenario], 环境: "本地 fixture" } },
-    },
-    actions: {
-      type: "Stack",
-      props: { direction: "row", gap: 8, wrap: true },
-      children: Object.keys(scenarios),
-    },
-    trace: {
-      type: "Card",
-      props: { title: "最近的模拟调用" },
-      children: [traces.length ? "rows" : "no-calls"],
-    },
-    "no-calls": { type: "Text", props: { text: "勾选一项待办后，这里会显示调用参数与结果。" } },
-    rows: { type: "Tree", props: { data: traces, defaultExpanded: true } },
-  };
-  for (const id of Object.keys(scenarios) as Scenario[]) {
-    elements[id] = {
-      type: "Button",
-      props: { label: scenarios[id], variant: id === scenario ? "primary" : "secondary" },
-      on: { press: { action: `forguncy-todo:${id}` } },
-    };
-  }
-  return { root: "root", elements };
-}
 
 export function todoDevTools(): PluginWithDevTools {
   return {
@@ -47,7 +13,29 @@ export function todoDevTools(): PluginWithDevTools {
 
         let scenario: Scenario = "populated";
         const traces: Trace[] = [];
-        const ui = ctx.createJsonRenderer(panel(scenario, traces));
+        let view: View = "cells";
+        let selected = mountedCell;
+        const ui = ctx.createJsonRenderer(inspectorPanel(view, selected, scenario, traces));
+        const refresh = () => ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces]));
+        const register = (id: string, handler: () => void) => {
+          ctx.rpc.register({
+            name: `forguncy-todo:${id}`,
+            type: "action",
+            setup: () => ({ handler }),
+          });
+        };
+        for (const id of Object.keys(views) as View[]) {
+          register(`view-${id}`, () => {
+            view = id;
+            refresh();
+          });
+        }
+        for (const [id] of pageCells) {
+          register(`cell-${id}`, () => {
+            selected = id;
+            refresh();
+          });
+        }
         ctx.docks.register({
           id: "forguncy-todo",
           title: "Forguncy",
@@ -79,20 +67,15 @@ export function todoDevTools(): PluginWithDevTools {
             ...(typeof errorCode === "number" ? { errorCode } : {}),
           });
           traces.length = Math.min(traces.length, 20);
-          ui.updateSpec(panel(scenario, [...traces]));
+          if (view === "debug") refresh();
         });
         for (const id of Object.keys(scenarios) as Scenario[]) {
-          ctx.rpc.register({
-            name: `forguncy-todo:${id}`,
-            type: "action",
-            setup: () => ({
-              handler: () => {
-                scenario = id;
-                traces.length = 0;
-                ui.updateSpec(panel(scenario, []));
-                server.ws.send({ type: "full-reload", path: "*" });
-              },
-            }),
+          register(id, () => {
+            if (scenario === id) return;
+            scenario = id;
+            traces.length = 0;
+            refresh();
+            server.ws.send({ type: "full-reload", path: "*" });
           });
         }
       },
