@@ -1,4 +1,5 @@
 import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
+import type { CellBindingsConfig } from "../../packages/core/src/browser.ts";
 import config from "./forguncy.config.ts";
 import { mockSaveError, scenarioTasks, scenarios, type Scenario, type Trace } from "./preview.ts";
 
@@ -19,6 +20,54 @@ const bindingLabels = {
   uploadLimit: "上传限制",
   libraries: "前端库",
 } as const;
+
+function bindingSummary(
+  bindings: CellBindingsConfig,
+): Record<keyof CellBindingsConfig, string | undefined> {
+  const {
+    dataSources,
+    permissions,
+    availableServerCommands,
+    properties,
+    eventHandlers,
+    uploadLimit,
+    libraries,
+  } = bindings;
+  const list = <T>(items: readonly T[] | undefined, describe: (item: T) => string) =>
+    items === undefined ? undefined : items.map(describe).join("；") || "清空此项";
+  return {
+    dataSources: list(dataSources, ({ dataSourceName, dataSource }) => {
+      const columns = dataSource.bindingInfos.map(
+        ({ columnName, bindingInfo }) =>
+          `${columnName} ← ${bindingInfo.tableName}.${bindingInfo.columnName}`,
+      );
+      return `${dataSourceName}（数据表：${dataSource.tableName}${columns.length ? `，字段：${columns.join("、")}` : ""}）`;
+    }),
+    permissions: list(
+      permissions,
+      ({ name, allowRoles }) => `${name}（允许角色：${allowRoles?.join("、") || "无"}）`,
+    ),
+    availableServerCommands: list(availableServerCommands, ({ name }) => name),
+    properties: list(
+      properties,
+      ({ propertyName, propertyValue, exampleValue }) =>
+        `${propertyName}（绑定值：${propertyValue ?? "未绑定"}，示例值：${exampleValue ?? "未设置"}）`,
+    ),
+    eventHandlers: list(
+      eventHandlers,
+      ({ eventName, eventArgs }) =>
+        `${eventName}（参数：${eventArgs?.map(({ name }) => name).join("、") || "无"}）`,
+    ),
+    uploadLimit:
+      uploadLimit &&
+      [
+        `文件类型：${uploadLimit.extensionFilter || "未限制"}`,
+        `单个文件：${uploadLimit.sizeLimit ? `${uploadLimit.sizeLimit} MB` : "不限大小"}`,
+        `单次上传：${uploadLimit.maxUploadFileCount ? `${uploadLimit.maxUploadFileCount} 个` : "不限数量"}`,
+      ].join("；"),
+    libraries: libraries === "None" ? "不加载预设库" : libraries,
+  };
+}
 
 const pageSnapshot = [
   ["页面属性", { activeList: "我的待办" }],
@@ -116,17 +165,13 @@ export function inspectorPanel(
               eventHandlers: "onTaskToggle · 记录 id、done",
             }
           : {};
-      const bindings: Record<string, unknown> = cell.bindings ?? {};
-      for (const [key, title] of Object.entries(bindingLabels)) {
-        const declaration = bindings[key];
+      const summaries = bindingSummary(cell.bindings ?? {});
+      for (const key of Object.keys(bindingLabels) as (keyof typeof bindingLabels)[]) {
         card(
           key,
-          title,
+          bindingLabels[key],
           {
-            同步配置:
-              declaration === undefined
-                ? "未配置 · 同步时保留设计器设置"
-                : JSON.stringify(declaration),
+            同步配置: summaries[key] ?? "未配置 · 同步时保留设计器设置",
             本地模拟: fixture[key] ?? "未设置模拟值",
           },
           key !== "dataSources" && key !== "eventHandlers",
