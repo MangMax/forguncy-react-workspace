@@ -1,9 +1,16 @@
 import type { PluginWithDevTools } from "@vitejs/devtools-kit";
 import { readDesignerPage, type DesignerPage } from "./designer-reader.ts";
-import { inspectorPanel, mountedCell, pageCells, views, type View } from "./inspector-panel.ts";
+import config from "./forguncy.config.ts";
+import { inspectorPanel, views, type InspectorScope, type View } from "./inspector-panel.ts";
 import { previewPath, scenarios, traceChannel, type Scenario, type Trace } from "./preview.ts";
 
-export function todoDevTools(): PluginWithDevTools {
+export function todoDevTools(
+  scope: InspectorScope = {
+    pageName: config.cells.todo.target.pageName,
+    cells: Object.entries(config.cells),
+    demo: true,
+  },
+): PluginWithDevTools {
   return {
     name: "forguncy-todo-devtools",
     apply: "serve",
@@ -15,15 +22,15 @@ export function todoDevTools(): PluginWithDevTools {
         let scenario: Scenario = "populated";
         const traces: Trace[] = [];
         let view: View = "cells";
-        let selected = mountedCell;
+        let selected = scope.cells[0]?.[0] ?? "";
         const designer: { target: string; page?: DesignerPage; status?: string } = {
-          target: process.env.FGC_INSPECTOR_PAGE || "待办事项",
+          target: scope.demo ? process.env.FGC_INSPECTOR_PAGE || scope.pageName : scope.pageName,
         };
         const ui = ctx.createJsonRenderer(
-          inspectorPanel(view, selected, scenario, traces, designer),
+          inspectorPanel(view, selected, scenario, traces, designer, scope),
         );
         const refresh = () =>
-          ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces], designer));
+          ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces], designer, scope));
         const register = (id: string, handler: () => void | Promise<void>) => {
           ctx.rpc.register({
             name: `forguncy-todo:${id}`,
@@ -37,14 +44,14 @@ export function todoDevTools(): PluginWithDevTools {
             refresh();
           });
         }
-        for (const [id] of pageCells) {
+        for (const [id] of scope.cells) {
           register(`cell-${id}`, () => {
             selected = id;
             refresh();
           });
         }
         let reading = false;
-        register("read-designer", async () => {
+        const refreshDesigner = async () => {
           if (reading) return;
           reading = true;
           designer.page = undefined;
@@ -59,7 +66,8 @@ export function todoDevTools(): PluginWithDevTools {
             reading = false;
             refresh();
           }
-        });
+        };
+        register("read-designer", refreshDesigner);
         ctx.docks.register({
           id: "forguncy-todo",
           title: "Forguncy",
@@ -67,6 +75,7 @@ export function todoDevTools(): PluginWithDevTools {
           type: "json-render",
           view: ui.view,
         });
+        if (!scope.demo) void refreshDesigner();
 
         server.middlewares.use(previewPath, (request, response, next) => {
           if (request.method !== "GET") return next();
