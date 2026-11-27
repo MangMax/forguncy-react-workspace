@@ -59,6 +59,8 @@ npm install -g /path/to/forguncy-react-workspace-cli-0.1.0-preview.1.tgz
 fgc-cell --help
 ```
 
+安装试用包时，npm 仍会从 registry 下载依赖。若 npm 提示 `@swc/core` 的安装脚本未获许可，但安装成功，可继续运行下面的两文件示例。
+
 在一个空目录里创建 `forguncy.config.mjs`。把 `pageName` 和 `cell` 改为实际目标即可用于后续同步。
 
 ```js

@@ -40,6 +40,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { ForguncyConfigError } from "@forguncy-react-workspace/core";
 import type { CellOverwritePolicy, ForguncySyncPort } from "@forguncy-react-workspace/mcp-sync";
 import { FORGUNCY_SYNC_PORT_METHODS } from "@forguncy-react-workspace/mcp-sync";
 
@@ -54,7 +55,11 @@ import {
   syncProject,
 } from "./index.ts";
 
+const QUICKSTART = "Quickstart (two-file example): https://github.com/MangMax/forguncy-react-workspace#试用全局-cli";
+
 const USAGE = `fgc-cell — build, inspect and sync a Forguncy React Cell project.
+
+${QUICKSTART}
 
   fgc-cell build  [--project <dir>] [--out <dir>] [--json]
       Compile every declared Cell and write the artifacts + manifest under --out
@@ -343,6 +348,9 @@ async function main(argv: readonly string[]): Promise<number> {
       return 1;
     }
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    if (error instanceof ForguncyConfigError && error.codes.includes("config-file-not-found")) {
+      process.stderr.write(`${QUICKSTART}\n`);
+    }
     return 1;
   }
 }
