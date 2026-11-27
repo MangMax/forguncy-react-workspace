@@ -123,9 +123,11 @@ export function inspectorPanel(
           key,
           title,
           {
-            项目声明:
-              declaration === undefined ? "未声明 · 由设计器保留" : JSON.stringify(declaration),
-            fixture: fixture[key] ?? "未提供",
+            同步配置:
+              declaration === undefined
+                ? "未配置 · 同步时保留设计器设置"
+                : JSON.stringify(declaration),
+            本地模拟: fixture[key] ?? "未设置模拟值",
             设计器: "未连接",
           },
           key !== "dataSources" && key !== "eventHandlers",
