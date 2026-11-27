@@ -160,6 +160,11 @@ const EXAMPLE_INVENTORY: Readonly<Record<string, ExampleEvidence>> = {
     rationale:
       "Imports the runtime façade as workspace source; the graph is workspace source, which never receives a dependency decision.",
   },
+  "todo-devtools": {
+    kind: "none",
+    rationale:
+      "The Cell uses host React and the workspace runtime. Its Vite DevTools dependencies are only used by the local preview.",
+  },
   "workspace-package": {
     kind: "none",
     rationale:
