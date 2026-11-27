@@ -307,6 +307,10 @@ function requireValueProject(options: ParsedArguments["options"]): string {
 }
 
 async function main(argv: readonly string[]): Promise<number> {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    process.stdout.write(USAGE);
+    return 0;
+  }
   let parsed: ParsedArguments;
   try {
     parsed = parseArguments(argv);
