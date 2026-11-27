@@ -7,6 +7,19 @@ export const scenarios = {
 } as const;
 
 export type Scenario = keyof typeof scenarios;
+
+export function scenarioTasks(scenario: Scenario): Task[] {
+  return scenario === "empty"
+    ? []
+    : [
+        { id: "review", title: "审查单元格的属性与事件", done: false },
+        { id: "preview", title: "预览同步计划", done: true },
+      ];
+}
+
+export function mockSaveError(scenario: Scenario): number {
+  return scenario === "failure" ? 1 : 0;
+}
 export function isScenario(value: unknown): value is Scenario {
   return typeof value === "string" && Object.hasOwn(scenarios, value);
 }
@@ -17,3 +30,4 @@ export interface Trace {
   done: boolean;
   errorCode?: number;
 }
+import type { Task } from "./todo.ts";
