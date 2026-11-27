@@ -42,6 +42,27 @@
 
 ## 快速上手（可执行）
 
+### 试用全局 CLI
+
+已安装本仓库开发依赖的维护者可以用 Node.js 24 或更新版本打包试用版：
+
+```bash
+node scripts/pack-cli.mjs 0.1.0-preview.1
+```
+
+输出为仓库根目录下的 `.fgc/release/forguncy-react-workspace-cli-0.1.0-preview.1.tgz`。可传第二个参数指定输出目录。收到 tarball 后，在独立项目里执行：
+
+```bash
+npm install -g /path/to/forguncy-react-workspace-cli-0.1.0-preview.1.tgz
+fgc-cell --help
+fgc-cell build
+fgc-cell plan
+```
+
+业务项目提供自己的 `forguncy.config.ts` 和 Cell 源码。配置可直接默认导出对象，见下方「项目配置」。`build` 写入业务项目的 `.fgc/build/`。试用包面向 CLI 使用，项目初始化与 Agent Skill 安装尚未随包交付。真机同步仍沿用下方的授权端口。
+
+### 仓库内的消费示例
+
 命令都来自真实消费入口：`examples/consumer-project` 加上公开的 `@forguncy-react-workspace/cell-project`。**除第 0 步外，所有命令都在 `examples/consumer-project` 下执行。**
 
 前置条件：Node **≥ 24**（仓库 `engines`）、pnpm **11.18**（仓库 `packageManager`）；跑 `sync` 还需要**已授权的活字格设计器连接**，以及一个导出 `ForguncySyncPort` 的端口模块（见第 5 步）。
