@@ -91,23 +91,22 @@ export function designerModules(
       return card(key, `${title} · ${summary}`, [group(`${key}-content`, children)], true);
     if (selected === key) return group(key, children);
     if (selected) return "";
+    const heading = add(`${key}-heading`, {
+      type: "Stack",
+      props: { direction: "row", justify: "between", align: "center", gap: 8 },
+      children: [
+        add(`${key}-title`, { type: "Text", props: { text: title, variant: "subheading" } }),
+        add(`${key}-open`, {
+          type: "Button",
+          props: { label: "→", variant: "ghost" },
+          on: { press: { action: `forguncy-todo:module-${key}` } },
+        }),
+      ],
+    });
     const tile = add(key, {
       type: "Card",
-      props: { title },
-      children: [
-        group(
-          `${key}-overview`,
-          [
-            text(`${key}-summary`, summary),
-            add(`${key}-open`, {
-              type: "Button",
-              props: { label: `查看${title}`, variant: "secondary" },
-              on: { press: { action: `forguncy-todo:module-${key}` } },
-            }),
-          ],
-          true,
-        ),
-      ],
+      props: {},
+      children: [group(`${key}-overview`, [heading, text(`${key}-summary`, summary)])],
     });
     return add(`${key}-tile`, {
       type: "Stack",
