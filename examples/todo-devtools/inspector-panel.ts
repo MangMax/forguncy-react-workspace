@@ -1,7 +1,7 @@
 import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
 import type { CellBindingsConfig } from "../../packages/core/src/browser.ts";
 import type { DesignerPage } from "./designer-reader.ts";
-import { designerModules } from "./designer-modules.ts";
+import { designerModules, moduleNames, type InspectorModule } from "./designer-modules.ts";
 import { mockSaveError, scenarioTasks, scenarios, type Scenario, type Trace } from "./preview.ts";
 
 export const views = {
@@ -88,6 +88,7 @@ export function inspectorPanel(
   traces: readonly Trace[],
   designer: { target: string; page?: DesignerPage; status?: string },
   scope: InspectorScope,
+  selectedModule?: InspectorModule,
 ): JsonRenderSpec {
   const { pageName, cells: pageCells, demo } = scope;
   const page = designer.page?.name === pageName ? designer.page : undefined;
@@ -129,13 +130,21 @@ export function inspectorPanel(
     };
   }
   for (const [id, title] of Object.entries(views)) {
-    if (!demo && id === "debug") continue;
+    if (!demo && (id === "debug" || id === "designer")) continue;
     button(`view-${id}`, title, id === view, `view-${id}`);
     elements.tabs.children?.push(`view-${id}`);
   }
   if (!demo && view !== "designer") {
     button("refresh-designer", "刷新设计器配置", false, "read-designer");
     elements.header.children?.push("refresh-designer");
+  }
+  if (selectedModule) {
+    button("module-back", "← 返回模块总览", false, "module-back");
+    elements["module-name"] = {
+      type: "Text",
+      props: { text: moduleNames[selectedModule], variant: "heading" },
+    };
+    elements.body.children?.push("module-back", "module-name");
   }
 
   function card(
@@ -163,7 +172,9 @@ export function inspectorPanel(
     }
     if (designer.page) {
       elements.body.children?.push(
-        ...designerModules(elements, "designer-page").page(designer.page.settings),
+        ...designerModules(elements, "designer-page", undefined, false).page(
+          designer.page.settings,
+        ),
       );
       for (const cell of designer.page.cells) {
         const key = `designer-${cell.position}`;
@@ -174,14 +185,16 @@ export function inspectorPanel(
             collapsible: true,
             defaultCollapsed: true,
           },
-          children: designerModules(elements, key).cell(cell.capabilities),
+          children: designerModules(elements, key, undefined, false).cell(cell.capabilities),
         };
         elements.body.children?.push(key);
       }
     }
   } else if (view === "page") {
     if (page) {
-      elements.body.children?.push(...designerModules(elements, "page").page(page.settings));
+      elements.body.children?.push(
+        ...designerModules(elements, "page", selectedModule).page(page.settings),
+      );
     } else if (!demo) {
       elements["snapshot-note"] = {
         type: "Text",
@@ -251,13 +264,13 @@ export function inspectorPanel(
         };
         elements["cell-detail"].children?.push(
           "binding-source",
-          ...designerModules(elements, "cell").cell(actual),
+          ...designerModules(elements, "cell", selectedModule).cell(actual),
         );
       } else if (!demo && designer.status) {
         elements["designer-status"] = { type: "Text", props: { text: designer.status } };
         elements["cell-detail"].children?.push("designer-status");
       }
-      for (const key of actual ? configured : declared) {
+      for (const key of selectedModule ? [] : actual ? configured : declared) {
         card(
           key,
           bindingLabels[key],

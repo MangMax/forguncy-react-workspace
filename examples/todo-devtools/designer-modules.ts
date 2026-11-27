@@ -26,7 +26,26 @@ function records(value: unknown): Values[] {
   return list(value).map(object);
 }
 
-export function designerModules(elements: Elements, prefix: string) {
+export const moduleNames = {
+  sources: "数据源",
+  commands: "服务端命令",
+  permissions: "权限",
+  properties: "属性",
+  events: "事件",
+  libraries: "前端库",
+  upload: "上传限制",
+  images: "静态图片",
+  "page-settings": "页面设置",
+  "page-load": "页面加载命令",
+} as const;
+export type InspectorModule = keyof typeof moduleNames;
+
+export function designerModules(
+  elements: Elements,
+  prefix: string,
+  selected?: InspectorModule,
+  overview = true,
+) {
   function add(key: string, node: Elements[string]): string {
     const id = `${prefix}-${key}`;
     elements[id] = node;
@@ -66,6 +85,49 @@ export function designerModules(elements: Elements, prefix: string) {
     });
   }
 
+  function module(key: InspectorModule, summary: string, children: string[]): string {
+    const title = moduleNames[key];
+    if (!overview)
+      return card(key, `${title} · ${summary}`, [group(`${key}-content`, children)], true);
+    if (selected === key) return group(key, children);
+    if (selected) return "";
+    const tile = add(key, {
+      type: "Card",
+      props: { title },
+      children: [
+        group(
+          `${key}-overview`,
+          [
+            text(`${key}-summary`, summary),
+            add(`${key}-open`, {
+              type: "Button",
+              props: { label: `查看${title}`, variant: "secondary" },
+              on: { press: { action: `forguncy-todo:module-${key}` } },
+            }),
+          ],
+          true,
+        ),
+      ],
+    });
+    return add(`${key}-tile`, {
+      type: "Stack",
+      props: { flex: "1 1 240px" },
+      children: [tile],
+    });
+  }
+
+  function layout(keys: string[]): string[] {
+    const visible = keys.filter(Boolean);
+    if (selected || !overview) return visible;
+    return [
+      add("module-grid", {
+        type: "Stack",
+        props: { direction: "row", wrap: true, gap: 12, align: "stretch" },
+        children: visible,
+      }),
+    ];
+  }
+
   function tokens(key: string, values: unknown[]): string {
     return group(
       key,
@@ -79,24 +141,22 @@ export function designerModules(elements: Elements, prefix: string) {
     return [
       table(
         `${key}-table`,
-        ["命令类型", "标题或说明"],
-        values.map((value) => [label(value["类型"]), label(value["标题"] ?? value["内容"])]),
-      ),
-      card(
-        `${key}-details`,
-        "命令详情",
-        [add(`${key}-tree`, { type: "Tree", props: { data: values, defaultExpanded: false } })],
-        true,
+        ["命令类型", "标题", "内容"],
+        values.map((value) => [label(value["类型"]), label(value["标题"]), label(value["内容"])]),
       ),
     ];
   }
 
-  function counted(key: string, title: string, count: number, children: string[]): string {
-    return card(
+  function counted(
+    key: InspectorModule,
+    count: number,
+    children: string[],
+    summary = `${count} 项`,
+  ): string {
+    return module(
       key,
-      `${title} · ${count || "无"}`,
-      count ? children : [text(`${key}-empty`, `未配置${title}`)],
-      !count,
+      count ? summary : "未配置",
+      count ? children : [text(`${key}-empty`, `未配置${moduleNames[key]}`)],
     );
   }
 
@@ -148,15 +208,22 @@ export function designerModules(elements: Elements, prefix: string) {
     const limit = (value: unknown, unit: string) =>
       value === undefined ? "未返回" : value === 0 ? "不限" : `${label(value)} ${unit}`;
 
-    return [
-      counted("sources", "数据源", sources.length, dataSources),
-      counted("commands", "服务端命令", serverCommands.length, [
+    return layout([
+      counted(
+        "sources",
+        sources.length,
+        dataSources,
+        sources.length === 1
+          ? `${label(sources[0]["数据源名称"])} → ${label(object(sources[0]["绑定数据源"])["数据表"])}`
+          : `${sources.length} 个数据源`,
+      ),
+      counted("commands", serverCommands.length, [
         tokens(
           "command-names",
           serverCommands.map((item) => item["服务端命令"]),
         ),
       ]),
-      counted("permissions", "权限", permissions.length, [
+      counted("permissions", permissions.length, [
         table(
           "permission-roles",
           ["权限名称", "允许角色"],
@@ -166,7 +233,7 @@ export function designerModules(elements: Elements, prefix: string) {
           ]),
         ),
       ]),
-      counted("properties", "属性", properties.length, [
+      counted("properties", properties.length, [
         table(
           "property-bindings",
           ["属性名称", "绑定公式", ...(showExamples ? ["示例值"] : [])],
@@ -179,7 +246,6 @@ export function designerModules(elements: Elements, prefix: string) {
       ]),
       counted(
         "events",
-        "事件",
         events.length,
         events.flatMap((item, index) => {
           const args = records(item["事件参数"]).map((arg) => label(arg["参数名称"]));
@@ -194,7 +260,7 @@ export function designerModules(elements: Elements, prefix: string) {
           ];
         }),
       ),
-      card("libraries", extensions.length ? `前端库 · ${extensions.length} 个扩展库` : "前端库", [
+      module("libraries", `${libraries.length} 个预置类库 · ${extensions.length} 个扩展库`, [
         text("preset-label", "预置类库"),
         libraries.length ? tokens("presets", libraries) : text("no-presets", "未配置"),
         text("extension-label", "前端扩展库"),
@@ -205,9 +271,9 @@ export function designerModules(elements: Elements, prefix: string) {
             )
           : text("no-extensions", "未配置"),
       ]),
-      card(
+      module(
         "upload",
-        allowedTypes.length ? `上传限制 · ${allowedTypes.length} 种文件类型` : "上传限制",
+        allowedTypes.length ? `${allowedTypes.length} 种文件类型` : "未返回文件类型",
         [
           table(
             "upload-limits",
@@ -218,24 +284,19 @@ export function designerModules(elements: Elements, prefix: string) {
             ? tokens("upload-types", allowedTypes)
             : text("upload-types", "未返回文件类型"),
         ],
-        !Object.keys(upload).length,
       ),
       ...(images.length
         ? [
-            card(
-              "images",
-              `静态图片 · ${images.length}`,
-              [
-                add("image-list", {
-                  type: "Tree",
-                  props: { data: images, defaultExpanded: false },
-                }),
-              ],
-              true,
-            ),
+            module("images", `${images.length} 项`, [
+              table(
+                "image-list",
+                ["图片资源"],
+                images.map((image) => [label(image["图片名称"] ?? image["名称"] ?? image["图片"])]),
+              ),
+            ]),
           ]
         : []),
-    ];
+    ]);
   }
 
   function page(settings: Values): string[] {
@@ -244,39 +305,41 @@ export function designerModules(elements: Elements, prefix: string) {
     const basic = Object.entries(rest).filter(
       ([, value]) => value == null || typeof value !== "object",
     );
-    const advanced = Object.fromEntries(
-      Object.entries(rest).filter(([, value]) => value && typeof value === "object"),
-    );
-    return [
-      card("page-settings", "页面设置", [
+    const roles = list(rest["页面权限"]);
+    const style = object(rest["样式"]);
+    return layout([
+      module("page-settings", label(rest["标题"] ?? "页面属性和访问权限"), [
         table(
           "page-fields",
           ["设置项", "值"],
           basic.map(([key, value]) => [key, label(value)]),
         ),
-        ...(Object.keys(advanced).length
+        ...(roles.length
+          ? [text("page-roles-label", "访问权限"), tokens("page-roles", roles)]
+          : []),
+        ...(Object.keys(style).length
           ? [
               card(
-                "page-advanced",
-                "权限与样式",
+                "page-style",
+                "页面样式",
                 [
-                  add("page-advanced-values", {
-                    type: "Tree",
-                    props: { data: advanced, defaultExpanded: false },
-                  }),
+                  table(
+                    "page-style-fields",
+                    ["设置项", "值"],
+                    Object.entries(style).map(([key, value]) => [key, label(value)]),
+                  ),
                 ],
                 true,
               ),
             ]
           : []),
       ]),
-      card(
+      module(
         "page-load",
-        `页面加载命令 · ${load.length || "无"}`,
+        load.length ? `${load.length} 条命令` : "未配置",
         commands("page-load", load),
-        !load.length,
       ),
-    ];
+    ]);
   }
 
   return { cell, page };
