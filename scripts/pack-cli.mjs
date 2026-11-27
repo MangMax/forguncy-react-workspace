@@ -99,7 +99,7 @@ try {
     await emitSources(join(stage.root, "src"), join(staging, prefix), prefix);
   }
   await writeFile(join(staging, "package.json"), JSON.stringify({
-    name: "@forguncy-react-workspace/cli",
+    name: "fgc-cell",
     version,
     type: "module",
     engines: { node: ">=24" },

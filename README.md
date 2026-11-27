@@ -52,10 +52,10 @@
 node scripts/pack-cli.mjs 0.1.0-preview.1
 ```
 
-输出为仓库根目录下的 `.fgc/release/forguncy-react-workspace-cli-0.1.0-preview.1.tgz`。可传第二个参数指定输出目录。收到 tarball 后，在独立项目里执行：
+输出为仓库根目录下的 `.fgc/release/fgc-cell-0.1.0-preview.1.tgz`。可传第二个参数指定输出目录。收到 tarball 后，在独立项目里执行：
 
 ```bash
-npm install -g /path/to/forguncy-react-workspace-cli-0.1.0-preview.1.tgz
+npm install -g /path/to/fgc-cell-0.1.0-preview.1.tgz
 fgc-cell --help
 fgc-cell build
 fgc-cell plan
