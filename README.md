@@ -57,11 +57,38 @@ node scripts/pack-cli.mjs 0.1.0-preview.1
 ```bash
 npm install -g /path/to/forguncy-react-workspace-cli-0.1.0-preview.1.tgz
 fgc-cell --help
+```
+
+在一个空目录里创建 `forguncy.config.mjs`。把 `pageName` 和 `cell` 改为实际目标即可用于后续同步。
+
+```js
+export default {
+  runtime: { forguncyVersion: "12.0.102", projectAlias: "hello" },
+  cells: {
+    hello: {
+      entry: "./App.tsx",
+      target: { pageName: "首页", cell: "B2" },
+    },
+  },
+};
+```
+
+在同一目录创建 `App.tsx`。
+
+```tsx
+export function App() {
+  return <p>你好，活字格</p>;
+}
+```
+
+```bash
 fgc-cell build
 fgc-cell plan
 ```
 
-业务项目提供自己的 `forguncy.config.ts` 和 Cell 源码。配置可直接默认导出对象，见下方「项目配置」。`build` 写入业务项目的 `.fgc/build/`。试用包面向 CLI 使用，项目初始化与 Agent Skill 安装尚未随包交付。真机同步仍沿用下方的授权端口。
+`build` 在 `.fgc/build/` 生成代码和清单。`plan` 离线列出计划写入的位置。这个示例只使用宿主提供的 React，无需在项目里安装依赖。
+
+需要 `runtimeFacade`、`vp dev` 或第三方依赖决策工具时，从下方的仓库内消费示例开始。独立试用包提供 `build`、`plan` 和 `sync`。项目初始化和 Agent Skill 安装由 [#191](https://github.com/MangMax/forguncy-react-workspace/issues/191) 跟踪，真机同步需要授权端口。
 
 ### 仓库内的消费示例
 
