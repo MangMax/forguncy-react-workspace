@@ -127,6 +127,9 @@ importers:
       '@forguncy-react-workspace/dev-harness':
         specifier: workspace:*
         version: link:../../packages/dev-harness
+      '@modelcontextprotocol/client':
+        specifier: 2.4.0
+        version: 2.4.0
       '@types/react':
         specifier: 19.2.7
         version: 19.2.7

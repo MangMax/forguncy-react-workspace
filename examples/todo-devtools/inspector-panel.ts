@@ -1,9 +1,15 @@
 import type { JsonRenderSpec } from "@vitejs/devtools/json-render";
 import type { CellBindingsConfig } from "../../packages/core/src/browser.ts";
 import config from "./forguncy.config.ts";
+import type { DesignerPage } from "./designer-reader.ts";
 import { mockSaveError, scenarioTasks, scenarios, type Scenario, type Trace } from "./preview.ts";
 
-export const views = { cells: "接管单元格", page: "页面级", debug: "模拟与日志" } as const;
+export const views = {
+  cells: "接管单元格",
+  page: "页面级",
+  debug: "模拟与日志",
+  designer: "设计器",
+} as const;
 export type View = keyof typeof views;
 export const mountedCell = "todo";
 const pageName = config.cells[mountedCell].target.pageName;
@@ -80,6 +86,7 @@ export function inspectorPanel(
   selected: string,
   scenario: Scenario,
   traces: readonly Trace[],
+  designer: { target: string; page?: DesignerPage; status?: string },
 ): JsonRenderSpec {
   const elements: JsonRenderSpec["elements"] = {
     root: {
@@ -87,8 +94,14 @@ export function inspectorPanel(
       props: { gap: 12, padding: 16 },
       children: ["page-name", "source", "tabs", "body"],
     },
-    "page-name": { type: "Text", props: { text: pageName, variant: "heading" } },
-    source: { type: "Text", props: { text: "本地预览 · 设计器未连接" } },
+    "page-name": {
+      type: "Text",
+      props: { text: view === "designer" ? designer.target : pageName, variant: "heading" },
+    },
+    source: {
+      type: "Text",
+      props: { text: view === "designer" ? "活字格设计器 · 只读" : "本地预览" },
+    },
     tabs: { type: "Stack", props: { direction: "row", gap: 8, wrap: true }, children: [] },
     body: { type: "Stack", props: { gap: 8 }, children: [] },
   };
@@ -121,7 +134,20 @@ export function inspectorPanel(
     elements[parent].children?.push(key);
   }
 
-  if (view === "page") {
+  if (view === "designer") {
+    button("read-designer", "读取设计器", true, "read-designer");
+    elements.body.children?.push("read-designer");
+    if (designer.status) {
+      elements["designer-status"] = { type: "Text", props: { text: designer.status } };
+      elements.body.children?.push("designer-status");
+    }
+    if (designer.page) {
+      card("designer-page", "页面设置与加载命令", designer.page.settings);
+      for (const cell of designer.page.cells) {
+        card(`designer-${cell.position}`, `${cell.position} · React AI 单元格`, cell.capabilities);
+      }
+    }
+  } else if (view === "page") {
     elements["snapshot-note"] = {
       type: "Text",
       props: { text: "虚构样例快照" },

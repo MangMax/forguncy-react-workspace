@@ -1,4 +1,5 @@
 import type { PluginWithDevTools } from "@vitejs/devtools-kit";
+import { readDesignerPage, type DesignerPage } from "./designer-reader.ts";
 import { inspectorPanel, mountedCell, pageCells, views, type View } from "./inspector-panel.ts";
 import { previewPath, scenarios, traceChannel, type Scenario, type Trace } from "./preview.ts";
 
@@ -15,9 +16,15 @@ export function todoDevTools(): PluginWithDevTools {
         const traces: Trace[] = [];
         let view: View = "cells";
         let selected = mountedCell;
-        const ui = ctx.createJsonRenderer(inspectorPanel(view, selected, scenario, traces));
-        const refresh = () => ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces]));
-        const register = (id: string, handler: () => void) => {
+        const designer: { target: string; page?: DesignerPage; status?: string } = {
+          target: process.env.FGC_INSPECTOR_PAGE || "待办事项",
+        };
+        const ui = ctx.createJsonRenderer(
+          inspectorPanel(view, selected, scenario, traces, designer),
+        );
+        const refresh = () =>
+          ui.updateSpec(inspectorPanel(view, selected, scenario, [...traces], designer));
+        const register = (id: string, handler: () => void | Promise<void>) => {
           ctx.rpc.register({
             name: `forguncy-todo:${id}`,
             type: "action",
@@ -36,6 +43,23 @@ export function todoDevTools(): PluginWithDevTools {
             refresh();
           });
         }
+        let reading = false;
+        register("read-designer", async () => {
+          if (reading) return;
+          reading = true;
+          designer.page = undefined;
+          designer.status = "正在读取设计器…";
+          refresh();
+          try {
+            designer.page = await readDesignerPage(designer.target);
+            designer.status = "已读取当前工程";
+          } catch {
+            designer.status = "读取失败。请确认设计器 MCP 已启动且目标页面存在。";
+          } finally {
+            reading = false;
+            refresh();
+          }
+        });
         ctx.docks.register({
           id: "forguncy-todo",
           title: "Forguncy",
