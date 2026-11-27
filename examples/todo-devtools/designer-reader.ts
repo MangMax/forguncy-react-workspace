@@ -2,29 +2,14 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 
 export interface DesignerPage {
   readonly name: string;
-  readonly settings: Record<string, string>;
-  readonly cells: readonly { position: string; capabilities: Record<string, string> }[];
+  readonly settings: Record<string, unknown>;
+  readonly cells: readonly { position: string; capabilities: Record<string, unknown> }[];
 }
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function describe(value: unknown): string {
-  if (value == null) return "未设置";
-  if (Array.isArray(value)) return value.map(describe).join("；") || "无";
-  if (typeof value === "object") {
-    return (
-      Object.entries(record(value))
-        .map(([key, entry]) => `${key}：${describe(entry)}`)
-        .join("，") || "无"
-    );
-  }
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-    ? String(value)
-    : "未设置";
 }
 
 const capabilityKeys = [
@@ -63,14 +48,11 @@ export async function readDesignerPage(name: string): Promise<DesignerPage> {
       const position = cell["位置"];
       if (type["类型"] !== "React AI 单元格" || typeof position !== "string") return [];
       const capabilities = Object.fromEntries(
-        capabilityKeys.map((key) => [key, describe(type[key])]),
+        capabilityKeys.filter((key) => Object.hasOwn(type, key)).map((key) => [key, type[key]]),
       );
       return [{ position, capabilities }];
     });
-    const settings = Object.fromEntries(
-      Object.entries(record(rawSettings)).map(([key, value]) => [key, describe(value)]),
-    );
-    return { name, settings, cells };
+    return { name, settings: record(rawSettings), cells };
   } finally {
     await client.close();
   }
