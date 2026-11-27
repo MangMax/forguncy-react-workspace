@@ -28,7 +28,7 @@ description: 活字格 ReactCellType 项目上手入口。用于新建或接入 
 | 上下文状态 | 判定与下一步 |
 | --- | --- |
 | **已有项目**（存在 `forguncy.config.{ts,mts,mjs,js}`） | 从该配置所在的项目目录执行所需步骤。 |
-| **无项目** | 在源码仓库从 `examples/consumer-project/` 跑通流程。若试用独立 CLI，按根 README 的项目配置手工创建 `forguncy.config.ts` 和 Cell 入口。配置可直接默认导出对象，项目初始化命令仍在 [#191](https://github.com/MangMax/forguncy-react-workspace/issues/191)。 |
+| **无项目** | 在源码仓库从 `examples/consumer-project/` 跑通流程。试用独立 CLI 时，按 [README 的两文件示例](https://github.com/MangMax/forguncy-react-workspace#试用全局-cli) 创建 `forguncy.config.mjs` 和 `App.tsx`，再运行 `fgc-cell build` 和 `fgc-cell plan`。 |
 | **源码仓库** | 按根 README 安装 workspace 依赖，从项目目录使用已有的 `pnpm build` / `plan` / `sync` 脚本。 |
 | **独立项目** | 用 `fgc-cell --help` 确认 CLI。缺少 CLI 时，按根 README 从维护者提供的 `.tgz` 全局安装。试用包仅提供 CLI。使用仓库工具包或 `vp dev` 时，从源码 workspace 的示例开始。 |
 | **无设计器连接**（无已授权设计器会话或 `--port` 模块） | 仅执行本地开发（若可用）、`build` 与离线 `plan`，到此为止并如实报告未连接设计器；不编造 `--port` 跑 `sync`，不宣称真机兼容。 |
