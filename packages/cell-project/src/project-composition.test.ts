@@ -37,6 +37,7 @@ import { readToolchainIdentity } from "@forguncy-react-workspace/dependency-reso
 import {
   buildProject,
   compileProject,
+  loadCellProject,
   planProject,
   planProjectAgainstPort,
   ProjectPlanError,
@@ -120,6 +121,13 @@ function portReading(read: () => Promise<{ kind: "blank" } | { kind: "occupied";
 }
 
 describe("the per-Cell lock view lists each package once, with today's labels", () => {
+  it("does not measure the toolchain when the project has no recorded decisions", async () => {
+    const project = await loadCellProject({ root: trivialProject("no-decisions", PLAIN_APP) });
+
+    expect(project.hasLock).toBe(false);
+    expect(project.toolchain).toBeNull();
+  });
+
   it("reports every bridge row as `host-bridge`, exactly once", async () => {
     const root = trivialProject("lock-view", PLAIN_APP);
     const report = await buildProject({ root, write: false });

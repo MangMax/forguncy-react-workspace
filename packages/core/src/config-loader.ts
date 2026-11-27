@@ -197,7 +197,7 @@ export async function loadForguncyConfig(options: LoadForguncyConfigOptions): Pr
       {
         code: "config-file-not-found",
         path: configFile ?? FORGUNCY_CONFIG_FILE_CANDIDATES[0],
-        message: `No forguncy.config file found. ${searched} Add one (see Spec #26) or pass "configFile".`,
+        message: `No forguncy.config file found. ${searched} Create the configuration file or run from the project directory (see Spec #26).`,
       },
     ];
     throw new ForguncyConfigError(diagnostics, "forguncy.config");

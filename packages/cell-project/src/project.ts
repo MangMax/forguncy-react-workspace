@@ -101,6 +101,7 @@ export interface LoadedCellProject {
   readonly cells: readonly ProjectCellLock[];
   /** The installed versions the freshness rules compared against. */
   readonly resolvedVersions: Readonly<Record<string, string>>;
+  /** Null when there are no recorded decisions to check. */
   readonly toolchain: LockEnvironment["toolchain"];
 }
 
@@ -261,7 +262,9 @@ export async function loadCellProject(options: LoadCellProjectOptions): Promise<
   // The dev harness's `installedToolchain` overrides `vitePlus` with *its* resolution, which is
   // right for a dev server and wrong here — this process builds the consumer's Cell, not the
   // harness's.
-  const toolchain = await readToolchainIdentity(registry.root);
+  // Without recorded decisions there is nothing to compare against the install graph.
+  const hasLock = lock.decisions.length > 0;
+  const toolchain = hasLock ? await readToolchainIdentity(registry.root) : null;
   const extensionCatalog = extensionCatalogOfNormalized(registry.extensionMappings);
   const hostDefaults = hostDefaultsOf({ lock });
 
@@ -269,7 +272,7 @@ export async function loadCellProject(options: LoadCellProjectOptions): Promise<
     root: registry.root,
     registry,
     lock,
-    hasLock: lock.decisions.length > 0,
+    hasLock,
     hostDefaults,
     resolvedVersions: versions,
     toolchain,
